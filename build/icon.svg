@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 48 48" fill="none">
+  <rect width="48" height="48" rx="11" fill="#ffffff"/>
+  <rect width="48" height="48" rx="11" stroke="rgba(0,0,0,0.08)" stroke-width="1"/>
+  <text x="24" y="24" text-anchor="middle" dominant-baseline="central" font-family="'Segoe UI', system-ui, Arial, sans-serif" font-weight="800" font-size="19" letter-spacing="-0.5" fill="#000000">OP</text>
+</svg>

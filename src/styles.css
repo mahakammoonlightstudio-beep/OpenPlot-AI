@@ -1,0 +1,13 @@
+/*
+ * OpenPlot AI — stylesheet entry.
+ * Styles live in ordered partials under src/styles/; the import order below
+ * IS the cascade order (theme → base → layout → modals → features →
+ * components → flow), so keep it stable when adding new partials.
+ */
+@import './styles/_theme.css';
+@import './styles/_base.css';
+@import './styles/_layout.css';
+@import './styles/_modals.css';
+@import './styles/_features.css';
+@import './styles/_components.css';
+@import './styles/_flow.css';

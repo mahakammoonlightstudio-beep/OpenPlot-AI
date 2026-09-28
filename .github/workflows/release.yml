@@ -1,0 +1,93 @@
+name: Release
+
+# Build native installers for all three platforms on every version tag and
+# attach them to a draft GitHub release. Publish the draft from the releases
+# page after reviewing the assets.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build and package
+        run: npm run dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Collect artifact paths (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "WIN_EXE=$(ls release/*.exe 2>/dev/null | head -1)" >> $GITHUB_ENV
+          echo "WIN_ZIP=$(ls release/*.zip 2>/dev/null | head -1)" >> $GITHUB_ENV
+
+      - name: Collect artifact paths (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          echo "MAC_DMG=$(ls release/*.dmg 2>/dev/null | head -1)" >> $GITHUB_ENV
+          echo "MAC_ZIP_X64=$(ls release/*-mac.zip 2>/dev/null | grep -v arm64 | head -1)" >> $GITHUB_ENV
+          echo "MAC_ZIP_ARM=$(ls release/*arm64-mac.zip 2>/dev/null | head -1)" >> $GITHUB_ENV
+
+      - name: Collect artifact paths (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          echo "LNX_APP=$(ls release/*.AppImage 2>/dev/null | head -1)" >> $GITHUB_ENV
+          echo "LNX_TGZ=$(ls release/*.tar.gz 2>/dev/null | head -1)" >> $GITHUB_ENV
+
+      - name: Upload release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            ${{ env.WIN_EXE }}
+            ${{ env.WIN_ZIP }}
+            ${{ env.MAC_DMG }}
+            ${{ env.MAC_ZIP_X64 }}
+            ${{ env.MAC_ZIP_ARM }}
+            ${{ env.LNX_APP }}
+            ${{ env.LNX_TGZ }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload build artifacts (workflow runs)
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: openplot-${{ matrix.os }}
+          path: |
+            release/*.exe
+            release/*.zip
+            release/*.dmg
+            release/*.AppImage
+            release/*.tar.gz
+          if-no-files-found: warn

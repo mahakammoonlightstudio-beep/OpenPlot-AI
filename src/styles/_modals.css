@@ -1,0 +1,110 @@
+/* ---------- Modal & palette ---------- */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+.modal {
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 14px; padding: 20px; width: 460px; max-width: 92vw;
+  max-height: 85vh; overflow-y: auto; box-shadow: var(--shadow);
+}
+.modal h2 { margin-bottom: 14px; }
+.modal .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+.palette-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); display: flex; justify-content: center; padding-top: 12vh; z-index: 200; }
+.palette {
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 14px;
+  width: 560px; max-width: 92vw; height: fit-content; max-height: 60vh; overflow: hidden;
+  box-shadow: var(--shadow); display: flex; flex-direction: column;
+}
+.palette input { margin: 12px; width: calc(100% - 24px); font-size: 15px; padding: 10px 12px; }
+.palette .results { overflow-y: auto; padding: 0 8px 8px; }
+.palette .res { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.palette .res:hover, .palette .res.sel { background: var(--accent-soft); }
+.palette .res .ic { width: 18px; text-align: center; }
+.palette .res .hint { margin-left: auto; font-size: 11px; color: var(--text-faint); }
+
+/* ---------- Toasts ---------- */
+.toasts { position: fixed; bottom: 18px; right: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 300; }
+.toast {
+  background: var(--bg-panel-2); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  padding: 10px 14px; border-radius: 8px; font-size: 13px; box-shadow: var(--shadow);
+  animation: slidein 0.2s ease; max-width: 380px; cursor: pointer; user-select: none;
+}
+.toast.error { border-left-color: var(--danger); }
+.toast.ok { border-left-color: var(--ok); }
+@keyframes slidein { from { transform: translateX(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ---------- Command palette (grouped, fuzzy) ---------- */
+.palette-list { overflow-y: auto; padding: 0 8px 10px; }
+.palette-group {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--text-faint); padding: 10px 10px 4px; user-select: none;
+}
+.palette-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px;
+  color: var(--text-dim);
+}
+.palette-item.active { background: var(--accent-soft); color: var(--text); }
+.palette-item .plabel { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-item .phint { font-size: 11px; color: var(--text-faint); flex-shrink: 0; }
+.palette-empty { padding: 18px 12px; text-align: center; color: var(--text-faint); font-size: 13px; }
+
+/* ---------- Sidebar search (icon + clear button) ---------- */
+.sidebar-search { position: relative; }
+.sidebar-search input { padding-left: 30px; }
+.sidebar-search .clear-btn {
+  position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+  padding: 1px 5px; border: none; background: transparent; color: var(--text-faint);
+}
+.sidebar-search .clear-btn:hover { color: var(--text); background: var(--bg-hover); }
+
+/* ---------- Inline message editing ---------- */
+.edit-box { display: flex; flex-direction: column; gap: 8px; }
+.edit-box textarea {
+  width: 100%; font-family: var(--font); font-size: 13.5px; line-height: 1.55;
+  background: var(--bg); border-color: var(--accent);
+}
+.edit-actions { display: flex; gap: 6px; }
+
+/* ---------- Composer focus ring ---------- */
+.composer .input-row textarea { transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+.composer .input-row:focus-within textarea {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ---------- Markdown polish inside bubbles ---------- */
+.msg.user .bubble {
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+  border-radius: 12px;
+  padding: 8px 12px 6px;
+}
+.msg.user .content pre,
+.msg.user .content code { background: rgba(0, 0, 0, 0.22); }
+[data-theme='sepia'] .msg.user .content pre, [data-theme='sepia'] .msg.user .content code,
+[data-theme='light-paper'] .msg.user .content pre, [data-theme='light-paper'] .msg.user .content code { background: rgba(255, 255, 255, 0.65); }
+.msg .content h1, .msg .content h2, .msg .content h3, .msg .content h4 {
+  margin: 0.8em 0 0.35em; line-height: 1.35;
+}
+.msg .content h1 { font-size: 1.25em; }
+.msg .content h2 { font-size: 1.15em; }
+.msg .content h3, .msg .content h4 { font-size: 1.05em; }
+.msg .content h1:first-child, .msg .content h2:first-child, .msg .content h3:first-child { margin-top: 0.2em; }
+.msg .content blockquote blockquote { margin-left: 6px; opacity: 0.85; }
+.msg .content table { display: block; max-width: 100%; overflow-x: auto; white-space: nowrap; }
+
+::selection { background: var(--accent); color: #fff; }
+
+/* ---------- Reduced motion: respect OS accessibility setting ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
