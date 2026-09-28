@@ -1,5 +1,11 @@
 # OpenPlot AI
 
+[![Release](https://img.shields.io/github/v/release/mahakammoonlightstudio-beep/OpenPlot-AI?style=flat-square)](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/mahakammoonlightstudio-beep/OpenPlot-AI/release.yml?branch=main&style=flat-square)](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/actions/workflows/release.yml)
+[![License](https://img.shields.io/github/license/mahakammoonlightstudio-beep/OpenPlot-AI?style=flat-square)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square)
+![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white&style=flat-square)
+
 A local-first AI chat and story-writing studio for Windows, macOS and Linux.
 
 OpenPlot AI is a desktop application built on Electron, React and SQLite. It connects to any AI provider — OpenAI, Anthropic, OpenRouter, Groq, Ollama, LM Studio, or any OpenAI-compatible `/v1` endpoint — and combines the conversation with a structured writing environment: a story bible, an outline board, chapters, writing statistics and long-term memory. All data is stored locally. There is no account, no cloud service and no telemetry.
