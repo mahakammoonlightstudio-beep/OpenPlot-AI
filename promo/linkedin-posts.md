@@ -30,7 +30,7 @@ Hashtag di LinkedIn cukup 3–5, ditaruh di akhir post.
 >
 > If you write — fiction, worldbuilding, or campaigns — I'd genuinely like to hear what's missing. What would make this useful for you?
 >
-> Free download: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases
+> Free download (auto-detects your OS): https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/
 >
 > #OpenSource #IndieDev #Writing #AI #SoftwareEngineering
 
@@ -40,7 +40,7 @@ beberapa gambar; dokumen PDF/carousel juga bisa jika nanti mau lebih dekat lagi)
 
 **Varian dengan link di komentar:** gunakan teks yang sama, ganti baris terakhir menjadi
 "Free download — link in the first comment.", lalu langsung komentar di post sendiri:
-"Download (free, Windows/macOS/Linux): https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases"
+"Download (free, Windows/macOS/Linux): https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/"
 
 ---
 
@@ -64,7 +64,7 @@ beberapa gambar; dokumen PDF/carousel juga bisa jika nanti mau lebih dekat lagi)
 >
 > Kalau kamu menulis — fiksi, worldbuilding, atau campaign — saya benar-benar ingin dengar: apa yang masih kurang dari alat seperti ini menurutmu?
 >
-> Unduh gratis: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases
+> Unduh gratis (deteksi OS otomatis): https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/
 >
 > #OpenSource #IndieDev #Menulis #AI #Productivity
 

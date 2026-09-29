@@ -1,9 +1,12 @@
 # YouTube Community posts
 
 Batas sekitar 500 karakter per post — simpan yang terpanjang sebagai teks utama,
-yang pendek sebagai cadangan. Tautan di Community post tidak bisa di-clickable
-untuk semua channel, jadi jika tidak aktif, sebutkan "link on GitHub: OpenPlot-AI"
-dan pasang link penuh di deskripsi/video terbaru.
+yang pendek sebagai cadangan. Tautan di Community post tidak selalu bisa
+di-clickable; jika tidak aktif, sebutkan "download link in the channel header" dan
+pasang link landing page di deskripsi video terbaru.
+
+Semua link unduhan mengarah ke landing page (otomatis deteksi OS), bukan ke
+halaman releases: https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/
 
 Waktu baik: 19.00–21.00 WIB. Satu post per bahasa, pilih sesuai bahasa yang
 dominan di channel — jika channel berbahasa campuran, post EN lebih dulu, ID
@@ -25,7 +28,7 @@ menyusul beberapa hari kemudian.
 >
 > No account, no cloud, no telemetry — your data stays in a local SQLite database. Open source, MIT. The macOS dmg is a universal binary: one download for Intel and Apple silicon.
 >
-> Free download: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases
+> Free download (auto-detects your OS): https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/
 
 **Gambar:** `docs/review/01-chat.png` (Community hanya satu gambar per post —
 pilih screenshot yang paling "sales"; alternatif kuat: `11-theme-light-paper.png`).
@@ -49,7 +52,7 @@ Karakter (perkiraan): ~790. Jika melewati batas, potong bullet "Story Flow" dan
 >
 > Tanpa akun, tanpa cloud, tanpa telemetry — datamu aman di database SQLite lokal. Open source, MIT. Dmg macOS-nya universal: satu unduhan untuk Intel dan Apple silicon.
 >
-> Unduh gratis: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases
+> Unduh gratis (deteksi OS otomatis): https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/
 
 **Gambar:** `docs/review/01-chat.png` atau `11-theme-light-paper.png`.
 

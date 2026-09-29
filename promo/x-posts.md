@@ -4,12 +4,15 @@ Karakter dihitung tanpa tanda kutip pembuka. Kirim satu thread penuh — jangan 
 menjadi beberapa tweet terpisah. Satu thread per bahasa, jangan digabung.
 
 Diperbarui untuk rilis v1.0.2: unduhan macOS kini universal binary (Intel + Apple
-silicon dalam satu dmg).
+silicon dalam satu dmg). Semua link unduhan kini mengarah ke landing page
+(https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/) yang otomatis
+mendekteksi OS pengunjung dan menyerahkan installer yang tepat.
 
 ## Tips posting
 
 - Screenshot dilampirkan sebagai gambar pada tweet pertama (maks 4 gambar per tweet).
 - Link di tweet terakhir saja — tweet dengan link kalah reach di timeline dibanding tweet murni teks.
+- Link yang dipakai adalah landing page, bukan halaman releases: pengunjung tinggal klik satu tombol dan installer sesuai OS-nya terunduh otomatis.
 - Thread berjalan baik di-post sekitar 09.00–11.00 WIB atau 19.00–21.00 WIB.
 
 ---
@@ -44,9 +47,9 @@ silicon dalam satu dmg).
 
 **Tweet 7/7** — link
 
-> It's free, forever. Grab the installer for your OS here:
+> It's free, forever. One click and the right installer for your OS downloads itself:
 >
-> https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases
+> https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/
 >
 > Feedback and stars are very welcome 🙏 #indiedev #opensource #writing #AI
 
@@ -82,9 +85,9 @@ silicon dalam satu dmg).
 
 **Tweet 7/7** — link
 
-> Gratisnya untuk selamanya. Installer untuk semua OS ada di sini:
+> Gratisnya untuk selamanya. Satu klik, installer sesuai OS-mu terunduh otomatis:
 >
-> https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases
+> https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/
 >
 > Feedback dan bintang di repo sangat ditunggu 🙏 #indiedev #opensource #menulis #AI
 
@@ -94,8 +97,8 @@ silicon dalam satu dmg).
 
 EN:
 
-> Tired of writing across five tabs and a stray .txt file, I built my own: OpenPlot AI — free, open source, local-first. Story bible, chapters, AI chat from any provider (incl. local Ollama), universal macOS dmg. Windows/macOS/Linux: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI
+> Tired of writing across five tabs and a stray .txt file, I built my own: OpenPlot AI — free, open source, local-first. Story bible, chapters, AI chat from any provider (incl. local Ollama), universal macOS dmg. One-click download: https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/
 
 ID:
 
-> Bosan nulis cerita pake lima tab plus file .txt nyasar, saya bikin sendiri: OpenPlot AI — gratis, open source, local-first. Story bible, chapter, chat AI dari provider mana pun (termasuk Ollama lokal), dmg macOS universal. Windows/macOS/Linux: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI
+> Bosan nulis cerita pake lima tab plus file .txt nyasar, saya bikin sendiri: OpenPlot AI — gratis, open source, local-first. Story bible, chapter, chat AI dari provider mana pun (termasuk Ollama lokal), dmg macOS universal. Unduh sekali klik: https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/

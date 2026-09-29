@@ -46,7 +46,7 @@ Target subreddit yang cocok:
 >
 > What tripped me up technically (for the curious): building a chapter history system that snapshots before AI edits, assembling EPUBs with nothing but zlib, and making keyboard focus survive 17 different confirm dialogs. Happy to go deeper on any of it.
 >
-> Free download + source: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases
+> Free download: https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/ (source + releases: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI)
 >
 > Brutal feedback welcome — especially on the writing tools, since that's the part I use daily.
 
@@ -72,7 +72,7 @@ Target subreddit yang cocok:
 >
 > Everything else — story bible, chapters with version history, three-act board, stats — works fully offline.
 >
-> Source + free binaries (win/mac/linux): https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases
+> Source: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI — free binaries (win/mac/linux): https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/
 >
 > Questions about the architecture welcome.
 
@@ -117,4 +117,4 @@ Target subreddit yang cocok:
 >
 > Feedback kasar sangat ditunggu, apalagi soal alat menulisnya — itu bagian yang saya pakai setiap hari.
 >
-> Unduh gratis + source: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases
+> Unduh gratis: https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/ (source + releases: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI)
