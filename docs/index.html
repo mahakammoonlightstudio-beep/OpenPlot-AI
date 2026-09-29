@@ -5,7 +5,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OpenPlot AI — a free, local-first AI story studio</title>
   <meta name="description" content="OpenPlot AI is a free, open-source, local-first AI chat and story-writing studio for Windows, macOS and Linux. No account, no cloud, no telemetry.">
+  <link rel="canonical" href="https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/">
   <link rel="icon" href="review/01-chat.png">
+
+  <!-- Open Graph / Twitter previews -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="OpenPlot AI">
+  <meta property="og:url" content="https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/">
+  <meta property="og:title" content="OpenPlot AI — a free, local-first AI story studio">
+  <meta property="og:description" content="AI chat with any provider, story bible, chapters with version history, writing stats. Free, open source, no cloud, no telemetry. Windows, macOS, Linux.">
+  <meta property="og:image" content="https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="OpenPlot AI — your story deserves a studio, not five browser tabs. Free and open source for Windows, macOS and Linux.">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:locale:alternate" content="id_ID">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="OpenPlot AI — a free, local-first AI story studio">
+  <meta name="twitter:description" content="AI chat with any provider, story bible, chapters, stats. Free and open source, local-first.">
+  <meta name="twitter:image" content="https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/og-image.png">
+
   <style>
     :root {
       --bg: #0e1116;
@@ -38,9 +57,18 @@
     nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; }
     .brand { font-weight: 700; letter-spacing: 0.2px; color: var(--text); }
     .brand span { color: var(--accent); }
+    nav .right { display: flex; align-items: center; gap: 22px; }
     nav .links { display: flex; gap: 20px; font-size: 0.95rem; }
     nav .links a { color: var(--muted); }
     nav .links a:hover { color: var(--text); text-decoration: none; }
+    .lang-switch { display: flex; gap: 4px; }
+    .lang-btn {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--muted); border-radius: 7px; padding: 5px 11px;
+      font-size: 0.85rem; font-weight: 600; cursor: pointer;
+    }
+    .lang-btn:hover { color: var(--text); }
+    .lang-btn.active { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
 
     header { padding: 88px 0 64px; text-align: center; }
     header h1 { font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.15; letter-spacing: -0.5px; }
@@ -92,11 +120,6 @@
     .card p { color: var(--muted); font-size: 0.95rem; }
     .card code { color: var(--accent); font-size: 0.85rem; }
 
-    .features li {
-      color: var(--muted); margin: 0 0 10px 20px; font-size: 1.02rem;
-    }
-    .features li strong { color: var(--text); }
-
     table.assets { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
     table.assets th, table.assets td {
       text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border);
@@ -136,61 +159,67 @@
   <nav>
     <div class="wrap">
       <a class="brand" href="#">OpenPlot <span>AI</span></a>
-      <div class="links">
-        <a href="#features">Features</a>
-        <a href="#download">Download</a>
-        <a href="#install">Install</a>
-        <a href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI">GitHub</a>
+      <div class="right">
+        <div class="links">
+          <a href="#features" data-i18n="nav.features">Features</a>
+          <a href="#download" data-i18n="nav.download">Download</a>
+          <a href="#install" data-i18n="nav.install">Install</a>
+          <a href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI">GitHub</a>
+        </div>
+        <div class="lang-switch">
+          <button class="lang-btn" id="lang-en" type="button" aria-label="English">EN</button>
+          <button class="lang-btn" id="lang-id" type="button" aria-label="Bahasa Indonesia">ID</button>
+        </div>
       </div>
     </div>
   </nav>
 
   <header>
     <div class="wrap">
-      <h1>Your story deserves a studio,<br>not <em>five browser tabs</em>.</h1>
-      <p class="sub">
+      <h1 data-i18n-html="hero.h1">Your story deserves a studio,<br>not <em>five browser tabs</em>.</h1>
+      <p class="sub" data-i18n="hero.sub">
         OpenPlot AI is a free, open-source writing studio with an AI chat that works with
         any provider — including fully local models. Your data never leaves your machine.
       </p>
       <div class="cta-row">
-        <a id="btn-primary" class="btn btn-primary" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">Download for my OS</a>
-        <a class="btn btn-secondary" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI">View source on GitHub</a>
+        <a id="btn-primary" class="btn btn-primary" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest" data-i18n="hero.cta">Download for my OS</a>
+        <a class="btn btn-secondary" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI" data-i18n="hero.cta2">View source on GitHub</a>
       </div>
       <p class="detect" id="detect"></p>
       <figure class="shot">
         <img src="review/01-chat.png" alt="OpenPlot AI chat with streaming replies, prompt library and @-mentions" loading="lazy">
-        <figcaption>The chat view: streaming replies, reasoning display, prompt library on “/”, @-mentions of story entries.</figcaption>
+        <figcaption data-i18n="hero.caption">The chat view: streaming replies, reasoning display, prompt library on “/”, @-mentions of story entries.</figcaption>
       </figure>
     </div>
   </header>
 
   <section id="features">
     <div class="wrap">
-      <h2>Everything a story needs, in one offline app</h2>
+      <h2 data-i18n="features.h2">Everything a story needs, in one offline app</h2>
       <div class="grid">
         <div class="card">
-          <h3>Any AI provider</h3>
-          <p>OpenAI, Anthropic, OpenRouter, Groq — or fully local via <code>Ollama</code> and <code>LM Studio</code>. Bring your own key; it is encrypted with the OS credential vault.</p>
+          <h3 data-i18n="c1.h">Any AI provider</h3>
+          <p data-i18n-html="c1.p">OpenAI, Anthropic, OpenRouter, Groq — or fully local via <code>Ollama</code> and <code>LM Studio</code>. Bring your own key; it is encrypted with the OS credential vault.</p>
         </div>
         <div class="card">
-          <h3>Story bible</h3>
-          <p>Worlds, characters, items and lore — tagged, searchable and linked. @-mention any entry to pull it into the AI's context.</p>
+          <h3 data-i18n="c2.h">Story bible</h3>
+          <p data-i18n="c2.p">Worlds, characters, items and lore — tagged, searchable and linked. @-mention any entry to pull it into the AI's context.</p>
         </div>
         <div class="card">
-          <h3>Chapters &amp; history</h3>
-          <p>Draft/revising/done statuses, focus mode, and version history that snapshots before every AI edit (30 kept per chapter).</p>
+          <h3 data-i18n="c3.h">Chapters &amp; history</h3>
+          <p data-i18n="c3.p">Draft/revising/done statuses, focus mode, and version history that snapshots before every AI edit (30 kept per chapter).</p>
         </div>
         <div class="card">
-          <h3>Story flow &amp; stats</h3>
-          <p>A three-act outline board tied to chapters, plus daily goals, streaks and a 90-day heatmap that keep you writing.</p>
+          <h3 data-i18n="c4.h">Story flow &amp; stats</h3>
+          <p data-i18n="c4.p">A three-act outline board tied to chapters, plus daily goals, streaks and a 90-day heatmap that keep you writing.</p>
         </div>
         <div class="card">
-          <h3>Real exports</h3>
-          <p>Whole-project export to Markdown, plain-text manuscript or EPUB — assembled locally, no external service.</p>
+          <h3 data-i18n="c5.h">Real exports</h3>
+          <p data-i18n-html="c5.p">Whole-project export to Markdown, plain-text manuscript or EPUB — assembled locally, no external service.</p>
         </div>
         <div class="card">
-          <h3>Private by design</h3>
-          <p>Local SQLite storage. No account, no cloud, no telemetry. Open source under the MIT license.</p>
+          <h3 data-i18n="c6.h">Private by design</h3>
+          <p data-i18n="c6.p">Local SQLite storage. No account, no cloud, no telemetry. Open source under the MIT license.</p>
         </div>
       </div>
     </div>
@@ -198,14 +227,19 @@
 
   <section id="download" style="background: var(--panel); border-block: 1px solid var(--border);">
     <div class="wrap">
-      <h2>Download <span class="badge" id="ver-badge">v1.0.2</span></h2>
-      <p style="color: var(--muted); max-width: 620px;">
+      <h2><span data-i18n="dl.h">Download</span> <span class="badge" id="ver-badge">v1.0.2</span></h2>
+      <p style="color: var(--muted); max-width: 620px;" data-i18n="dl.intro">
         The button above picks the right installer for your operating system automatically.
         Prefer to choose manually? All assets:
       </p>
       <table class="assets" id="assets" style="margin-top: 18px;">
         <thead>
-          <tr><th>Platform</th><th>Installer</th><th>Portable</th><th></th></tr>
+          <tr>
+            <th data-i18n="dl.platform">Platform</th>
+            <th data-i18n="dl.installer">Installer</th>
+            <th data-i18n="dl.portable">Portable</th>
+            <th></th>
+          </tr>
         </thead>
         <tbody>
           <tr>
@@ -228,7 +262,7 @@
           </tr>
         </tbody>
       </table>
-      <p style="color: var(--muted); font-size: 0.88rem; margin-top: 14px;">
+      <p style="color: var(--muted); font-size: 0.88rem; margin-top: 14px;" data-i18n-html="dl.note">
         macOS builds are unsigned — if Gatekeeper complains, right-click the app and choose <strong>Open</strong> the first time.
       </p>
     </div>
@@ -236,19 +270,19 @@
 
   <section id="install">
     <div class="wrap">
-      <h2>Three steps and you are writing</h2>
+      <h2 data-i18n="install.h2">Three steps and you are writing</h2>
       <div class="steps">
         <div class="step">
           <span class="n">1</span>
-          <p><strong>Install.</strong> Run the installer for your OS (or extract the portable archive). No account needed.</p>
+          <p data-i18n-html="s1.p"><strong>Install.</strong> Run the installer for your OS (or extract the portable archive). No account needed.</p>
         </div>
         <div class="step">
           <span class="n">2</span>
-          <p><strong>Connect a provider.</strong> Settings → AI Providers. Paste a key for a hosted API, or point to <code>localhost</code> for Ollama / LM Studio.</p>
+          <p data-i18n-html="s2.p"><strong>Connect a provider.</strong> Settings → AI Providers. Paste a key for a hosted API, or point to <code>localhost</code> for Ollama / LM Studio.</p>
         </div>
         <div class="step">
           <span class="n">3</span>
-          <p><strong>Write.</strong> Create a project, add story-bible entries, and start chatting or drafting chapters.</p>
+          <p data-i18n-html="s3.p"><strong>Write.</strong> Create a project, add story-bible entries, and start chatting or drafting chapters.</p>
         </div>
       </div>
     </div>
@@ -257,12 +291,12 @@
   <footer>
     <div class="wrap">
       <div>
-        <strong>OpenPlot AI</strong> — by Mahakam Moonlight Studio.
-        <a href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/blob/main/CHANGELOG.md">Changelog</a> ·
+        <strong>OpenPlot AI</strong> — <span data-i18n="footer.by">by Mahakam Moonlight Studio.</span>
+        <a href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/blob/main/CHANGELOG.md" data-i18n="footer.changelog">Changelog</a> ·
         <a href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/blob/main/LICENSE">MIT License</a>
       </div>
       <div class="donate">
-        Support the project:
+        <span data-i18n="footer.support">Support the project:</span>
         <a href="https://sociabuzz.com/mahakam_moonlight_studio/tribe">SociaBuzz</a> ·
         <a href="https://saweria.co/MahakamMoonStudio">Saweria</a>
       </div>
@@ -273,15 +307,140 @@
     (function () {
       var OWNER = 'mahakammoonlightstudio-beep';
       var REPO = 'OpenPlot-AI';
+      var SITE = 'https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/';
 
-      // 1) Map the guest OS to the right asset suffix.
+      /* ---------- Bilingual dictionary (EN / ID) ---------- */
+      var I18N = {
+        en: {
+          'meta.title': 'OpenPlot AI — a free, local-first AI story studio',
+          'meta.desc': 'OpenPlot AI is a free, open-source, local-first AI chat and story-writing studio for Windows, macOS and Linux. No account, no cloud, no telemetry.',
+          'nav.features': 'Features', 'nav.download': 'Download', 'nav.install': 'Install',
+          'hero.h1': 'Your story deserves a studio,<br>not <em>five browser tabs</em>.',
+          'hero.sub': 'OpenPlot AI is a free, open-source writing studio with an AI chat that works with any provider — including fully local models. Your data never leaves your machine.',
+          'hero.cta': 'Download for my OS', 'hero.cta2': 'View source on GitHub',
+          'hero.caption': 'The chat view: streaming replies, reasoning display, prompt library on “/”, @-mentions of story entries.',
+          'features.h2': 'Everything a story needs, in one offline app',
+          'c1.h': 'Any AI provider',
+          'c1.p': 'OpenAI, Anthropic, OpenRouter, Groq — or fully local via <code>Ollama</code> and <code>LM Studio</code>. Bring your own key; it is encrypted with the OS credential vault.',
+          'c2.h': 'Story bible',
+          'c2.p': "Worlds, characters, items and lore — tagged, searchable and linked. @-mention any entry to pull it into the AI's context.",
+          'c3.h': 'Chapters & history',
+          'c3.p': 'Draft/revising/done statuses, focus mode, and version history that snapshots before every AI edit (30 kept per chapter).',
+          'c4.h': 'Story flow & stats',
+          'c4.p': 'A three-act outline board tied to chapters, plus daily goals, streaks and a 90-day heatmap that keep you writing.',
+          'c5.h': 'Real exports',
+          'c5.p': 'Whole-project export to Markdown, plain-text manuscript or EPUB — assembled locally, no external service.',
+          'c6.h': 'Private by design',
+          'c6.p': 'Local SQLite storage. No account, no cloud, no telemetry. Open source under the MIT license.',
+          'dl.h': 'Download', 'dl.platform': 'Platform', 'dl.installer': 'Installer', 'dl.portable': 'Portable',
+          'dl.intro': 'The button above picks the right installer for your operating system automatically. Prefer to choose manually? All assets:',
+          'dl.note': 'macOS builds are unsigned — if Gatekeeper complains, right-click the app and choose <strong>Open</strong> the first time.',
+          'install.h2': 'Three steps and you are writing',
+          's1.p': '<strong>Install.</strong> Run the installer for your OS (or extract the portable archive). No account needed.',
+          's2.p': '<strong>Connect a provider.</strong> Settings → AI Providers. Paste a key for a hosted API, or point to <code>localhost</code> for Ollama / LM Studio.',
+          's3.p': '<strong>Write.</strong> Create a project, add story-bible entries, and start chatting or drafting chapters.',
+          'footer.by': 'by Mahakam Moonlight Studio.', 'footer.changelog': 'Changelog', 'footer.support': 'Support the project:',
+          'detect.checking': 'Detecting your operating system…',
+          'detect.ready.win': '✓ Detected Windows — your download is ready. Click the button above.',
+          'detect.ready.mac': '✓ Detected macOS — your download is ready. Click the button above.',
+          'detect.ready.linux': '✓ Detected Linux — your download is ready. Click the button above.',
+          'detect.nofs': 'Could not find the installer for your system in the latest release — grabbing the releases page instead.',
+          'detect.noos': 'Could not detect your operating system — pick a file from the list below.',
+          'detect.noapi': 'Could not reach GitHub to verify the latest release — the button opens the releases page.',
+          'detect.default': 'Not sure which file? All releases are on GitHub.'
+        },
+        id: {
+          'meta.title': 'OpenPlot AI — studio cerita AI lokal-first, gratis',
+          'meta.desc': 'OpenPlot AI adalah studio menulis dan chat AI lokal-first, gratis dan open source untuk Windows, macOS, dan Linux. Tanpa akun, tanpa cloud, tanpa telemetry.',
+          'nav.features': 'Fitur', 'nav.download': 'Unduh', 'nav.install': 'Instalasi',
+          'hero.h1': 'Ceritamu layak dapat studio,<br>bukan <em>lima tab browser</em>.',
+          'hero.sub': 'OpenPlot AI adalah studio menulis gratis dan open source dengan chat AI yang bisa dipakai dengan provider mana pun — termasuk model lokal sepenuhnya. Datamu tidak pernah meninggalkan komputer.',
+          'hero.cta': 'Unduh untuk OS-ku', 'hero.cta2': 'Lihat source di GitHub',
+          'hero.caption': 'Tampilan chat: balasan streaming, tampilan reasoning, prompt library di “/”, @-mention entri cerita.',
+          'features.h2': 'Semua yang cerita butuhkan, dalam satu app offline',
+          'c1.h': 'Provider AI apa pun',
+          'c1.p': 'OpenAI, Anthropic, OpenRouter, Groq — atau sepenuhnya lokal lewat <code>Ollama</code> dan <code>LM Studio</code>. Bawa key-mu sendiri; dienkripsi dengan credential vault OS.',
+          'c2.h': 'Story bible',
+          'c2.p': 'Dunia, karakter, item, dan lore — diberi tag, bisa dicari, dan saling terhubung. @-mention entri mana pun untuk memasukkannya ke konteks AI.',
+          'c3.h': 'Chapter & riwayat',
+          'c3.p': 'Status draft/revising/done, focus mode, dan version history yang membuat snapshot sebelum setiap edit AI (30 tersimpan per chapter).',
+          'c4.h': 'Story flow & statistik',
+          'c4.p': 'Papan outline tiga babak yang terkait chapter, plus target harian, streak, dan heatmap 90 hari yang menjaga konsistensi menulis.',
+          'c5.h': 'Ekspor sungguhan',
+          'c5.p': 'Ekspor seluruh project ke Markdown, manuskrip teks biasa, atau EPUB — dirakit secara lokal, tanpa layanan eksternal.',
+          'c6.h': 'Privat sejak desain',
+          'c6.p': 'Penyimpanan SQLite lokal. Tanpa akun, tanpa cloud, tanpa telemetry. Open source dengan lisensi MIT.',
+          'dl.h': 'Unduh', 'dl.platform': 'Platform', 'dl.installer': 'Installer', 'dl.portable': 'Portable',
+          'dl.intro': 'Tombol di atas otomatis memilih installer yang sesuai untuk sistem operasimu. Ingin memilih manual? Semua aset:',
+          'dl.note': 'Build macOS belum ditandatangani — jika Gatekeeper protes, klik kanan app lalu pilih <strong>Open</strong> saat pertama kali.',
+          'install.h2': 'Tiga langkah dan kamu mulai menulis',
+          's1.p': '<strong>Instal.</strong> Jalankan installer untuk OS-mu (atau ekstrak arsip portabel). Tanpa perlu akun.',
+          's2.p': '<strong>Hubungkan provider.</strong> Settings → AI Providers. Tempel key untuk API hosted, atau arahkan ke <code>localhost</code> untuk Ollama / LM Studio.',
+          's3.p': '<strong>Tulis.</strong> Buat project, tambahkan entri story bible, lalu mulai chat atau menyusun chapter.',
+          'footer.by': 'oleh Mahakam Moonlight Studio.', 'footer.changelog': 'Changelog', 'footer.support': 'Dukung proyek ini:',
+          'detect.checking': 'Mendeteksi sistem operasimu…',
+          'detect.ready.win': '✓ Terdeteksi Windows — unduhan siap. Klik tombol di atas.',
+          'detect.ready.mac': '✓ Terdeteksi macOS — unduhan siap. Klik tombol di atas.',
+          'detect.ready.linux': '✓ Terdeteksi Linux — unduhan siap. Klik tombol di atas.',
+          'detect.nofs': 'Installer untuk sistemmu tidak ditemukan di rilis terbaru — membuka halaman releases saja.',
+          'detect.noos': 'Sistem operasimu tidak bisa dideteksi — pilih file dari daftar di bawah.',
+          'detect.noapi': 'Tidak bisa menghubungi GitHub untuk memverifikasi rilis terbaru — tombol membuka halaman releases.',
+          'detect.default': 'Belum yakin file yang mana? Semua rilis ada di GitHub.'
+        }
+      };
+
+      var lang = 'en';
+      try {
+        var saved = localStorage.getItem('oplang');
+        lang = (saved === 'id' || saved === 'en') ? saved
+          : ((navigator.language || 'en').toLowerCase().indexOf('id') === 0 ? 'id' : 'en');
+      } catch (e) { /* storage blocked — stay EN */ }
+
+      function t(key) {
+        return (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key;
+      }
+
+      var lastDetect = { key: 'detect.checking', html: true };
+
+      function applyLang() {
+        document.documentElement.lang = lang;
+        document.title = t('meta.title');
+        var md = document.querySelector('meta[name="description"]');
+        if (md) md.setAttribute('content', t('meta.desc'));
+        document.querySelectorAll('[data-i18n]').forEach(function (el) {
+          el.textContent = t(el.getAttribute('data-i18n'));
+        });
+        document.querySelectorAll('[data-i18n-html]').forEach(function (el) {
+          el.innerHTML = t(el.getAttribute('data-i18n-html'));
+        });
+        document.getElementById('lang-en').classList.toggle('active', lang === 'en');
+        document.getElementById('lang-id').classList.toggle('active', lang === 'id');
+        renderDetect(lastDetect.key);
+      }
+
+      function renderDetect(key) {
+        lastDetect = { key: key };
+        var d = document.getElementById('detect');
+        if (!d) return;
+        if (key === 'detect.checking') {
+          d.innerHTML = '<span class="spin"></span>' + t(key);
+        } else {
+          d.textContent = t(key);
+        }
+      }
+
+      document.getElementById('lang-en').addEventListener('click', function () {
+        lang = 'en'; try { localStorage.setItem('oplang', 'en'); } catch (e) {} applyLang();
+      });
+      document.getElementById('lang-id').addEventListener('click', function () {
+        lang = 'id'; try { localStorage.setItem('oplang', 'id'); } catch (e) {} applyLang();
+      });
+
+      /* ---------- OS detection + latest-release resolution ---------- */
       var ua = navigator.userAgent;
       var isMac = /Mac|iPhone|iPad/i.test(ua);
       var isWindows = /Win/i.test(ua);
       var isLinux = /Linux|X11|CrOS/i.test(ua) && !isMac && !isWindows;
-      // Apple silicon check is unreliable in browsers; arm64 Macs run Safari/Chrome
-      // under Rosetta reporting Intel, so always offer the universal dmg on macOS.
-      var macUniversal = isMac;
 
       var OS_SUFFIX = {
         'win':      'OpenPlot.AI-VER-Setup.', 'win-zip': 'OpenPlot.AI-VER-win.zip',
@@ -296,15 +455,13 @@
         return null;
       }
 
-      function browseFallback(msg) {
-        var d = document.getElementById('detect');
-        if (d) d.innerHTML = msg || 'Not sure which file? All releases are on GitHub.';
+      function browseFallback(detectKey) {
+        renderDetect(detectKey || 'detect.default');
         var b = document.getElementById('btn-primary');
         if (b) b.setAttribute('href', 'https://github.com/' + OWNER + '/' + REPO + '/releases/latest');
         fillLatestLinks(null);
       }
 
-      // 2) Resolve the latest release from the GitHub API and wire every link.
       fetch('https://api.github.com/repos/' + OWNER + '/' + REPO + '/releases/latest')
         .then(function (r) { if (!r.ok) throw new Error('release lookup failed'); return r.json(); })
         .then(function (rel) {
@@ -313,21 +470,19 @@
 
           var key = osKey();
           var primary = document.getElementById('btn-primary');
-          var detect = document.getElementById('detect');
-          var assetName = key ? (OS_SUFFIX[key] || '').replace('VER', ver) : '';
 
-          if (key && assetName) {
+          if (key) {
+            var assetName = (OS_SUFFIX[key] || '').replace('VER', ver);
             var asset = (rel.assets || []).find(function (a) { return a.name === assetName; });
             if (asset) {
               primary.setAttribute('href', asset.browser_download_url);
-              detect.innerHTML = '<span class="ok">✓</span> Detected ' + labelFor(key) +
-                ' — your download is ready. Click the button above.';
+              renderDetect('detect.ready.' + (key === 'win' ? 'win' : key === 'mac-dmg' ? 'mac' : 'linux'));
             } else {
-              browseFallback('Could not find the installer for your system in the latest release — grabbing the releases page instead.');
+              browseFallback('detect.nofs');
               return;
             }
           } else {
-            browseFallback('Could not detect your operating system — pick a file from the list below.');
+            browseFallback('detect.noos');
             return;
           }
 
@@ -335,17 +490,9 @@
           fillLatestLinks(ver);
         })
         .catch(function () {
-          browseFallback('Could not reach GitHub to verify the latest release — the button opens the releases page.');
+          browseFallback('detect.noapi');
         });
 
-      function labelFor(key) {
-        if (key === 'win') return 'Windows';
-        if (key === 'mac-dmg') return 'macOS';
-        if (key === 'linux') return 'Linux';
-        return '';
-      }
-
-      // Point the per-asset links at the latest release tag instead of /latest redirect.
       function fillLatestLinks(ver) {
         if (!ver) return;
         document.querySelectorAll('#assets a[data-os]').forEach(function (a) {
@@ -355,6 +502,8 @@
             '/releases/download/v' + ver + '/' + encodeURIComponent(name));
         });
       }
+
+      applyLang();
     })();
   </script>
 </body>
