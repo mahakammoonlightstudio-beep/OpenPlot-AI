@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenPlot AI — a free, local-first AI story studio</title>
+  <meta name="description" content="OpenPlot AI is a free, open-source, local-first AI chat and story-writing studio for Windows, macOS and Linux. No account, no cloud, no telemetry.">
+  <link rel="icon" href="review/01-chat.png">
+  <style>
+    :root {
+      --bg: #0e1116;
+      --panel: #161b22;
+      --border: #2a313b;
+      --text: #e6edf3;
+      --muted: #9aa7b3;
+      --accent: #7aa2f7;
+      --accent-strong: #4d7fe0;
+      --ok: #3fb950;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+
+    nav {
+      border-bottom: 1px solid var(--border);
+      background: rgba(14, 17, 22, 0.85);
+      backdrop-filter: blur(8px);
+      position: sticky; top: 0; z-index: 10;
+    }
+    nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+    .brand { font-weight: 700; letter-spacing: 0.2px; color: var(--text); }
+    .brand span { color: var(--accent); }
+    nav .links { display: flex; gap: 20px; font-size: 0.95rem; }
+    nav .links a { color: var(--muted); }
+    nav .links a:hover { color: var(--text); text-decoration: none; }
+
+    header { padding: 88px 0 64px; text-align: center; }
+    header h1 { font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.15; letter-spacing: -0.5px; }
+    header h1 em { font-style: normal; color: var(--accent); }
+    header p.sub { color: var(--muted); font-size: 1.15rem; max-width: 640px; margin: 18px auto 0; }
+    .cta-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-top: 34px; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 9px;
+      padding: 13px 26px; border-radius: 9px;
+      font-size: 1.02rem; font-weight: 600;
+      border: 1px solid var(--border);
+      cursor: pointer; transition: transform .08s ease, background .15s ease;
+    }
+    .btn:hover { text-decoration: none; transform: translateY(-1px); }
+    .btn-primary { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
+    .btn-primary:hover { background: var(--accent); }
+    .btn-secondary { background: transparent; color: var(--text); }
+    .btn-secondary:hover { background: var(--panel); }
+
+    .detect {
+      margin-top: 16px; font-size: 0.92rem; color: var(--muted);
+      min-height: 1.4em;
+    }
+    .detect .spin {
+      display: inline-block; width: 12px; height: 12px;
+      border: 2px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+      vertical-align: -2px; margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .detect .ok { color: var(--ok); }
+
+    .shot { margin: 26px auto 0; max-width: 900px; }
+    .shot img {
+      width: 100%; border: 1px solid var(--border); border-radius: 12px;
+      box-shadow: 0 22px 60px rgba(0,0,0,0.45);
+    }
+    .shot figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 10px; }
+
+    section { padding: 56px 0; }
+    section h2 { font-size: 1.7rem; margin-bottom: 26px; letter-spacing: -0.3px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 22px;
+    }
+    .card h3 { font-size: 1.05rem; margin-bottom: 8px; }
+    .card p { color: var(--muted); font-size: 0.95rem; }
+    .card code { color: var(--accent); font-size: 0.85rem; }
+
+    .features li {
+      color: var(--muted); margin: 0 0 10px 20px; font-size: 1.02rem;
+    }
+    .features li strong { color: var(--text); }
+
+    table.assets { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+    table.assets th, table.assets td {
+      text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border);
+    }
+    table.assets th { color: var(--muted); font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.4px; }
+    table.assets td.dl a { font-weight: 600; }
+
+    .badge {
+      display: inline-block; padding: 3px 10px; border-radius: 999px;
+      border: 1px solid var(--border); font-size: 0.8rem; color: var(--muted);
+    }
+
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; }
+    .step { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+    .step .n {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--accent-strong); color: #fff; font-weight: 700; margin-bottom: 10px;
+    }
+    .step p { color: var(--muted); font-size: 0.93rem; }
+    .step p strong { color: var(--text); }
+
+    footer {
+      border-top: 1px solid var(--border); padding: 34px 0 44px;
+      color: var(--muted); font-size: 0.9rem;
+    }
+    footer .wrap { display: flex; flex-wrap: wrap; gap: 14px; justify-content: space-between; align-items: center; }
+    footer .donate a { margin-left: 14px; }
+
+    @media (max-width: 640px) {
+      nav .links { display: none; }
+      header { padding: 60px 0 44px; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="wrap">
+      <a class="brand" href="#">OpenPlot <span>AI</span></a>
+      <div class="links">
+        <a href="#features">Features</a>
+        <a href="#download">Download</a>
+        <a href="#install">Install</a>
+        <a href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <header>
+    <div class="wrap">
+      <h1>Your story deserves a studio,<br>not <em>five browser tabs</em>.</h1>
+      <p class="sub">
+        OpenPlot AI is a free, open-source writing studio with an AI chat that works with
+        any provider — including fully local models. Your data never leaves your machine.
+      </p>
+      <div class="cta-row">
+        <a id="btn-primary" class="btn btn-primary" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">Download for my OS</a>
+        <a class="btn btn-secondary" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI">View source on GitHub</a>
+      </div>
+      <p class="detect" id="detect"></p>
+      <figure class="shot">
+        <img src="review/01-chat.png" alt="OpenPlot AI chat with streaming replies, prompt library and @-mentions" loading="lazy">
+        <figcaption>The chat view: streaming replies, reasoning display, prompt library on “/”, @-mentions of story entries.</figcaption>
+      </figure>
+    </div>
+  </header>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>Everything a story needs, in one offline app</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Any AI provider</h3>
+          <p>OpenAI, Anthropic, OpenRouter, Groq — or fully local via <code>Ollama</code> and <code>LM Studio</code>. Bring your own key; it is encrypted with the OS credential vault.</p>
+        </div>
+        <div class="card">
+          <h3>Story bible</h3>
+          <p>Worlds, characters, items and lore — tagged, searchable and linked. @-mention any entry to pull it into the AI's context.</p>
+        </div>
+        <div class="card">
+          <h3>Chapters &amp; history</h3>
+          <p>Draft/revising/done statuses, focus mode, and version history that snapshots before every AI edit (30 kept per chapter).</p>
+        </div>
+        <div class="card">
+          <h3>Story flow &amp; stats</h3>
+          <p>A three-act outline board tied to chapters, plus daily goals, streaks and a 90-day heatmap that keep you writing.</p>
+        </div>
+        <div class="card">
+          <h3>Real exports</h3>
+          <p>Whole-project export to Markdown, plain-text manuscript or EPUB — assembled locally, no external service.</p>
+        </div>
+        <div class="card">
+          <h3>Private by design</h3>
+          <p>Local SQLite storage. No account, no cloud, no telemetry. Open source under the MIT license.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="download" style="background: var(--panel); border-block: 1px solid var(--border);">
+    <div class="wrap">
+      <h2>Download <span class="badge" id="ver-badge">v1.0.2</span></h2>
+      <p style="color: var(--muted); max-width: 620px;">
+        The button above picks the right installer for your operating system automatically.
+        Prefer to choose manually? All assets:
+      </p>
+      <table class="assets" id="assets" style="margin-top: 18px;">
+        <thead>
+          <tr><th>Platform</th><th>Installer</th><th>Portable</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Windows</td>
+            <td class="dl"><a data-os="win" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">Setup .exe</a></td>
+            <td class="dl"><a data-os="win-zip" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">.zip</a></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>macOS (Intel + Apple silicon)</td>
+            <td class="dl"><a data-os="mac-dmg" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">Universal .dmg</a></td>
+            <td class="dl"><a data-os="mac-zip" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">Universal .zip</a></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>Linux</td>
+            <td class="dl"><a data-os="linux" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">.AppImage</a></td>
+            <td class="dl"><a data-os="linux-tar" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">.tar.gz</a></td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="color: var(--muted); font-size: 0.88rem; margin-top: 14px;">
+        macOS builds are unsigned — if Gatekeeper complains, right-click the app and choose <strong>Open</strong> the first time.
+      </p>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <h2>Three steps and you are writing</h2>
+      <div class="steps">
+        <div class="step">
+          <span class="n">1</span>
+          <p><strong>Install.</strong> Run the installer for your OS (or extract the portable archive). No account needed.</p>
+        </div>
+        <div class="step">
+          <span class="n">2</span>
+          <p><strong>Connect a provider.</strong> Settings → AI Providers. Paste a key for a hosted API, or point to <code>localhost</code> for Ollama / LM Studio.</p>
+        </div>
+        <div class="step">
+          <span class="n">3</span>
+          <p><strong>Write.</strong> Create a project, add story-bible entries, and start chatting or drafting chapters.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <div>
+        <strong>OpenPlot AI</strong> — by Mahakam Moonlight Studio.
+        <a href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/blob/main/CHANGELOG.md">Changelog</a> ·
+        <a href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/blob/main/LICENSE">MIT License</a>
+      </div>
+      <div class="donate">
+        Support the project:
+        <a href="https://sociabuzz.com/mahakam_moonlight_studio/tribe">SociaBuzz</a> ·
+        <a href="https://saweria.co/MahakamMoonStudio">Saweria</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var OWNER = 'mahakammoonlightstudio-beep';
+      var REPO = 'OpenPlot-AI';
+
+      // 1) Map the guest OS to the right asset suffix.
+      var ua = navigator.userAgent;
+      var isMac = /Mac|iPhone|iPad/i.test(ua);
+      var isWindows = /Win/i.test(ua);
+      var isLinux = /Linux|X11|CrOS/i.test(ua) && !isMac && !isWindows;
+      // Apple silicon check is unreliable in browsers; arm64 Macs run Safari/Chrome
+      // under Rosetta reporting Intel, so always offer the universal dmg on macOS.
+      var macUniversal = isMac;
+
+      var OS_SUFFIX = {
+        'win':      'OpenPlot.AI-VER-Setup.', 'win-zip': 'OpenPlot.AI-VER-win.zip',
+        'mac-dmg':  'OpenPlot.AI-VER-universal.dmg', 'mac-zip': 'OpenPlot.AI-VER-universal-mac.zip',
+        'linux':    'OpenPlot.AI-VER.AppImage', 'linux-tar': 'openplot-ai-VER.tar.gz'
+      };
+
+      function osKey() {
+        if (isMac) return 'mac-dmg';
+        if (isWindows) return 'win';
+        if (isLinux) return 'linux';
+        return null;
+      }
+
+      function browseFallback(msg) {
+        var d = document.getElementById('detect');
+        if (d) d.innerHTML = msg || 'Not sure which file? All releases are on GitHub.';
+        var b = document.getElementById('btn-primary');
+        if (b) b.setAttribute('href', 'https://github.com/' + OWNER + '/' + REPO + '/releases/latest');
+        fillLatestLinks(null);
+      }
+
+      // 2) Resolve the latest release from the GitHub API and wire every link.
+      fetch('https://api.github.com/repos/' + OWNER + '/' + REPO + '/releases/latest')
+        .then(function (r) { if (!r.ok) throw new Error('release lookup failed'); return r.json(); })
+        .then(function (rel) {
+          var ver = (rel.tag_name || '').replace(/^v/, '');
+          if (!ver) throw new Error('no tag');
+
+          var key = osKey();
+          var primary = document.getElementById('btn-primary');
+          var detect = document.getElementById('detect');
+          var assetName = key ? (OS_SUFFIX[key] || '').replace('VER', ver) : '';
+
+          if (key && assetName) {
+            var asset = (rel.assets || []).find(function (a) { return a.name === assetName; });
+            if (asset) {
+              primary.setAttribute('href', asset.browser_download_url);
+              detect.innerHTML = '<span class="ok">✓</span> Detected ' + labelFor(key) +
+                ' — your download is ready. Click the button above.';
+            } else {
+              browseFallback('Could not find the installer for your system in the latest release — grabbing the releases page instead.');
+              return;
+            }
+          } else {
+            browseFallback('Could not detect your operating system — pick a file from the list below.');
+            return;
+          }
+
+          document.getElementById('ver-badge').textContent = 'v' + ver;
+          fillLatestLinks(ver);
+        })
+        .catch(function () {
+          browseFallback('Could not reach GitHub to verify the latest release — the button opens the releases page.');
+        });
+
+      function labelFor(key) {
+        if (key === 'win') return 'Windows';
+        if (key === 'mac-dmg') return 'macOS';
+        if (key === 'linux') return 'Linux';
+        return '';
+      }
+
+      // Point the per-asset links at the latest release tag instead of /latest redirect.
+      function fillLatestLinks(ver) {
+        if (!ver) return;
+        document.querySelectorAll('#assets a[data-os]').forEach(function (a) {
+          var key = a.getAttribute('data-os');
+          var name = (OS_SUFFIX[key] || '').replace('VER', ver);
+          a.setAttribute('href', 'https://github.com/' + OWNER + '/' + REPO +
+            '/releases/download/v' + ver + '/' + encodeURIComponent(name));
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

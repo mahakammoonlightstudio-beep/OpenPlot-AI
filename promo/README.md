@@ -18,11 +18,13 @@ berubah, perbarui post di folder ini sebelum dipakai ulang.
 | `youtube-community-posts.md` | Post YouTube Community, EN & ID |
 | `hook-variations.md` | Variasi hook A/B untuk tweet pembuka, EN & ID |
 | `reddit-forum-posts.md` | Post Reddit/forum per subreddit, EN & ID |
+| `comment-replies.md` | Template balasan komentar untuk pertanyaan umum, EN & ID |
 | `posting-schedule.md` | Jadwal pelaksanaan 7 hari (WIB) + pelacakan metrik |
 
 ## Checklist sebelum posting
 
 - [ ] Link release yang dipakai masih benar (saat ini: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases)
+- [ ] Landing page masih hidup (https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/) dan tombol unduh mengarah ke aset terbaru
 - [ ] Screenshot yang direferensikan masih ada (semuanya di `docs/review/`)
 - [ ] Jangan kirim EN dan ID untuk platform yang sama di hari yang sama — pisahkan 2–3 hari agar tidak spam audiens yang sama
 
