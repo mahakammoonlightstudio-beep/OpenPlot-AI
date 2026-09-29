@@ -18,6 +18,7 @@ berubah, perbarui post di folder ini sebelum dipakai ulang.
 | `youtube-community-posts.md` | Post YouTube Community, EN & ID |
 | `hook-variations.md` | Variasi hook A/B untuk tweet pembuka, EN & ID |
 | `reddit-forum-posts.md` | Post Reddit/forum per subreddit, EN & ID |
+| `posting-schedule.md` | Jadwal pelaksanaan 7 hari (WIB) + pelacakan metrik |
 
 ## Checklist sebelum posting
 
@@ -58,6 +59,9 @@ Daftar lengkap 16 screenshot ada di `docs/review/` (01-chat, 02-story, 03-chapte
 3. **LinkedIn (EN)** — hari 2 pagi, link di komentar pertama.
 4. **Versi Bahasa Indonesia semua platform** — hari 4–6, jangan di hari yang sama
    dengan versi EN platform yang sama.
+
+Untuk jadwal hari-per-hari lengkap dengan slot jam dan tabel metrik, lihat
+[`posting-schedule.md`](posting-schedule.md).
 
 ## Catatan gaya
 

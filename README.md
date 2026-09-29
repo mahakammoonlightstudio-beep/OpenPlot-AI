@@ -3,8 +3,11 @@
 [![Release](https://img.shields.io/github/v/release/mahakammoonlightstudio-beep/OpenPlot-AI?style=flat-square)](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/mahakammoonlightstudio-beep/OpenPlot-AI/release.yml?branch=main&style=flat-square)](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/actions/workflows/release.yml)
 [![License](https://img.shields.io/github/license/mahakammoonlightstudio-beep/OpenPlot-AI?style=flat-square)](LICENSE)
+[![Downloads](https://img.shields.io/github/downloads/mahakammoonlightstudio-beep/OpenPlot-AI/total?style=flat-square&logo=github)](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases)
+[![Stars](https://img.shields.io/github/stars/mahakammoonlightstudio-beep/OpenPlot-AI?style=flat-square&logo=github)](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/stargazers)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square)
 ![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white&style=flat-square)
+![Commit activity](https://img.shields.io/github/commit-activity/m/mahakammoonlightstudio-beep/OpenPlot-AI?style=flat-square)
 
 A local-first AI chat and story-writing studio for Windows, macOS and Linux.
 
