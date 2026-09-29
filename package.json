@@ -98,19 +98,17 @@
         {
           "target": "dmg",
           "arch": [
-            "x64",
-            "arm64"
+            "universal"
           ]
         },
         {
           "target": "zip",
           "arch": [
-            "x64",
+            "universal",
             "arm64"
           ]
         }
       ],
-      "universal": true,
       "category": "public.app-category.productivity",
       "icon": "build/icon-512.png"
     }
