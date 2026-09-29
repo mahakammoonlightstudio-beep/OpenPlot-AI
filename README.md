@@ -84,7 +84,7 @@ Prebuilt binaries for v1.0.2 are attached to the [GitHub releases](https://githu
 | Platform | Full app | Folder |
 | --- | --- | --- |
 | Windows | `OpenPlot.AI.Setup.1.0.2.exe` (NSIS installer) | `OpenPlot.AI-1.0.2-win.zip` |
-| macOS | `OpenPlot.AI-1.0.2.dmg` (universal) | `OpenPlot.AI-1.0.2-mac.zip` (universal) / `OpenPlot.AI-1.0.2-arm64-mac.zip` (Apple silicon) |
+| macOS | `OpenPlot.AI-1.0.2-universal.dmg` (universal) | `OpenPlot.AI-1.0.2-universal-mac.zip` (universal) / `OpenPlot.AI-1.0.2-arm64-mac.zip` (Apple silicon) |
 | Linux | `OpenPlot.AI-1.0.2.AppImage` | `openplot-ai-1.0.2.tar.gz` |
 
 The macOS disk image and the main macOS zip are universal binaries containing both Intel and Apple silicon builds; the `arm64-mac.zip` remains available for a smaller Apple silicon-only download. Older assets for v1.0.0 and v1.0.1 stay attached to their releases.
