@@ -1,18 +1,20 @@
-// Renders docs/og-card.html to docs/og-image.png (1200x630) using the
-// Electron binary already present in node_modules. Run: node scripts/make-og-image.mjs
-// Re-run whenever docs/og-card.html changes, then commit the new PNG.
+// Renders an OG card HTML to a 1200x630 PNG using the Electron binary
+// already present in node_modules.
+// Usage: node scripts/make-og-image.mjs [card.html] [out.png]
+// Defaults: docs/og-card.html -> docs/og-image.png
+// Re-run whenever the card HTML changes, then commit the new PNG.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const cardPath = join(root, 'docs', 'og-card.html');
-const outPath = join(root, 'docs', 'og-image.png');
+const cardPath = resolve(process.argv[2] ?? join(root, 'docs', 'og-card.html'));
+const outPath = resolve(process.argv[3] ?? join(root, 'docs', 'og-image.png'));
 
 if (!existsSync(cardPath)) {
-  console.error('og-card.html not found at', cardPath);
+  console.error('card not found at', cardPath);
   process.exit(1);
 }
 

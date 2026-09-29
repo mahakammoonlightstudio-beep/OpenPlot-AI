@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>OpenPlot AI — OG card (ID)</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 1200px; height: 630px; overflow: hidden; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: linear-gradient(155deg, #0e1116 0%, #11161f 55%, #16202e 100%);
+      color: #e6edf3;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0 90px;
+      position: relative;
+    }
+    .glow {
+      position: absolute; width: 560px; height: 560px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(122,162,247,0.16) 0%, transparent 65%);
+      top: -180px; right: -120px; pointer-events: none;
+    }
+    .glow.two {
+      top: auto; right: auto; bottom: -220px; left: -160px;
+      background: radial-gradient(circle, rgba(63,185,80,0.08) 0%, transparent 65%);
+    }
+    .brand {
+      display: flex; align-items: center; gap: 14px; margin-bottom: 34px;
+    }
+    .dot {
+      width: 14px; height: 14px; border-radius: 4px;
+      background: #7aa2f7; box-shadow: 0 0 18px rgba(122,162,247,0.8);
+    }
+    .brand span { font-size: 26px; font-weight: 700; letter-spacing: 0.4px; }
+    h1 {
+      font-size: 72px; line-height: 1.08; letter-spacing: -1.5px; font-weight: 800;
+      max-width: 960px;
+    }
+    h1 em { font-style: normal; color: #7aa2f7; }
+    p.sub {
+      margin-top: 26px; font-size: 30px; line-height: 1.45; color: #9aa7b3;
+      max-width: 900px;
+    }
+    .strip { display: flex; gap: 12px; margin-top: 44px; }
+    .chip {
+      border: 1px solid #2a313b; background: rgba(22,27,34,0.85);
+      border-radius: 999px; padding: 9px 22px;
+      font-size: 21px; font-weight: 600; color: #c9d4de;
+    }
+    .chip.free { color: #3fb950; border-color: rgba(63,185,80,0.45); }
+    .url {
+      position: absolute; bottom: 34px; right: 90px;
+      font-size: 19px; color: #6e7c8a; letter-spacing: 0.2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="glow"></div>
+  <div class="glow two"></div>
+  <div class="brand"><span class="dot"></span><span>OpenPlot AI</span></div>
+  <h1>Ceritamu layak dapat studio,<br>bukan <em>lima tab browser</em>.</h1>
+  <p class="sub">Studio menulis AI gratis dan open source. Lokal-first — datamu tidak pernah meninggalkan komputermu.</p>
+  <div class="strip">
+    <span class="chip free">Gratis &amp; open source</span>
+    <span class="chip">Windows</span>
+    <span class="chip">macOS</span>
+    <span class="chip">Linux</span>
+  </div>
+  <div class="url">mahakammoonlightstudio-beep.github.io/OpenPlot-AI/id</div>
+</body>
+</html>

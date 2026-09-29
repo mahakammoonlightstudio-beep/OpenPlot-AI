@@ -24,7 +24,7 @@ berubah, perbarui post di folder ini sebelum dipakai ulang.
 ## Checklist sebelum posting
 
 - [ ] Link yang dipakai post adalah landing page — https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/ — yang otomatis mendekteksi OS dan menyerahkan installer terbaru (tombol unduh & tabel aset di landing page di-resolve via GitHub API saat halaman dibuka, jadi tidak perlu diubah tiap rilis)
-- [ ] Landing page kini dwibahasa (toggle EN/ID) dan punya OG image untuk preview saat link dibagikan. Jika tagline/branding berubah: edit `docs/og-card.html`, jalankan `node scripts/make-og-image.mjs`, commit `docs/og-image.png`
+- [ ] Landing page kini dwibahasa: root (EN, toggle JS) + halaman statis `/id/` untuk Indonesia — masing-masing punya OG image sendiri. Untuk post berbahasa Indonesia, pakai link https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/id/ agar preview kartunya juga berbahasa Indonesia. Jika tagline/branding berubah: edit `docs/og-card.html` / `docs/og-card-id.html`, jalankan `node scripts/make-og-image.mjs [kartu] [output]`, commit PNG-nya
 - [ ] Screenshot yang direferensikan masih ada (semuanya di `docs/review/`)
 - [ ] Jangan kirim EN dan ID untuk platform yang sama di hari yang sama — pisahkan 2–3 hari agar tidak spam audiens yang sama
 

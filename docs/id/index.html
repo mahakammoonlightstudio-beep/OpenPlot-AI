@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenPlot AI — studio cerita AI lokal-first, gratis</title>
+  <meta name="description" content="OpenPlot AI adalah studio menulis dan chat AI lokal-first, gratis dan open source untuk Windows, macOS, dan Linux. Tanpa akun, tanpa cloud, tanpa telemetry.">
+  <link rel="canonical" href="https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/id/">
+  <link rel="alternate" hreflang="en" href="https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/">
+  <link rel="alternate" hreflang="id" href="https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/id/">
+  <link rel="alternate" hreflang="x-default" href="https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/">
+  <link rel="icon" href="../review/01-chat.png">
+
+  <!-- Open Graph / Twitter previews (Bahasa Indonesia) -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="OpenPlot AI">
+  <meta property="og:url" content="https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/id/">
+  <meta property="og:title" content="OpenPlot AI — studio cerita AI lokal-first, gratis">
+  <meta property="og:description" content="Chat AI dengan provider apa pun, story bible, chapter dengan version history, statistik menulis. Gratis, open source, tanpa cloud, tanpa telemetry. Windows, macOS, Linux.">
+  <meta property="og:image" content="https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/og-image-id.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="OpenPlot AI — ceritamu layak dapat studio, bukan lima tab browser. Gratis dan open source untuk Windows, macOS, dan Linux.">
+  <meta property="og:locale" content="id_ID">
+  <meta property="og:locale:alternate" content="en_US">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="OpenPlot AI — studio cerita AI lokal-first, gratis">
+  <meta name="twitter:description" content="Chat AI dengan provider apa pun, story bible, chapter, statistik menulis. Gratis dan open source, lokal-first.">
+  <meta name="twitter:image" content="https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/og-image-id.png">
+
+  <style>
+    :root {
+      --bg: #0e1116;
+      --panel: #161b22;
+      --border: #2a313b;
+      --text: #e6edf3;
+      --muted: #9aa7b3;
+      --accent: #7aa2f7;
+      --accent-strong: #4d7fe0;
+      --ok: #3fb950;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+
+    nav {
+      border-bottom: 1px solid var(--border);
+      background: rgba(14, 17, 22, 0.85);
+      backdrop-filter: blur(8px);
+      position: sticky; top: 0; z-index: 10;
+    }
+    nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+    .brand { font-weight: 700; letter-spacing: 0.2px; color: var(--text); }
+    .brand span { color: var(--accent); }
+    nav .right { display: flex; align-items: center; gap: 22px; }
+    nav .links { display: flex; gap: 20px; font-size: 0.95rem; }
+    nav .links a { color: var(--muted); }
+    nav .links a:hover { color: var(--text); text-decoration: none; }
+    .lang-switch { display: flex; gap: 4px; }
+    .lang-btn {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--muted); border-radius: 7px; padding: 5px 11px;
+      font-size: 0.85rem; font-weight: 600; cursor: pointer;
+      text-decoration: none;
+    }
+    .lang-btn:hover { color: var(--text); text-decoration: none; }
+    .lang-btn.active { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
+
+    header { padding: 88px 0 64px; text-align: center; }
+    header h1 { font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.15; letter-spacing: -0.5px; }
+    header h1 em { font-style: normal; color: var(--accent); }
+    header p.sub { color: var(--muted); font-size: 1.15rem; max-width: 640px; margin: 18px auto 0; }
+    .cta-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-top: 34px; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 9px;
+      padding: 13px 26px; border-radius: 9px;
+      font-size: 1.02rem; font-weight: 600;
+      border: 1px solid var(--border);
+      cursor: pointer; transition: transform .08s ease, background .15s ease;
+    }
+    .btn:hover { text-decoration: none; transform: translateY(-1px); }
+    .btn-primary { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
+    .btn-primary:hover { background: var(--accent); }
+    .btn-secondary { background: transparent; color: var(--text); }
+    .btn-secondary:hover { background: var(--panel); }
+
+    .detect {
+      margin-top: 16px; font-size: 0.92rem; color: var(--muted);
+      min-height: 1.4em;
+    }
+    .detect .spin {
+      display: inline-block; width: 12px; height: 12px;
+      border: 2px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+      vertical-align: -2px; margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .detect .ok { color: var(--ok); }
+
+    .shot { margin: 26px auto 0; max-width: 900px; }
+    .shot img {
+      width: 100%; border: 1px solid var(--border); border-radius: 12px;
+      box-shadow: 0 22px 60px rgba(0,0,0,0.45);
+    }
+    .shot figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 10px; }
+
+    section { padding: 56px 0; }
+    section h2 { font-size: 1.7rem; margin-bottom: 26px; letter-spacing: -0.3px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 22px;
+    }
+    .card h3 { font-size: 1.05rem; margin-bottom: 8px; }
+    .card p { color: var(--muted); font-size: 0.95rem; }
+    .card code { color: var(--accent); font-size: 0.85rem; }
+
+    table.assets { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+    table.assets th, table.assets td {
+      text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border);
+    }
+    table.assets th { color: var(--muted); font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.4px; }
+    table.assets td.dl a { font-weight: 600; }
+
+    .badge {
+      display: inline-block; padding: 3px 10px; border-radius: 999px;
+      border: 1px solid var(--border); font-size: 0.8rem; color: var(--muted);
+    }
+
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; }
+    .step { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+    .step .n {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--accent-strong); color: #fff; font-weight: 700; margin-bottom: 10px;
+    }
+    .step p { color: var(--muted); font-size: 0.93rem; }
+    .step p strong { color: var(--text); }
+
+    footer {
+      border-top: 1px solid var(--border); padding: 34px 0 44px;
+      color: var(--muted); font-size: 0.9rem;
+    }
+    footer .wrap { display: flex; flex-wrap: wrap; gap: 14px; justify-content: space-between; align-items: center; }
+    footer .donate a { margin-left: 14px; }
+
+    @media (max-width: 640px) {
+      nav .links { display: none; }
+      header { padding: 60px 0 44px; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="wrap">
+      <a class="brand" href="/OpenPlot-AI/id/">OpenPlot <span>AI</span></a>
+      <div class="right">
+        <div class="links">
+          <a href="#features">Fitur</a>
+          <a href="#download">Unduh</a>
+          <a href="#install">Instalasi</a>
+          <a href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI">GitHub</a>
+        </div>
+        <div class="lang-switch">
+          <a class="lang-btn" id="lang-en" href="/OpenPlot-AI/" onclick="try{localStorage.setItem('oplang','en')}catch(e){}">EN</a>
+          <span class="lang-btn active">ID</span>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <header>
+    <div class="wrap">
+      <h1>Ceritamu layak dapat studio,<br>bukan <em>lima tab browser</em>.</h1>
+      <p class="sub">
+        OpenPlot AI adalah studio menulis gratis dan open source dengan chat AI yang bisa
+        dipakai dengan provider mana pun — termasuk model lokal sepenuhnya. Datamu tidak
+        pernah meninggalkan komputer.
+      </p>
+      <div class="cta-row">
+        <a id="btn-primary" class="btn btn-primary" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">Unduh untuk OS-ku</a>
+        <a class="btn btn-secondary" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI">Lihat source di GitHub</a>
+      </div>
+      <p class="detect" id="detect"></p>
+      <figure class="shot">
+        <img src="../review/01-chat.png" alt="Chat OpenPlot AI dengan balasan streaming, prompt library, dan @-mention" loading="lazy">
+        <figcaption>Tampilan chat: balasan streaming, tampilan reasoning, prompt library di “/”, @-mention entri cerita.</figcaption>
+      </figure>
+    </div>
+  </header>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>Semua yang cerita butuhkan, dalam satu app offline</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Provider AI apa pun</h3>
+          <p>OpenAI, Anthropic, OpenRouter, Groq — atau sepenuhnya lokal lewat <code>Ollama</code> dan <code>LM Studio</code>. Bawa key-mu sendiri; dienkripsi dengan credential vault OS.</p>
+        </div>
+        <div class="card">
+          <h3>Story bible</h3>
+          <p>Dunia, karakter, item, dan lore — diberi tag, bisa dicari, dan saling terhubung. @-mention entri mana pun untuk memasukkannya ke konteks AI.</p>
+        </div>
+        <div class="card">
+          <h3>Chapter &amp; riwayat</h3>
+          <p>Status draft/revising/done, focus mode, dan version history yang membuat snapshot sebelum setiap edit AI (30 tersimpan per chapter).</p>
+        </div>
+        <div class="card">
+          <h3>Story flow &amp; statistik</h3>
+          <p>Papan outline tiga babak yang terkait chapter, plus target harian, streak, dan heatmap 90 hari yang menjaga konsistensi menulis.</p>
+        </div>
+        <div class="card">
+          <h3>Ekspor sungguhan</h3>
+          <p>Ekspor seluruh project ke Markdown, manuskrip teks biasa, atau EPUB — dirakit secara lokal, tanpa layanan eksternal.</p>
+        </div>
+        <div class="card">
+          <h3>Privat sejak desain</h3>
+          <p>Penyimpanan SQLite lokal. Tanpa akun, tanpa cloud, tanpa telemetry. Open source dengan lisensi MIT.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="download" style="background: var(--panel); border-block: 1px solid var(--border);">
+    <div class="wrap">
+      <h2>Unduh <span class="badge" id="ver-badge">v1.0.2</span></h2>
+      <p style="color: var(--muted); max-width: 620px;">
+        Tombol di atas otomatis memilih installer yang sesuai untuk sistem operasimu.
+        Ingin memilih manual? Semua aset:
+      </p>
+      <table class="assets" id="assets" style="margin-top: 18px;">
+        <thead>
+          <tr><th>Platform</th><th>Installer</th><th>Portable</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Windows</td>
+            <td class="dl"><a data-os="win" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">Setup .exe</a></td>
+            <td class="dl"><a data-os="win-zip" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">.zip</a></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>macOS (Intel + Apple silicon)</td>
+            <td class="dl"><a data-os="mac-dmg" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">Universal .dmg</a></td>
+            <td class="dl"><a data-os="mac-zip" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">Universal .zip</a></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>Linux</td>
+            <td class="dl"><a data-os="linux" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">.AppImage</a></td>
+            <td class="dl"><a data-os="linux-tar" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">.tar.gz</a></td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="color: var(--muted); font-size: 0.88rem; margin-top: 14px;">
+        Build macOS belum ditandatangani — jika Gatekeeper protes, klik kanan app lalu pilih <strong>Open</strong> saat pertama kali.
+      </p>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <h2>Tiga langkah dan kamu mulai menulis</h2>
+      <div class="steps">
+        <div class="step">
+          <span class="n">1</span>
+          <p><strong>Instal.</strong> Jalankan installer untuk OS-mu (atau ekstrak arsip portabel). Tanpa perlu akun.</p>
+        </div>
+        <div class="step">
+          <span class="n">2</span>
+          <p><strong>Hubungkan provider.</strong> Settings → AI Providers. Tempel key untuk API hosted, atau arahkan ke <code>localhost</code> untuk Ollama / LM Studio.</p>
+        </div>
+        <div class="step">
+          <span class="n">3</span>
+          <p><strong>Tulis.</strong> Buat project, tambahkan entri story bible, lalu mulai chat atau menyusun chapter.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <div>
+        <strong>OpenPlot AI</strong> — oleh Mahakam Moonlight Studio.
+        <a href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/blob/main/CHANGELOG.md">Changelog</a> ·
+        <a href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/blob/main/LICENSE">Lisensi MIT</a>
+      </div>
+      <div class="donate">
+        Dukung proyek ini:
+        <a href="https://sociabuzz.com/mahakam_moonlight_studio/tribe">SociaBuzz</a> ·
+        <a href="https://saweria.co/MahakamMoonStudio">Saweria</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var OWNER = 'mahakammoonlightstudio-beep';
+      var REPO = 'OpenPlot-AI';
+
+      // This page is static Indonesian; remember the choice for the EN root.
+      try { localStorage.setItem('oplang', 'id'); } catch (e) {}
+
+      var ua = navigator.userAgent;
+      var isMac = /Mac|iPhone|iPad/i.test(ua);
+      var isWindows = /Win/i.test(ua);
+      var isLinux = /Linux|X11|CrOS/i.test(ua) && !isMac && !isWindows;
+
+      var OS_SUFFIX = {
+        'win':      'OpenPlot.AI-VER-Setup.', 'win-zip': 'OpenPlot.AI-VER-win.zip',
+        'mac-dmg':  'OpenPlot.AI-VER-universal.dmg', 'mac-zip': 'OpenPlot.AI-VER-universal-mac.zip',
+        'linux':    'OpenPlot.AI-VER.AppImage', 'linux-tar': 'openplot-ai-VER.tar.gz'
+      };
+
+      function osKey() {
+        if (isMac) return 'mac-dmg';
+        if (isWindows) return 'win';
+        if (isLinux) return 'linux';
+        return null;
+      }
+
+      var MSG = {
+        checking: 'Mendeteksi sistem operasimu…',
+        readyWin: '✓ Terdeteksi Windows — unduhan siap. Klik tombol di atas.',
+        readyMac: '✓ Terdeteksi macOS — unduhan siap. Klik tombol di atas.',
+        readyLinux: '✓ Terdeteksi Linux — unduhan siap. Klik tombol di atas.',
+        nofs: 'Installer untuk sistemmu tidak ditemukan di rilis terbaru — membuka halaman releases saja.',
+        noos: 'Sistem operasimu tidak bisa dideteksi — pilih file dari daftar di bawah.',
+        noapi: 'Tidak bisa menghubungi GitHub untuk memverifikasi rilis terbaru — tombol membuka halaman releases.',
+        def: 'Belum yakin file yang mana? Semua rilis ada di GitHub.'
+      };
+
+      var lastKey = MSG.checking;
+
+      function renderDetect(key) {
+        lastKey = key;
+        var d = document.getElementById('detect');
+        if (!d) return;
+        if (key === MSG.checking) {
+          d.innerHTML = '<span class="spin"></span>' + key;
+        } else {
+          d.textContent = key;
+        }
+      }
+
+      function browseFallback(detectMsg) {
+        renderDetect(detectMsg || MSG.def);
+        var b = document.getElementById('btn-primary');
+        if (b) b.setAttribute('href', 'https://github.com/' + OWNER + '/' + REPO + '/releases/latest');
+        fillLatestLinks(null);
+      }
+
+      fetch('https://api.github.com/repos/' + OWNER + '/' + REPO + '/releases/latest')
+        .then(function (r) { if (!r.ok) throw new Error('release lookup failed'); return r.json(); })
+        .then(function (rel) {
+          var ver = (rel.tag_name || '').replace(/^v/, '');
+          if (!ver) throw new Error('no tag');
+
+          var key = osKey();
+          var primary = document.getElementById('btn-primary');
+
+          if (key) {
+            var assetName = (OS_SUFFIX[key] || '').replace('VER', ver);
+            var asset = (rel.assets || []).find(function (a) { return a.name === assetName; });
+            if (asset) {
+              primary.setAttribute('href', asset.browser_download_url);
+              renderDetect(key === 'win' ? MSG.readyWin : key === 'mac-dmg' ? MSG.readyMac : MSG.readyLinux);
+            } else {
+              browseFallback(MSG.nofs);
+              return;
+            }
+          } else {
+            browseFallback(MSG.noos);
+            return;
+          }
+
+          document.getElementById('ver-badge').textContent = 'v' + ver;
+          fillLatestLinks(ver);
+        })
+        .catch(function () {
+          browseFallback(MSG.noapi);
+        });
+
+      function fillLatestLinks(ver) {
+        if (!ver) return;
+        document.querySelectorAll('#assets a[data-os]').forEach(function (a) {
+          var key = a.getAttribute('data-os');
+          var name = (OS_SUFFIX[key] || '').replace('VER', ver);
+          a.setAttribute('href', 'https://github.com/' + OWNER + '/' + REPO +
+            '/releases/download/v' + ver + '/' + encodeURIComponent(name));
+        });
+      }
+
+      renderDetect(MSG.checking);
+    })();
+  </script>
+</body>
+</html>

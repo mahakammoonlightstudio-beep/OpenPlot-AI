@@ -6,6 +6,9 @@
   <title>OpenPlot AI — a free, local-first AI story studio</title>
   <meta name="description" content="OpenPlot AI is a free, open-source, local-first AI chat and story-writing studio for Windows, macOS and Linux. No account, no cloud, no telemetry.">
   <link rel="canonical" href="https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/">
+  <link rel="alternate" hreflang="en" href="https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/">
+  <link rel="alternate" hreflang="id" href="https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/id/">
+  <link rel="alternate" hreflang="x-default" href="https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/">
   <link rel="icon" href="review/01-chat.png">
 
   <!-- Open Graph / Twitter previews -->
@@ -168,7 +171,7 @@
         </div>
         <div class="lang-switch">
           <button class="lang-btn" id="lang-en" type="button" aria-label="English">EN</button>
-          <button class="lang-btn" id="lang-id" type="button" aria-label="Bahasa Indonesia">ID</button>
+          <a class="lang-btn" id="lang-id" href="id/" aria-label="Bahasa Indonesia">ID</a>
         </div>
       </div>
     </div>
@@ -432,9 +435,8 @@
       document.getElementById('lang-en').addEventListener('click', function () {
         lang = 'en'; try { localStorage.setItem('oplang', 'en'); } catch (e) {} applyLang();
       });
-      document.getElementById('lang-id').addEventListener('click', function () {
-        lang = 'id'; try { localStorage.setItem('oplang', 'id'); } catch (e) {} applyLang();
-      });
+      // The ID button is a link to the static Indonesian page (/id/), which
+      // crawlers can read with Indonesian OG tags without executing JS.
 
       /* ---------- OS detection + latest-release resolution ---------- */
       var ua = navigator.userAgent;
