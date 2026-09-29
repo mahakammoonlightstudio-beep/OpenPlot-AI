@@ -24,6 +24,7 @@ Hashtag di LinkedIn cukup 3–5, ditaruh di akhir post.
 > → A three-act Story Flow board tied to your chapters
 > → Writing statistics: daily goals, streaks and a 90-day heatmap
 > → Export to Markdown, plain text or EPUB
+> → A universal macOS build: one download for both Intel and Apple silicon (Windows and Linux too)
 >
 > Everything runs locally: SQLite storage, no account, no cloud, no telemetry. API keys are encrypted with the OS credential vault. The whole project is open source under MIT.
 >
@@ -57,6 +58,7 @@ beberapa gambar; dokumen PDF/carousel juga bisa jika nanti mau lebih dekat lagi)
 > → Papan Story Flow tiga babak yang bisa dikaitkan ke chapter
 > → Statistik menulis: target harian, streak, dan heatmap 90 hari
 > → Ekspor ke Markdown, teks biasa, atau EPUB
+> → Build macOS universal: satu unduhan untuk Intel dan Apple silicon (Windows dan Linux juga)
 >
 > Semuanya berjalan lokal: penyimpanan SQLite, tanpa akun, tanpa cloud, tanpa telemetry. API key dienkripsi dengan credential vault OS. Seluruh proyek open source dengan lisensi MIT.
 >

@@ -3,6 +3,9 @@
 Karakter dihitung tanpa tanda kutip pembuka. Kirim satu thread penuh — jangan pecah
 menjadi beberapa tweet terpisah. Satu thread per bahasa, jangan digabung.
 
+Diperbarui untuk rilis v1.0.2: unduhan macOS kini universal binary (Intel + Apple
+silicon dalam satu dmg).
+
 ## Tips posting
 
 - Screenshot dilampirkan sebagai gambar pada tweet pertama (maks 4 gambar per tweet).
@@ -37,7 +40,7 @@ menjadi beberapa tweet terpisah. Satu thread per bahasa, jangan digabung.
 
 **Tweet 6/7**
 
-> No account. No cloud. No telemetry. Everything lives in a local SQLite database on your machine. Open source, MIT licensed, Windows + macOS + Linux.
+> No account. No cloud. No telemetry. Everything lives in a local SQLite database on your machine. Open source, MIT licensed, Windows + macOS + Linux — and the macOS download is a universal binary: Intel and Apple silicon in one dmg.
 
 **Tweet 7/7** — link
 
@@ -75,7 +78,7 @@ menjadi beberapa tweet terpisah. Satu thread per bahasa, jangan digabung.
 
 **Tweet 6/7**
 
-> Tanpa akun. Tanpa cloud. Tanpa telemetry. Semua data tersimpan di database SQLite lokal di komputermu. Open source, lisensi MIT, tersedia untuk Windows + macOS + Linux.
+> Tanpa akun. Tanpa cloud. Tanpa telemetry. Semua data tersimpan di database SQLite lokal di komputermu. Open source, lisensi MIT, tersedia untuk Windows + macOS + Linux — dan unduhan macOS-nya universal binary: Intel dan Apple silicon dalam satu dmg.
 
 **Tweet 7/7** — link
 
@@ -91,8 +94,8 @@ menjadi beberapa tweet terpisah. Satu thread per bahasa, jangan digabung.
 
 EN:
 
-> Tired of writing stories across five browser tabs and a stray .txt file. So I built my own: OpenPlot AI — a free, open-source, local-first writing studio with story bible, chapters, and AI chat from any provider (incl. local Ollama). Windows/macOS/Linux: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI
+> Tired of writing across five tabs and a stray .txt file, I built my own: OpenPlot AI — free, open source, local-first. Story bible, chapters, AI chat from any provider (incl. local Ollama), universal macOS dmg. Windows/macOS/Linux: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI
 
 ID:
 
-> Bosan nulis cerita pake lima tab browser plus file .txt nyasar. Jadi saya bikin sendiri: OpenPlot AI — studio menulis gratis, open source, local-first, lengkap dengan story bible, chapter, dan chat AI dari provider mana pun (termasuk Ollama lokal). Windows/macOS/Linux: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI
+> Bosan nulis cerita pake lima tab plus file .txt nyasar, saya bikin sendiri: OpenPlot AI — gratis, open source, local-first. Story bible, chapter, chat AI dari provider mana pun (termasuk Ollama lokal), dmg macOS universal. Windows/macOS/Linux: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI

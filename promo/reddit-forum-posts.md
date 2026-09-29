@@ -35,7 +35,7 @@ Target subreddit yang cocok:
 
 > The title is the honest version of the story: I kept losing plot notes, my character sheets lived in a doc I could never find, and every AI tool wanted a subscription. So I built the thing I wanted, and made it free.
 >
-> **OpenPlot AI** is a desktop app (Windows, macOS, Linux) that puts the AI chat and the actual writing tools in one place:
+> **OpenPlot AI** is a desktop app (Windows, macOS, Linux — the macOS dmg is a universal binary for Intel and Apple silicon) that puts the AI chat and the actual writing tools in one place:
 >
 > - Chat with any provider: OpenAI, Anthropic, OpenRouter, Groq, or fully local models via Ollama and LM Studio. You bring your own API key and it's encrypted with the OS credential vault.
 > - A story bible: worlds, characters, items, lore — tagged, searchable, linked, and @-mentionable so entries get pulled into the AI's context.
@@ -106,7 +106,7 @@ Target subreddit yang cocok:
 
 > Cerita jujur: catatan plot ada di satu aplikasi, draf di aplikasi lain, lembar karakter di dokumen yang selalu hilang, dan semua tool AI minta langganan. Akhirnya saya putuskan bikin sendiri selama beberapa bulan. Hasilnya: OpenPlot AI.
 >
-> Ini aplikasi desktop (Windows, macOS, Linux) yang menggabungkan chat AI dengan alat menulis sungguhan:
+> Ini aplikasi desktop (Windows, macOS, Linux — dmg macOS-nya universal untuk Intel dan Apple silicon) yang menggabungkan chat AI dengan alat menulis sungguhan:
 >
 > - Chat dengan provider apa saja: OpenAI, Anthropic, OpenRouter, Groq, atau model lokal lewat Ollama dan LM Studio. API key sendiri, dienkripsi di komputermu.
 > - Story bible: dunia, karakter, item, lore — bisa diberi tag, dicari, dihubungkan, dan di-@-mention supaya masuk konteks AI.

@@ -23,14 +23,14 @@ menyusul beberapa hari kemudian.
 > • Three-act Story Flow board
 > • Writing streaks and stats that keep you honest
 >
-> No account, no cloud, no telemetry — your data stays in a local SQLite database. Open source, MIT.
+> No account, no cloud, no telemetry — your data stays in a local SQLite database. Open source, MIT. The macOS dmg is a universal binary: one download for Intel and Apple silicon.
 >
 > Free download: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases
 
 **Gambar:** `docs/review/01-chat.png` (Community hanya satu gambar per post —
 pilih screenshot yang paling "sales"; alternatif kuat: `11-theme-light-paper.png`).
 
-Karakter (perkiraan): ~730. Jika melewati batas, potong bullet "Story Flow" dan
+Karakter (perkiraan): ~790. Jika melewati batas, potong bullet "Story Flow" dan
 "gambar" jadi: `• Story board, streaks, and export to EPUB`.
 
 ---
@@ -47,7 +47,7 @@ Karakter (perkiraan): ~730. Jika melewati batas, potong bullet "Story Flow" dan
 > • Papan Story Flow tiga babak
 > • Streak dan statistik menulis biar konsisten
 >
-> Tanpa akun, tanpa cloud, tanpa telemetry — datamu aman di database SQLite lokal. Open source, MIT.
+> Tanpa akun, tanpa cloud, tanpa telemetry — datamu aman di database SQLite lokal. Open source, MIT. Dmg macOS-nya universal: satu unduhan untuk Intel dan Apple silicon.
 >
 > Unduh gratis: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases
 
@@ -59,8 +59,8 @@ Karakter (perkiraan): ~730. Jika melewati batas, potong bullet "Story Flow" dan
 
 EN:
 
-> Bored of writing stories across five tabs and a stray .txt file, I finally built my own: OpenPlot AI. Free, open source, runs locally — AI chat with any provider (incl. local Ollama), story bible, chapters with version history, and writing stats. Windows/macOS/Linux: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI
+> Bored of writing stories across five tabs and a stray .txt file, I finally built my own: OpenPlot AI. Free, open source, runs locally — AI chat with any provider (incl. local Ollama), story bible, chapters with version history, writing stats, and a universal macOS dmg. Windows/macOS/Linux: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI
 
 ID:
 
-> Bosan nulis cerita pake lima tab plus file .txt nyasar, akhirnya saya bikin sendiri: OpenPlot AI. Gratis, open source, jalan lokal — chat AI provider apa saja (termasuk Ollama lokal), story bible, chapter dengan version history, dan statistik menulis. Windows/macOS/Linux: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI
+> Bosan nulis cerita pake lima tab plus file .txt nyasar, akhirnya saya bikin sendiri: OpenPlot AI. Gratis, open source, jalan lokal — chat AI provider apa saja (termasuk Ollama lokal), story bible, chapter dengan version history, statistik menulis, dan dmg macOS universal. Windows/macOS/Linux: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI

@@ -5,7 +5,8 @@ Community, dalam dua bahasa (English + Bahasa Indonesia). Semua hook dibuka
 dengan cerita personal: bosan dengan cara lama menulis, akhirnya membangun
 platform sendiri, dan memutuskan membuatnya gratis.
 
-Semua klaim di post sudah dicek terhadap README v1.0.1. Jika ada fitur yang
+Semua klaim di post sudah dicek terhadap README v1.0.2, termasuk unduhan macOS
+universal binary. Rilis yang dipromosikan: [v1.0.2](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/tag/v1.0.2). Jika ada fitur yang
 berubah, perbarui post di folder ini sebelum dipakai ulang.
 
 ## Isi folder
@@ -15,6 +16,8 @@ berubah, perbarui post di folder ini sebelum dipakai ulang.
 | `x-posts.md` | Thread X (7 tweet) + single tweet cadangan, EN & ID |
 | `linkedin-posts.md` | Post LinkedIn storytelling, EN & ID |
 | `youtube-community-posts.md` | Post YouTube Community, EN & ID |
+| `hook-variations.md` | Variasi hook A/B untuk tweet pembuka, EN & ID |
+| `reddit-forum-posts.md` | Post Reddit/forum per subreddit, EN & ID |
 
 ## Checklist sebelum posting
 

@@ -154,6 +154,7 @@ scripts/           engine, GUI and end-to-end test scripts
 
 ## Documentation
 
+- [Changelog](CHANGELOG.md)
 - [Plugin API](docs/PLUGIN_API.md)
 - [Stress test notes](docs/STRESS_TEST.md)
 - [Original README variant](docs/README-original.md)
