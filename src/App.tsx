@@ -153,7 +153,7 @@ export default function App() {
   }
 
   return (
-    <div className="app">
+    <div className="app" id="app-root" tabIndex={-1}>
       <Sidebar />
       <div className="main">{body}</div>
       <CommandPalette />

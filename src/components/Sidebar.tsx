@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useData, useSettings, dbCall, createChatUi } from '../store';
 import { Chat, Folder, Project } from '../types';
 import { useT } from '../i18nReact';
-import { textPrompt } from './TextPrompt';
+import { textPrompt, confirmDialog } from './TextPrompt';
 import { Icon, LogoMark } from './Icons';
 import { useUnreadStore } from '../unreadStore';
 
@@ -51,7 +51,7 @@ export function Sidebar() {
   }
 
   async function deleteChat(c: Chat) {
-    if (!confirm(t('confirm.deleteChat'))) return;
+    if (!(await confirmDialog({ title: t('confirm.deleteChat'), danger: true, confirmLabel: t('confirm.delete'), cancelLabel: t('confirm.cancel') }))) return;
     await dbCall('deleteChat', { id: c.id });
     useUnreadStore.getState().forget(c.id);
     if (activeChatId === c.id) setActiveChat(null);
@@ -64,13 +64,13 @@ export function Sidebar() {
   }
 
   async function deleteFolder(f: Folder) {
-    if (!confirm(t('confirm.deleteFolder'))) return;
+    if (!(await confirmDialog({ title: t('confirm.deleteFolder'), danger: true, confirmLabel: t('confirm.delete'), cancelLabel: t('confirm.cancel') }))) return;
     await dbCall('deleteFolder', { id: f.id });
     await useData.getState().reloadChatRelated();
   }
 
   async function deleteProject(p: Project) {
-    if (!confirm(t('confirm.deleteProject'))) return;
+    if (!(await confirmDialog({ title: t('confirm.deleteProject'), danger: true, confirmLabel: t('confirm.delete'), cancelLabel: t('confirm.cancel') }))) return;
     await dbCall('deleteProject', { id: p.id });
     const fresh = await dbCall<Project[]>('listProjects');
     if (activeProjectId === p.id || !fresh.some((x) => x.id === activeProjectId)) {

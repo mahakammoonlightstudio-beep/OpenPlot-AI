@@ -419,6 +419,11 @@ const en: Dict = {
   'confirm.deleteEntry': 'Delete this story entry?',
   'confirm.deleteChapter': 'Delete this chapter?',
   'confirm.discard': 'You have unsaved changes. Discard them?',
+  'confirm.ok': 'OK',
+  'confirm.cancel': 'Cancel',
+  'confirm.delete': 'Delete',
+  'confirm.keepEditing': 'Keep editing',
+  'confirm.discardChanges': 'Discard changes',
 
   'projects.name': 'Project name',
   'projects.description': 'Description',
@@ -981,6 +986,11 @@ const id: Dict = {
   'confirm.deleteEntry': 'Hapus entri cerita ini?',
   'confirm.deleteChapter': 'Hapus bab ini?',
   'confirm.discard': 'Ada perubahan yang belum disimpan. Buang perubahan itu?',
+  'confirm.ok': 'OK',
+  'confirm.cancel': 'Batal',
+  'confirm.delete': 'Hapus',
+  'confirm.keepEditing': 'Lanjut menulis',
+  'confirm.discardChanges': 'Buang perubahan',
 
   'projects.name': 'Nama proyek',
   'projects.description': 'Deskripsi',

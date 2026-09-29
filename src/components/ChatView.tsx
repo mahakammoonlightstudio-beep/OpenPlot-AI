@@ -10,6 +10,7 @@ import { useUnreadStore } from '../unreadStore';
 import { Composer } from './Composer';
 import { ModelSettingsModal } from './ModelSettingsModal';
 import { Modal } from './Ui';
+import { confirmDialog } from './TextPrompt';
 import { expandMentions, buildCandidates, MentionCandidate, MentionKind } from '../mentions';
 import { useWriteStats } from '../writeStats';
 
@@ -793,7 +794,7 @@ export function ChatView() {
 
   async function deleteChat() {
     if (!chat) return;
-    if (!confirm(t('confirm.deleteChat'))) return;
+    if (!(await confirmDialog({ title: t('confirm.deleteChat'), danger: true, confirmLabel: t('confirm.delete'), cancelLabel: t('confirm.cancel') }))) return;
     await dbCall('deleteChat', { id: chat.id });
     useUnreadStore.getState().forget(chat.id); // unread state dies with the chat
     await reloadChatRelated();

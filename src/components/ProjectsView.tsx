@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useData, dbCall, createChatUi, useUi } from '../store';
 import { Project } from '../types';
 import { useT } from '../i18nReact';
-import { textPrompt } from './TextPrompt';
+import { textPrompt, confirmDialog } from './TextPrompt';
 import { Icon } from './Icons';
 import { buildProjectMarkdown, exportProjectAs, ExportFormat } from '../exportProject';
 
@@ -21,7 +21,7 @@ export function ProjectsView() {
   }, [activeProjectId, projects.length]);
 
   async function selectProject(id: string | null) {
-    if (dirty && !confirm(t('confirm.discard'))) return;
+    if (dirty && !(await confirmDialog({ title: t('confirm.discard'), danger: true, confirmLabel: t('confirm.discardChanges'), cancelLabel: t('confirm.keepEditing') }))) return;
     setActiveProject(id);
   }
 
@@ -41,7 +41,7 @@ export function ProjectsView() {
   }
 
   async function remove() {
-    if (!selected || !confirm(t('confirm.deleteProject'))) return;
+    if (!selected || !(await confirmDialog({ title: t('confirm.deleteProject'), danger: true, confirmLabel: t('confirm.delete'), cancelLabel: t('confirm.cancel') }))) return;
     await dbCall('deleteProject', { id: selected.id });
     setActiveProject(null);
     await useData.getState().load();

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useData, useUi, dbCall } from '../store';
+import { confirmDialog } from './TextPrompt';
 import { FlowBeat, Chapter } from '../types';
 import { useT } from '../i18nReact';
 import { Icon } from './Icons';
@@ -275,7 +276,7 @@ export function FlowView() {
     setBusy(true);
     try {
       const existing = beats.length > 0;
-      if (existing && !confirm(t('flow.seedConfirm'))) return;
+      if (existing && !(await confirmDialog({ title: t('flow.seedConfirm'), danger: true, confirmLabel: t('confirm.ok'), cancelLabel: t('confirm.cancel') }))) return;
       const starters: Record<number, { title: string; summary: string }[]> = {
         1: [
           { title: t('flow.seed1a'), summary: t('flow.seed1aS') },

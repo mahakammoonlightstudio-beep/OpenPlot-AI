@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useData, useSettings, useUi, dbCall, uid, runAutomations, DONATE_LINKS } from '../store';
+import { confirmDialog } from './TextPrompt';
 import { Provider, PluginRow, SkillRow, AutomationRow, McpRow, AppInfo, ProviderPreset, PresetRefreshResult, ModelCapabilities } from '../types';
 import { useT } from '../i18nReact';
 import { Icon } from './Icons';
@@ -279,7 +280,7 @@ function ProvidersSection() {
   }
 
   async function remove(id: string) {
-    if (!confirm(t('providers.delete') + '?')) return;
+    if (!(await confirmDialog({ title: t('providers.delete') + '?', danger: true, confirmLabel: t('confirm.delete'), cancelLabel: t('confirm.cancel') }))) return;
     await dbCall('deleteProvider', { id });
     await useData.getState().load();
     ui.toast(t('toast.deleted'), 'ok');
@@ -311,7 +312,7 @@ function ProvidersSection() {
   }
 
   async function resetHealth() {
-    if (!confirm(t('health.resetConfirm'))) return;
+    if (!(await confirmDialog({ title: t('health.resetConfirm'), danger: true, confirmLabel: t('confirm.ok'), cancelLabel: t('confirm.cancel') }))) return;
     useVerifyStore.getState().clear();
     ui.toast(t('health.resetDone'), 'ok');
   }
@@ -574,7 +575,7 @@ function MemorySection() {
             className="danger"
             style={{ marginTop: 10 }}
             onClick={async () => {
-              if (!window.confirm(t('memory.clearConfirm'))) return;
+              if (!(await confirmDialog({ title: t('memory.clearConfirm'), danger: true, confirmLabel: t('confirm.delete'), cancelLabel: t('confirm.cancel') }))) return;
               await dbCall('clearMemories', {});
               await useData.getState().load();
               useUi.getState().toast(t('memory.cleared'), 'ok');
@@ -996,7 +997,7 @@ function DataSection({ appInfo }: { appInfo: AppInfo | null }) {
         </div>
         <hr />
         <button className="danger" onClick={async () => {
-          if (!confirm(t('data.resetConfirm'))) return;
+          if (!(await confirmDialog({ title: t('data.resetConfirm'), danger: true, confirmLabel: t('confirm.delete'), cancelLabel: t('confirm.cancel') }))) return;
           await dbCall('resetAll');
           await useData.getState().load();
           await useSettings.getState().load(); // in-memory settings must match wiped DB

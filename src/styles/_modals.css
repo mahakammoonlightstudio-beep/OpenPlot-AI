@@ -9,6 +9,12 @@
   max-height: 85vh; overflow-y: auto; box-shadow: var(--shadow);
 }
 .modal h2 { margin-bottom: 14px; }
+.confirm-message {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
 .modal .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
 .palette-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); display: flex; justify-content: center; padding-top: 12vh; z-index: 200; }

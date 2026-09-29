@@ -4,6 +4,7 @@ import { StoryEntry, StoryKind } from '../types';
 import { useT } from '../i18nReact';
 import { STORY_TEMPLATES, renderTemplate } from '../storyTemplates';
 import { Icon, IconName } from './Icons';
+import { confirmDialog } from './TextPrompt';
 
 const KINDS: StoryKind[] = ['world', 'location', 'character', 'item', 'lore'];
 const KIND_ICON: Record<StoryKind, IconName> = { world: 'globe', location: 'pin', character: 'person', item: 'sword', lore: 'scroll' };
@@ -83,12 +84,12 @@ export function StoryBibleView() {
   }, [selectedId]);
 
   async function selectEntry(id: string | null) {
-    if (dirty && !confirm(t('confirm.discard'))) return;
+    if (dirty && !(await confirmDialog({ title: t('confirm.discard'), danger: true, confirmLabel: t('confirm.discardChanges'), cancelLabel: t('confirm.keepEditing') }))) return;
     setSelectedId(id);
   }
 
   async function switchKind(k: StoryKind) {
-    if (dirty && !confirm(t('confirm.discard'))) return;
+    if (dirty && !(await confirmDialog({ title: t('confirm.discard'), danger: true, confirmLabel: t('confirm.discardChanges'), cancelLabel: t('confirm.keepEditing') }))) return;
     setKind(k);
   }
 
@@ -123,7 +124,7 @@ export function StoryBibleView() {
   }
 
   async function remove() {
-    if (!selected || !confirm(t('confirm.deleteEntry'))) return;
+    if (!selected || !(await confirmDialog({ title: t('confirm.deleteEntry'), danger: true, confirmLabel: t('confirm.delete'), cancelLabel: t('confirm.cancel') }))) return;
     await dbCall('deleteStory', { id: selected.id });
     setSelectedId(null);
     await useData.getState().load();

@@ -5,6 +5,7 @@ import { Chapter } from '../types';
 import { useT } from '../i18nReact';
 import { Icon } from './Icons';
 import { Modal } from './Ui';
+import { confirmDialog } from './TextPrompt';
 
 const wordCount = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0);
 
@@ -144,7 +145,8 @@ export function ChaptersView() {
   }
 
   async function confirmDiscard(): Promise<boolean> {
-    return window.confirm(t('confirm.discard'));
+    // In-app dialog — native confirm() steals keyboard focus in Electron.
+    return confirmDialog({ title: t('confirm.discard'), danger: true, confirmLabel: t('confirm.discardChanges'), cancelLabel: t('confirm.keepEditing') });
   }
 
   async function create() {
@@ -189,7 +191,7 @@ export function ChaptersView() {
 
   async function remove() {
     if (!selected) return;
-    if (!confirm(t('confirm.deleteChapter'))) return;
+    if (!(await confirmDialog({ title: t('confirm.deleteChapter'), danger: true, confirmLabel: t('confirm.delete'), cancelLabel: t('confirm.cancel') }))) return;
     await dbCall('deleteChapter', { id: selected.id });
     setSelectedId(null);
     await useData.getState().load();
@@ -216,7 +218,7 @@ export function ChaptersView() {
   // ---- version history ----
   const [histOpen, setHistOpen] = useState(false);
   const [versions, setVersions] = useState<ChapterVersionRow[]>([]);
-  const [busyVersion, setBusyVersion] = useState<string | null>(null);  async function openHistory() {
+  const [busyVersion, setBusyVersion] = useState<string | null>(null);  async function openHistory() {
     if (!selected) return;
     // Unsaved edits first — so what's in the editor is what history restores
     // past, and the snapshot it creates is the current state.

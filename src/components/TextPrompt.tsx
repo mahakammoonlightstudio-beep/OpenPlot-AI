@@ -9,6 +9,77 @@ interface PromptOptions {
   multiline?: boolean;
 }
 
+interface ConfirmOptions {
+  title: string;
+  message?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  danger?: boolean;
+}
+
+/**
+ * BUG FIX: Electron's window.confirm() steals keyboard focus from the
+ * webContents and never gives it back — after closing the native dialog the
+ * whole app randomly stopped accepting keystrokes until the user clicked
+ * outside and back into the window. Every in-app confirm now goes through
+ * confirmDialog() instead, which is plain DOM and never touches native focus.
+ *
+ * As a belt-and-braces measure, after any dialog host unmounts we refocus the
+ * app root so focus can never be left on a removed element.
+ */
+function restoreFocusAfterDialog(): void {
+  requestAnimationFrame(() => {
+    const root = document.getElementById('app-root');
+    if (root && document.contains(root) && !root.contains(document.activeElement)) {
+      root.focus();
+    }
+  });
+}
+
+export function confirmDialog(opts: ConfirmOptions): Promise<boolean> {
+  return new Promise((resolve) => {
+    const host = document.createElement('div');
+    host.className = 'modal-host';
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    const cleanup = (result: boolean) => {
+      root.unmount();
+      host.remove();
+      restoreFocusAfterDialog();
+      resolve(result);
+    };
+
+    function ConfirmModal() {
+      const okRef = useRef<HTMLButtonElement>(null);
+      useEffect(() => {
+        const t = setTimeout(() => okRef.current?.focus(), 30);
+        return () => clearTimeout(t);
+      }, []);
+      const onKey = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') { e.preventDefault(); cleanup(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); cleanup(false); }
+      };
+      return (
+        <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) cleanup(false); }}>
+          <div className="modal" role="alertdialog" aria-modal="true" aria-label={opts.title} onKeyDown={onKey}>
+            <h2>{opts.title}</h2>
+            {opts.message && <p className="confirm-message">{opts.message}</p>}
+            <div className="foot">
+              <button onClick={() => cleanup(false)}>{opts.cancelLabel || 'Cancel'}</button>
+              <button ref={okRef} className={opts.danger ? 'danger' : 'primary'} onClick={() => cleanup(true)}>
+                {opts.confirmLabel || 'OK'}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    root.render(<ConfirmModal />);
+  });
+}
+
 /**
  * Promise-based text input dialog.
  * Electron does not support window.prompt()/confirm() for input, so all
@@ -24,6 +95,7 @@ export function textPrompt(opts: PromptOptions): Promise<string | null> {
     const cleanup = (result: string | null) => {
       root.unmount();
       host.remove();
+      restoreFocusAfterDialog();
       resolve(result);
     };
 
