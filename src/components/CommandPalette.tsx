@@ -112,6 +112,23 @@ export function CommandPalette() {
     listRef.current?.querySelector('.palette-item.active')?.scrollIntoView({ block: 'nearest' });
   }, [sel, results]);
 
+  // Focus rescue: the palette's input holds focus while open. When it closes,
+  // that element unmounts and focus falls to <body> — the same "can't type
+  // anywhere" symptom as the native confirm() bug. Pull focus back to the
+  // app root after unmount.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (ui.paletteOpen) { wasOpen.current = true; return; }
+    if (!wasOpen.current) return;
+    wasOpen.current = false;
+    requestAnimationFrame(() => {
+      const root = document.getElementById('app-root');
+      if (!root) return;
+      const ae = document.activeElement;
+      if (ae === document.body || (ae && !document.contains(ae))) root.focus();
+    });
+  }, [ui.paletteOpen]);
+
   if (!ui.paletteOpen) return null;
 
   const groups: Array<{ key: Cmd['group']; label: string }> = [

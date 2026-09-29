@@ -25,6 +25,22 @@ export function Popover({
   // Flip decision is made once per open — measuring on every render would
   // cause layout thrash and visible jitter while the menu is visible.
   const [dropUp, setDropUp] = useState(false);
+  // Focus rescue: clicking a menu item unmounts this popover, and if focus
+  // was on one of its buttons it falls to <body> — the same "can't type
+  // anywhere" symptom as the native confirm() bug. Pull it back to the app
+  // root when that happens.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open) { wasOpen.current = true; return; }
+    if (!wasOpen.current) return;
+    wasOpen.current = false;
+    requestAnimationFrame(() => {
+      const root = document.getElementById('app-root');
+      if (!root) return;
+      const ae = document.activeElement;
+      if (ae === document.body || (ae && !document.contains(ae))) root.focus();
+    });
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const anchor = ref.current?.parentElement;
@@ -133,6 +149,21 @@ export function Modal({
   footer?: ReactNode;
   width?: number;
 }) {
+  // Focus management: pull focus INTO the dialog on open (Tab order starts
+  // sane) and rescue it back to the app root on close — without this, closing
+  // a modal whose focused element unmounts leaves focus on <body> and the
+  // app randomly stops accepting keystrokes (the Electron native-dialog bug
+  // has the same symptom).
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const root = cardRef.current;
+      if (!root) return;
+      const target = root.querySelector<HTMLElement>('input, textarea, select, button:not([aria-label="Close"])');
+      (target || root).focus();
+    }, 30);
+    return () => clearTimeout(t);
+  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
@@ -151,9 +182,17 @@ export function Modal({
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
   }, [onClose]);
+  useEffect(() => () => {
+    requestAnimationFrame(() => {
+      const appRoot = document.getElementById('app-root');
+      if (!appRoot) return;
+      const ae = document.activeElement;
+      if (ae === document.body || (ae && !document.contains(ae))) appRoot.focus();
+    });
+  }, []);
   return (
     <div className="ui-modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="ui-modal-card" style={{ maxWidth: width }} role="dialog" aria-modal="true" aria-label={title}>
+      <div ref={cardRef} className="ui-modal-card" style={{ maxWidth: width }} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
         <div className="ui-modal-head">
           <h3>{title}</h3>
           <button className="small ghost" onClick={onClose} aria-label="Close"><Icon name="x" size={15} /></button>

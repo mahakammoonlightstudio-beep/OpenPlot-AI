@@ -1,7 +1,7 @@
 {
   "name": "openplot-ai",
   "productName": "OpenPlot AI",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "OpenPlot AI — a local-first AI chat & story-writing studio by Mahakam Moonlight Studio, for Windows, Linux and macOS.",
   "main": "dist-electron/main.js",
   "author": "Mahakam Moonlight Studio",

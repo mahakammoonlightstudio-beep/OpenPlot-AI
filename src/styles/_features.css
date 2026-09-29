@@ -411,5 +411,7 @@ button { transition: background 0.12s ease, border-color 0.12s ease, color 0.12s
   transition: opacity 0.12s ease;
 }
 .chapter-item:hover .reorder,
-.chapter-item.active .reorder { opacity: 1; }
+.chapter-item.active .reorder,
+/* keyboard reachability: hidden buttons must become visible when focused */
+.chapter-item .reorder:focus-within { opacity: 1; }
 .chapter-item .reorder button { padding: 2px 4px; }

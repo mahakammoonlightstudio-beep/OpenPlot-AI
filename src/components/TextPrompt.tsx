@@ -30,7 +30,11 @@ interface ConfirmOptions {
 function restoreFocusAfterDialog(): void {
   requestAnimationFrame(() => {
     const root = document.getElementById('app-root');
-    if (root && document.contains(root) && !root.contains(document.activeElement)) {
+    if (!root || !document.contains(root)) return;
+    const ae = document.activeElement;
+    // Only rescue focus when it truly fell off (body or a removed element).
+    // If another dialog already took focus, leave it alone.
+    if (ae === document.body || (ae && !document.contains(ae))) {
       root.focus();
     }
   });
