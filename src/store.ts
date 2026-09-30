@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Provider, Project, Folder, Chat, Message, Memory, StoryEntry, Chapter, FlowBeat, PluginRow, SkillRow, AutomationRow, McpRow, AppInfo, UserPrompt } from './types';
+import { Provider, Project, Folder, Chat, Message, Memory, StoryEntry, Chapter, FlowBeat, PluginRow, SkillRow, AutomationRow, McpRow, AppInfo, UserPrompt, StyleRow } from './types';
 
 // Mahakam Moonlight Studio — official links (v1.0.0 rebrand)
 export const DONATE_URL = 'https://sociabuzz.com/mahakam_moonlight_studio/tribe';
@@ -65,21 +65,26 @@ interface ToastItem { id: string; msg: string; kind: 'info' | 'ok' | 'error' }
 interface UiState {
   toasts: ToastItem[];
   paletteOpen: boolean;
+  /** Zen-mode companion: slides the whole sidebar away (chat header toggle). */
+  sidebarHidden: boolean;
   toast(msg: string, kind?: ToastItem['kind']): void;
   dismiss(id: string): void;
   setPalette(open: boolean): void;
+  setSidebarHidden(hidden: boolean): void;
 }
 
 export const useUi = create<UiState>((set) => ({
   toasts: [],
   paletteOpen: false,
+  sidebarHidden: false,
   toast(msg, kind = 'info') {
     const id = uid();
     set((s) => ({ toasts: [...s.toasts, { id, msg, kind }] }));
     setTimeout(() => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), 3800);
   },
   dismiss(id) { set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })); },
-  setPalette(open) { set({ paletteOpen: open }); }
+  setPalette(open) { set({ paletteOpen: open }); },
+  setSidebarHidden(hidden) { set({ sidebarHidden: hidden }); }
 }));
 
 // ---------- settings store ----------
@@ -116,6 +121,8 @@ interface SettingsState {
   topP: number;
   defaultSystem: string;
   agentMd: string;
+  /** Author name written into EPUB metadata on export. */
+  authorName: string;
   defaultProviderId: string | null;
   defaultModel: string | null;
   memoryEnabled: boolean;
@@ -123,6 +130,8 @@ interface SettingsState {
   thinkingEnabled: boolean;
   thinkingBudget: number;
   autoMemory: boolean;
+  /** Active reply style (id in prompt_styles). Persisted globally. */
+  defaultStyleId: string | null;
   modelOverrides: Record<string, ModelOverride>;
   set<K extends keyof SettingsState>(key: K, value: SettingsState[K]): void;
   load(): Promise<void>;
@@ -149,6 +158,7 @@ const SETTING_SANITIZERS: Record<string, (v: any) => any> = {
   topP: (v) => clampNum(v, 1, 0, 1),
   defaultSystem: (v) => strOr(v, ''),
   agentMd: (v) => strOr(v, ''),
+  authorName: (v) => strOr(v, ''),
   defaultProviderId: (v) => (typeof v === 'string' ? v : null),
   defaultModel: (v) => (typeof v === 'string' ? v : null),
   memoryEnabled: (v) => boolOr(v, true),
@@ -156,6 +166,7 @@ const SETTING_SANITIZERS: Record<string, (v: any) => any> = {
   thinkingEnabled: (v) => boolOr(v, true),
   thinkingBudget: (v) => clampNum(v, 4096, 1024, 100000),
   autoMemory: (v) => boolOr(v, true),
+  defaultStyleId: (v) => (typeof v === 'string' ? v : null),
   modelOverrides: (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {})
 };
 
@@ -171,6 +182,7 @@ export const useSettings = create<SettingsState>((set, get) => ({
   topP: 1,
   defaultSystem: '',
   agentMd: '',
+  authorName: '',
   defaultProviderId: null,
   defaultModel: null,
   memoryEnabled: true,
@@ -180,6 +192,7 @@ export const useSettings = create<SettingsState>((set, get) => ({
   thinkingEnabled: true,
   thinkingBudget: 4096,
   autoMemory: true,
+  defaultStyleId: null,
   modelOverrides: {} as Record<string, ModelOverride>,
   async load() {
     try {
@@ -223,6 +236,7 @@ interface DataState {
   chapters: Chapter[];
   flowBeats: FlowBeat[];
   userPrompts: UserPrompt[];
+  styles: StyleRow[];
   plugins: PluginRow[];
   skills: SkillRow[];
   automations: AutomationRow[];
@@ -247,6 +261,7 @@ export const useData = create<DataState>((set) => ({
   chapters: [],
   flowBeats: [],
   userPrompts: [],
+  styles: [],
   plugins: [],
   skills: [],
   automations: [],
@@ -256,7 +271,7 @@ export const useData = create<DataState>((set) => ({
   route: 'chat',
   async load() {
     try {
-      const [providers, projects, folders, chats, memories, story, chapters, flowBeats, userPrompts, plugins, skills, automations, mcpServers] = await Promise.all([
+      const [providers, projects, folders, chats, memories, story, chapters, flowBeats, userPrompts, styles, plugins, skills, automations, mcpServers] = await Promise.all([
         dbCall<Provider[]>('listProviders'),
         dbCall<Project[]>('listProjects'),
         dbCall<Folder[]>('listFolders'),
@@ -266,12 +281,13 @@ export const useData = create<DataState>((set) => ({
         dbCall<Chapter[]>('listAllChapters'),
         dbCall<FlowBeat[]>('listFlowBeats', { projectId: '' }).catch(() => [] as FlowBeat[]),
         dbCall<UserPrompt[]>('listPrompts').catch(() => [] as UserPrompt[]),
+        dbCall<StyleRow[]>('listStyles').catch(() => [] as StyleRow[]),
         dbCall<PluginRow[]>('listPlugins'),
         dbCall<SkillRow[]>('listSkills'),
         dbCall<AutomationRow[]>('listAutomations'),
         dbCall<McpRow[]>('listMcpServers')
       ]);
-      set({ providers: providers.map(normProvider), projects, folders, chats, memories, story, chapters, flowBeats, userPrompts, plugins, skills, automations, mcpServers });
+      set({ providers: providers.map(normProvider), projects, folders, chats, memories, story, chapters, flowBeats, userPrompts, styles, plugins, skills, automations, mcpServers });
     } catch (e) {
       console.error('data load failed', e);
     }

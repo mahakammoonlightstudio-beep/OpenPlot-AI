@@ -172,7 +172,17 @@ export function StoryBibleView() {
           </div>
           {list.length === 0 && <div className="empty-state" style={{ padding: 20 }}><span>{q ? t('story.searchEmpty') : t('story.nothing')}</span></div>}
           {list.map((e) => (
-            <div key={e.id} className={`story-item ${e.id === selectedId ? 'active' : ''}`} onClick={() => selectEntry(e.id)}>
+            <div
+              key={e.id}
+              className={`story-item ${e.id === selectedId ? 'active' : ''}`}
+              onClick={() => selectEntry(e.id)}
+              draggable
+              onDragStart={(ev) => {
+                ev.dataTransfer.setData('application/x-openplot-story', JSON.stringify({ id: e.id }));
+                ev.dataTransfer.effectAllowed = 'copy';
+              }}
+              title={t('chat.dropHint')}
+            >
               <div className="t">{e.title}</div>
               <div className="k">
                 {t('story.' + e.kind)}

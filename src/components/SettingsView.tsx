@@ -30,7 +30,7 @@ context.registerCommand('greet', () => {
   context.toast('Hello from plugin!');
 });`;
 
-type Section = 'providers' | 'appearance' | 'memory' | 'behavior' | 'agentmd' | 'skills' | 'plugins' | 'automations' | 'mcp' | 'data';
+type Section = 'providers' | 'appearance' | 'styles' | 'usage' | 'memory' | 'behavior' | 'agentmd' | 'skills' | 'plugins' | 'automations' | 'mcp' | 'data';
 
 export function SettingsView({ initialSection }: { initialSection?: string }) {
   const t = useT();
@@ -52,7 +52,7 @@ export function SettingsView({ initialSection }: { initialSection?: string }) {
       <div className="settings-layout">
         <div className="settings-nav">
           <h2 style={{ padding: '0 8px', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="settings" size={15} /> {t('settings.title')}</h2>
-          {(['providers', 'appearance', 'memory', 'behavior', 'agentmd', 'skills', 'plugins', 'automations', 'mcp', 'data'] as Section[]).map((s) => (
+          {(['providers', 'appearance', 'styles', 'usage', 'memory', 'behavior', 'agentmd', 'skills', 'plugins', 'automations', 'mcp', 'data'] as Section[]).map((s) => (
             <button key={s} className={section === s ? 'active' : ''} onClick={() => setSection(s)}>
               {t('settings.' + s)}
             </button>
@@ -61,6 +61,8 @@ export function SettingsView({ initialSection }: { initialSection?: string }) {
         <div className="settings-content">
           {section === 'providers' && <ProvidersSection />}
           {section === 'appearance' && <AppearanceSection />}
+          {section === 'styles' && <StylesSection />}
+          {section === 'usage' && <UsageSection />}
           {section === 'memory' && <MemorySection />}
           {section === 'behavior' && <BehaviorSection />}
           {section === 'agentmd' && <AgentMdSection />}
@@ -71,6 +73,179 @@ export function SettingsView({ initialSection }: { initialSection?: string }) {
           {section === 'data' && <DataSection appInfo={appInfo} />}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---------------- Styles (reply personas) ----------------
+
+function StylesSection() {
+  const t = useT();
+  const ui = useUi();
+  const { styles } = useData();
+  const [sel, setSel] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ name: string; content: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const selected = styles.find((s) => s.id === sel) || null;
+
+  function pick(id: string | null) {
+    setSel(id);
+    const s = styles.find((x) => x.id === id) || null;
+    setDraft(s ? { name: s.name, content: s.content } : null);
+  }
+
+  async function save() {
+    if (!selected || !draft || !draft.name.trim() || busy) return;
+    setBusy(true);
+    try {
+      await dbCall('saveStyle', { id: selected.id, name: draft.name.trim(), content: draft.content });
+      await useData.getState().load();
+      ui.toast(t('toast.saved'), 'ok');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!selected || busy) return;
+    if (selected.builtin) { ui.toast(t('style.builtinNoDelete'), 'error'); return; }
+    if (!(await confirmDialog({ title: t('style.deleteConfirm'), danger: true, confirmLabel: t('confirm.delete'), cancelLabel: t('confirm.cancel') }))) return;
+    try {
+      await dbCall('deleteStyle', { id: selected.id });
+      if (useSettings.getState().defaultStyleId === selected.id) {
+        useSettings.getState().set('defaultStyleId', null);
+      }
+      await useData.getState().load();
+      pick(null);
+    } catch (e: any) {
+      ui.toast(e?.message || 'Delete failed', 'error');
+    }
+  }
+
+  async function create() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const row = await dbCall<any>('saveStyle', { id: null, name: 'New style', content: 'Describe how the assistant should write in this style…' });
+      await useData.getState().load();
+      pick(row.id);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <h2>{t('style.title')}</h2>
+      <div className="hint" style={{ marginBottom: 14 }}>{t('style.sub')}</div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        <button className="primary" onClick={create}><Icon name="plus" size={14} /> {t('style.new')}</button>
+        {useSettings.getState().defaultStyleId && (
+          <button className="ghost" onClick={() => { useSettings.getState().set('defaultStyleId', null); ui.toast(t('style.cleared'), 'ok'); }}>
+            <Icon name="x" size={14} /> {t('style.clearActive')}
+          </button>
+        )}
+      </div>
+      <div className="styles-grid">
+        <div className="styles-list">
+          {styles.map((s) => (
+            <button key={s.id} className={`style-row ${s.id === sel ? 'active' : ''}`} onClick={() => pick(s.id)}>
+              <span className="t">{s.name}</span>
+              {s.builtin ? <span className="v-src builtin">builtin</span> : <span className="v-src custom">custom</span>}
+            </button>
+          ))}
+          {styles.length === 0 && <div className="hint">{t('style.noneYet')}</div>}
+        </div>
+        <div className="styles-editor">
+          {!selected || !draft ? (
+            <div className="empty-state" style={{ height: '100%', minHeight: 220 }}>
+              <div className="big"><Icon name="sparkle" size={26} /></div>
+              <div>{t('style.pickOne')}</div>
+            </div>
+          ) : (
+            <>
+              <div className="head">
+                <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={t('style.namePh')} />
+                {selected.builtin ? <span className="v-src builtin">builtin</span> : null}
+                <button className="primary" onClick={save} disabled={busy || !draft.name.trim()}><Icon name="check" size={14} /> {t('story.save')}</button>
+                {!selected.builtin && <button className="danger" onClick={remove} aria-label={t('confirm.delete')}><Icon name="trash" size={14} /></button>}
+              </div>
+              <div className="hint">{t('style.systemHint')}</div>
+              <textarea
+                value={draft.content}
+                onChange={(e) => setDraft({ ...draft, content: e.target.value })}
+                placeholder={t('style.contentPh')}
+                style={{ minHeight: 220 }}
+              />
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------- Token usage ----------------
+
+interface UsageSummary {
+  byModel: Array<{ model: string; messages: number; tin: number | null; tout: number | null }>;
+  byChat: Array<{ id: string; title: string; messages: number; tin: number | null; tout: number | null }>;
+  total: { messages: number; tin: number | null; tout: number | null };
+}
+
+function fmtTok(n: number | null | undefined): string {
+  if (n == null) return '—';
+  return n >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 0 }) : String(n);
+}
+
+function UsageSection() {
+  const t = useT();
+  const [sum, setSum] = useState<UsageSummary | null>(null);
+  useEffect(() => {
+    dbCall<UsageSummary>('usageSummary', {}).then(setSum).catch(() => setSum(null));
+  }, []);
+
+  if (!sum) {
+    return (
+      <div>
+        <h2>{t('usage.title')}</h2>
+        <div className="hint">{t('usage.noData')}</div>
+      </div>
+    );
+  }
+  const hasData = (sum.total?.tin != null || sum.total?.tout != null);
+  return (
+    <div>
+      <h2>{t('usage.title')}</h2>
+      <div className="hint" style={{ marginBottom: 14 }}>{t('usage.sub')}</div>
+      {!hasData ? (
+        <div className="empty-state" style={{ minHeight: 200 }}><div>{t('usage.noData')}</div></div>
+      ) : (
+        <>
+          <div className="grid-3" style={{ marginBottom: 16 }}>
+            <div className="card" style={{ margin: 0, textAlign: 'center' }}>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{fmtTok(sum.total?.messages)}</div>
+              <div className="hint">{t('usage.messages')}</div>
+            </div>
+            <div className="card" style={{ margin: 0, textAlign: 'center' }}>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{fmtTok(sum.total?.tin)}</div>
+              <div className="hint">{t('usage.in')}</div>
+            </div>
+            <div className="card" style={{ margin: 0, textAlign: 'center' }}>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{fmtTok(sum.total?.tout)}</div>
+              <div className="hint">{t('usage.out')}</div>
+            </div>
+          </div>
+          <h3>{t('usage.perChat')}</h3>
+          {sum.byChat.map((c) => (
+            <div key={c.id} className="list-row">
+              <span className="t">{c.title}<small>{c.messages} msg</small></span>
+              <span className="hint" style={{ fontFamily: 'var(--mono)' }}>↑ {fmtTok(c.tin)} · ↓ {fmtTok(c.tout)}</span>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 }
@@ -599,6 +774,11 @@ function BehaviorSection() {
       <h1>{t('settings.behavior')}</h1>
       <div className="subtitle">{t('behavior.sub')}</div>
       <div className="card">
+        <div className="field">
+          <label>{t('behavior.authorName')}</label>
+          <input value={settings.authorName} onChange={(e) => settings.set('authorName', e.target.value)} placeholder={t('behavior.authorPh')} />
+          <div className="hint">{t('behavior.authorHint')}</div>
+        </div>
         <div className="field">
           <label>{t('behavior.temperature')}: {settings.temperature.toFixed(2)}</label>
           <input type="range" min={0} max={2} step={0.05} value={settings.temperature} onChange={(e) => settings.set('temperature', Number(e.target.value))} />

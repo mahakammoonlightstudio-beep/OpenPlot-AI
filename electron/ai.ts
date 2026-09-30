@@ -43,6 +43,16 @@ export interface GenResult {
   text: string;
   thinking: string;
   toolsUsed: string[];
+  /** Prompt tokens actually billed (from provider usage) or estimated. */
+  tokensIn?: number;
+  /** Completion tokens actually billed (from provider usage) or estimated. */
+  tokensOut?: number;
+}
+
+// ~4 chars per token is a decent cross-model heuristic for the FALLBACK
+// estimate (used when the provider doesn't report usage).
+function estimateTokens(s: string): number {
+  return Math.ceil((s || '').length / 4);
 }
 
 export class AbortedError extends Error {
@@ -189,6 +199,8 @@ async function runOpenAINonStream(
   const toolsUsed: string[] = [];
   let text = '';
   let thinking = '';
+  let tokensIn: number | undefined;
+  let tokensOut: number | undefined;
 
   for (let round = 0; round < 10; round++) {
     if (aborted()) break;
@@ -214,6 +226,12 @@ async function runOpenAINonStream(
     if (json.error) return null;
 
     const msg = json.choices?.[0]?.message || {};
+    // Usage is cumulative per round in the non-stream path (each round re-sends
+    // everything) — capture the LAST reported values, not the sum.
+    if (json.usage && (json.usage.prompt_tokens != null || json.usage.completion_tokens != null)) {
+      tokensIn = json.usage.prompt_tokens ?? tokensIn;
+      tokensOut = json.usage.completion_tokens ?? tokensOut;
+    }
     const thinkPiece: string | undefined = msg.reasoning || msg.reasoning_content;
     if (thinkPiece) { thinking += thinkPiece; onChunk({ type: 'thinking', text: thinkPiece }); }
     const piece = String(msg.content || '');
@@ -234,7 +252,7 @@ async function runOpenAINonStream(
     }
     break;
   }
-  return { text, thinking, toolsUsed };
+  return { text, thinking, toolsUsed, tokensIn, tokensOut };
 }
 
 async function runOpenAI(
@@ -263,6 +281,8 @@ async function runOpenAI(
   const toolsUsed: string[] = [];
   let text = '';
   let thinking = '';
+  let tokensIn: number | undefined;
+  let tokensOut: number | undefined;
   const messages = [...opts.messages];
 
   for (let round = 0; round < 10; round++) {
@@ -282,6 +302,12 @@ async function runOpenAI(
             if (payload === '[DONE]') continue;
             let json: any;
             try { json = JSON.parse(payload); } catch { continue; }
+            // Providers that report usage mid-stream (OpenAI with
+            // include_usage, most relays' final chunk) — remember the latest.
+            if (json.usage && (json.usage.prompt_tokens != null || json.usage.completion_tokens != null)) {
+              tokensIn = json.usage.prompt_tokens ?? tokensIn;
+              tokensOut = json.usage.completion_tokens ?? tokensOut;
+            }
             if (json.type === 'error' || json.error) {
               // Capture instead of throwing: this callback runs inside the
               // socket 'data' handler, where a throw was silently swallowed —
@@ -338,6 +364,10 @@ async function runOpenAI(
         if (payload === '[DONE]') continue;
         let json: any;
         try { json = JSON.parse(payload); } catch { continue; }
+        if (json.usage && (json.usage.prompt_tokens != null || json.usage.completion_tokens != null)) {
+          tokensIn = json.usage.prompt_tokens ?? tokensIn;
+          tokensOut = json.usage.completion_tokens ?? tokensOut;
+        }
         const choice = json.choices?.[0];
         if (!choice) continue;
         const delta = choice.delta || {};
@@ -382,7 +412,11 @@ async function runOpenAI(
     break;
   }
 
-  return { text, thinking, toolsUsed };
+  return {
+    text, thinking, toolsUsed,
+    tokensIn: tokensIn ?? estimateTokens(JSON.stringify(messages)),
+    tokensOut: tokensOut ?? (estimateTokens(text) + estimateTokens(thinking))
+  };
 }
 
 // ---------- Anthropic streaming ----------
@@ -432,6 +466,8 @@ async function runAnthropic(
   const toolsUsed: string[] = [];
   let text = '';
   let thinking = '';
+  let tokensIn: number | undefined;
+  let tokensOut: number | undefined;
 
   for (let round = 0; round < 10; round++) {
     if (aborted()) break;
@@ -449,6 +485,14 @@ async function runAnthropic(
             if (!payload || payload === '[DONE]') continue;
             let json: any;
             try { json = JSON.parse(payload); } catch { continue; }
+            // Anthropic reports usage on message_start (input) and every
+            // message_delta (cumulative output).
+            if (json.type === 'message_start' && json.message?.usage?.input_tokens != null) {
+              tokensIn = json.message.usage.input_tokens;
+            }
+            if (json.type === 'message_delta' && json.usage?.output_tokens != null) {
+              tokensOut = json.usage.output_tokens;
+            }
             if (json.type === 'error') {
               // Same rationale as the OpenAI path: a throw inside the socket
               // 'data' handler is swallowed upstream, so capture and fail
@@ -493,6 +537,8 @@ async function runAnthropic(
         if (!payload || payload === '[DONE]') continue;
         let json: any;
         try { json = JSON.parse(payload); } catch { continue; }
+        if (json.type === 'message_start' && json.message?.usage?.input_tokens != null) tokensIn = json.message.usage.input_tokens;
+        if (json.type === 'message_delta' && json.usage?.output_tokens != null) tokensOut = json.usage.output_tokens;
         if (json.type === 'content_block_start') {
           const i = json.index;
           blocks[i] = {
@@ -559,7 +605,11 @@ async function runAnthropic(
     break;
   }
 
-  return { text, thinking, toolsUsed };
+  return {
+    text, thinking, toolsUsed,
+    tokensIn: tokensIn ?? estimateTokens(JSON.stringify(chatMsgs) + systemParts.join('\n')),
+    tokensOut: tokensOut ?? (estimateTokens(text) + estimateTokens(thinking))
+  };
 }
 
 function splitEvents(body: string): string[] {

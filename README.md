@@ -17,9 +17,17 @@ The project was formerly known as **InkWell**.
 
 ## Screenshots
 
-**Chat** — streaming replies, reasoning display, agent tools, prompt library (`/`), @-mentions of story entries and chapters.
+**Chat** — streaming replies, reasoning display, agent tools, reply styles, attachment chips, prompt library (`/`), @-mentions and per-message token counts.
 
 ![Chat](docs/review/01-chat.png)
+
+**Reply styles** — pick how the assistant writes (Concise, Editorial, Empathetic, …) straight from the composer; edit or add your own in Settings.
+
+![Reply styles](docs/review/12-style-picker.png)
+
+**Zen mode** — the header and composer dim while you read or write; `Esc` brings everything back. The sidebar slides away too, for a full-width chat.
+
+![Zen mode](docs/review/13-zen-mode.png)
 
 **Story bible** — worlds, locations, characters, items and lore with tags, search and cross-links.
 
@@ -46,7 +54,11 @@ The project was formerly known as **InkWell**.
 **Chat**
 - Multi-provider, multi-model. Any model from any connected provider can be selected per chat.
 - Streaming responses with a reasoning/thinking display (Anthropic extended thinking, DeepSeek-style `reasoning`, `<think>` tags).
-- Agent tools: the model can save memories and create, update and search story entries and chapters directly.
+- **Reply styles** — builtin personas (Default, Concise, Explanatory, Editorial, Empathetic, Formal) injected as a system fragment; pick one in the composer, edit builtins or add custom styles in Settings → Styles.
+- **Attachments as chips** — attach files (or drag & drop them onto the chat), and drag story-bible entries or chapters straight from their views; they ride in the model context without polluting the composer text.
+- **Token accounting** — prompt/completion tokens are captured from the provider when reported (estimated otherwise) and shown per message; Settings → Usage summarizes per model and per chat.
+- **Pinned chats** — pin conversations to keep them at the top of the sidebar; **Zen mode** and a hideable sidebar for a distraction-free workspace.
+- Agent tools: the model can save memories, read the whole story bible in one call, append to chapters, list/read projects, and create, update and search story entries and chapters directly.
 - Prompt library with `/` templates and `{placeholder}` substitution.
 - @-mentions that expand story-bible entries and chapters into the model context.
 - Edit and resend, regenerate, delete, and export a conversation to Markdown.
@@ -56,12 +68,13 @@ The project was formerly known as **InkWell**.
 **Writing tools**
 - Story bible entries with tags and links, full-text search, and per-category counts.
 - Chapters with draft/revising/done status, reading-order reordering, focus mode, and a scene board per chapter.
+- Default skills shipped with the app (Continuity Guardian, Prose Polisher, Dialogue Coach, Pacing Analyst) — editable, deletable, and extensible with your own.
 - Chapter version history: snapshots are taken on save, before an AI reply is appended, and before a restore. Any snapshot can be restored or deleted (last 30 kept per chapter).
 - One-click AI actions on the open chapter: continue writing, critique, beat outline.
 - Writing statistics: daily goal with progress bar, current and best streak, weekly totals, 90-day heatmap, and per-project stakes (1–10) with an AI arc analysis.
 
 **Export**
-- Whole-project export to Markdown, plain-text manuscript, or EPUB (assembled in the main process, no external dependencies).
+- Whole-project export to Markdown, plain-text manuscript, or EPUB (assembled in the main process, no external dependencies) with author and language metadata from Settings.
 - Per-chat Markdown export.
 
 **Organization**
@@ -70,7 +83,7 @@ The project was formerly known as **InkWell**.
 
 **Extensibility**
 - `agent.md` instructions injected into every chat.
-- Skill packs, sandboxed JavaScript plugins with lifecycle hooks, when/then automations, and an MCP server registry. See [docs/PLUGIN_API.md](docs/PLUGIN_API.md).
+- Reply styles (builtin + custom), skill packs, sandboxed JavaScript plugins with lifecycle hooks, when/then automations, and an MCP server registry. See [docs/PLUGIN_API.md](docs/PLUGIN_API.md).
 
 **Privacy and storage**
 - All data lives in a local SQLite database in the OS user-data directory.

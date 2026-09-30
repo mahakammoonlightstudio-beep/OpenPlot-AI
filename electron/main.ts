@@ -12,6 +12,10 @@ const SAWERIA_URL = 'https://saweria.co/MahakamMoonStudio';
 
 let win: BrowserWindow | null = null;
 const aborts = new Map<string, () => void>();
+// Chats with a generation in flight — db.ts refuses message deletes for
+// these so an in-flight reply can never be stranded.
+const busyChats = new Set<string>();
+(globalThis as any).__busyChats = busyChats;
 
 function send(channel: string, ...args: any[]): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, ...args);
@@ -142,6 +146,7 @@ ipcMain.handle('ai:generate', async (_e, req: any) => {
   let aborted = false;
   aborts.set(reqId, () => { aborted = true; });
   const isAborted = () => aborted;
+  if (req.chatId) busyChats.add(req.chatId);
 
   try {
     const result = await runGeneration(
@@ -168,6 +173,7 @@ ipcMain.handle('ai:generate', async (_e, req: any) => {
     return { ok: false, error: err?.message || String(err) };
   } finally {
     aborts.delete(reqId);
+    if (req.chatId) busyChats.delete(req.chatId);
   }
 });
 
@@ -419,7 +425,7 @@ ${paras || '    <p></p>'}
 interface EpubChapter { title: string; content: string }
 
 // Build a valid EPUB 2 (most reader-compatible) from project data.
-function buildEpubBuffer(title: string, chapters: EpubChapter[], author: string): Buffer {
+function buildEpubBuffer(title: string, chapters: EpubChapter[], author: string, lang: string = 'en'): Buffer {
   const bookId = `urn:uuid:${Date.now().toString(16)}-openplot`;
   const escapeId = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, '_');
   const files: { name: string; data: Buffer; store?: boolean }[] = [];
@@ -467,7 +473,7 @@ ${spineList.map((c) => `        <li><a href="${c.id}.xhtml">${xmlEsc(c.title)}</
     <dc:identifier id="bookid">${xmlEsc(bookId)}</dc:identifier>
     <dc:title>${xmlEsc(title)}</dc:title>
     <dc:creator>${xmlEsc(author)}</dc:creator>
-    <dc:language>en</dc:language>
+    <dc:language>${xmlEsc(lang)}</dc:language>
     <meta property="dcterms:modified">${new Date().toISOString().replace(/\.\d{3}Z$/, '')}Z</meta>
   </metadata>
   <manifest>
@@ -484,7 +490,7 @@ ${spine.join('\n')}
 
 // Save the assembled EPUB through the native save dialog. The renderer sends
 // plain chapter data; the ZIP assembly happens here where zlib lives.
-ipcMain.handle('export:epub', async (_e, defaultName: string, author: string, chapters: EpubChapter[]) => {
+ipcMain.handle('export:epub', async (_e, defaultName: string, author: string, chapters: EpubChapter[], lang?: string) => {
   if (!win) return { ok: false, error: 'no window' };
   const safeName = String(defaultName || 'openplot-export.epub')
     .replace(/[\\/:*?"<>|\x00-\x1f]/g, '_')
@@ -498,7 +504,11 @@ ipcMain.handle('export:epub', async (_e, defaultName: string, author: string, ch
     });
     if (res.canceled || !res.filePath) return { ok: false, error: 'cancelled' };
     const title = safeName.replace(/\.epub$/i, '').trim() || 'OpenPlot Export';
-    const buf = buildEpubBuffer(title, Array.isArray(chapters) ? chapters : [], String(author || 'Unknown Author'));
+    // Language tag is validated against a whitelist — arbitrary strings must
+    // never reach the XML metadata unescaped (it goes through xmlEsc anyway,
+    // but a well-formed tag like 'id' or 'en' is what readers expect).
+    const langTag = /^(id|en)$/i.test(String(lang || '')) ? String(lang).toLowerCase() : 'en';
+    const buf = buildEpubBuffer(title, Array.isArray(chapters) ? chapters : [], String(author || 'Unknown Author'), langTag);
     fs.writeFileSync(res.filePath, buf);
     return { ok: true, data: res.filePath };
   } catch (err: any) {
@@ -571,7 +581,9 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
-    const dataDir = app.getPath('userData');
+    // OPENPLOT_DATA_DIR redirects the whole profile (DB + settings) — used for
+    // clean-room test runs and screenshots without touching real user data.
+    const dataDir = process.env.OPENPLOT_DATA_DIR || app.getPath('userData');
     // API keys at rest: encrypt with the OS credential vault when available.
     // Prefix-marked ciphertext keeps keys written by older versions readable.
     if (safeStorage?.isEncryptionAvailable?.()) {

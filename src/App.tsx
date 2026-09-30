@@ -153,7 +153,7 @@ export default function App() {
   }
 
   return (
-    <div className="app" id="app-root" tabIndex={-1}>
+    <div className={`app ${ui.sidebarHidden ? 'sidebar-hidden' : ''}`} id="app-root" tabIndex={-1}>
       <Sidebar />
       <div className="main">{body}</div>
       <CommandPalette />

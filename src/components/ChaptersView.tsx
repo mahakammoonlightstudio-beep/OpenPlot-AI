@@ -320,7 +320,16 @@ export function ChaptersView() {
           </div>
           {scoped.length === 0 && <div className="empty-state" style={{ padding: 20 }}><span>{t('chapters.nothing')}</span></div>}
           {scoped.map((c, i) => (
-            <div key={c.id} className={`chapter-item ${c.id === selectedId ? 'active' : ''}`} onClick={() => selectChapter(c.id)}>
+            <div
+              key={c.id}
+              className={`chapter-item ${c.id === selectedId ? 'active' : ''}`}
+              onClick={() => selectChapter(c.id)}
+              draggable
+              onDragStart={(ev) => {
+                ev.dataTransfer.setData('application/x-openplot-chapter', JSON.stringify({ id: c.id }));
+                ev.dataTransfer.effectAllowed = 'copy';
+              }}
+            >
               <span className="t">{c.title}</span>
               <span className="badge">{wordCount(c.content).toLocaleString()}w</span>
               <span className={`badge ${c.status}`}>{t('chapters.' + c.status)}</span>

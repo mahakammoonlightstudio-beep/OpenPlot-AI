@@ -63,6 +63,15 @@ export function Sidebar() {
     await useData.getState().reloadChatRelated();
   }
 
+  // Pin/unpin a chat. Pinned chats float to the top of their section
+  // (ordering happens in the DB query; the in-list grouping below keeps
+  // pinned rows ahead of unpinned ones inside folders and the loose list).
+  async function togglePin(c: Chat) {
+    const next = !(Number(c.pinned) === 1);
+    await dbCall('updateChat', { id: c.id, pinned: next });
+    await useData.getState().reloadChatRelated();
+  }
+
   async function deleteFolder(f: Folder) {
     if (!(await confirmDialog({ title: t('confirm.deleteFolder'), danger: true, confirmLabel: t('confirm.delete'), cancelLabel: t('confirm.cancel') }))) return;
     await dbCall('deleteFolder', { id: f.id });
@@ -116,6 +125,10 @@ export function Sidebar() {
     }));
   }, [folders, filtered]);
   const looseChats = filtered.filter((c) => !c.folder_id);
+  // Pinned rows first inside each group — the DB already ordered by
+  // pinned DESC, so a stable partition is enough.
+  const pinFirst = (list: Chat[]) => [...list.filter((c) => Number(c.pinned) === 1), ...list.filter((c) => Number(c.pinned) !== 1)];
+  const isPinned = (c: Chat) => Number(c.pinned) === 1;
 
   return (
     <div className="sidebar">
@@ -152,13 +165,14 @@ export function Sidebar() {
                   <button onClick={() => deleteFolder(folder)}><Icon name="trash" size={13} /></button>
                 </span>
               </div>
-              {Number(folder.expanded) === 1 && fchats.map((c) => (
+              {Number(folder.expanded) === 1 && pinFirst(fchats).map((c) => (
                 <div key={c.id} className={`nav-item ${c.id === activeChatId ? 'active' : ''}`} style={{ paddingLeft: 26 }}
                   onClick={() => { setActiveChat(c.id); navigate('chat'); }}>
-                  <span className="icon"><Icon name="chat" size={14} /></span>
+                  <span className="icon"><Icon name={isPinned(c) ? 'pin' : 'chat'} size={14} /></span>
                   <span className="title">{c.title}</span>
                   <UnreadBadge chatId={c.id} />
                   <span className="actions">
+                    <button title={isPinned(c) ? t('chat.unpin') : t('chat.pin')} aria-label={isPinned(c) ? t('chat.unpin') : t('chat.pin')} onClick={(e) => { e.stopPropagation(); togglePin(c); }}><Icon name="pin" size={13} /></button>
                     <button title="Rename" aria-label="Rename" onClick={(e) => { e.stopPropagation(); renameChat(c); }}><Icon name="pencil" size={13} /></button>
                     <button aria-label={t('chat.delete')} onClick={(e) => { e.stopPropagation(); deleteChat(c); }}><Icon name="trash" size={13} /></button>
                   </span>
@@ -171,21 +185,27 @@ export function Sidebar() {
               onClick={() => { setActiveChat(c.id); navigate('chat'); }}>
               <span className="icon"><Icon name="search" size={14} /></span>
               <span className="title">{c.title}</span>
+              <UnreadBadge chatId={c.id} />
               <span className="match-count" title={t('app.msgMatches').replace('{n}', String(msgHits.filter((h) => h.chat_id === c.id).reduce((a, h) => a + h.matches, 0)))}>
                 {msgHits.find((h) => h.chat_id === c.id)?.matches}
+              </span>
+              <span className="actions">
+                <button title="Rename" aria-label="Rename" onClick={(e) => { e.stopPropagation(); renameChat(c); }}><Icon name="pencil" size={13} /></button>
+                <button aria-label={t('chat.delete')} onClick={(e) => { e.stopPropagation(); deleteChat(c); }}><Icon name="trash" size={13} /></button>
               </span>
             </div>
           ))}
           {msgHits.length > 0 && (
             <div className="nav-hint">{t('app.msgMatches').replace('{n}', String(msgHits.reduce((a, h) => a + h.matches, 0)))}</div>
           )}
-          {looseChats.map((c) => (
-            <div key={c.id} className={`nav-item ${c.id === activeChatId ? 'active' : ''}`}
+          {pinFirst(looseChats).map((c) => (
+            <div key={c.id} className={`nav-item ${c.id === activeChatId ? 'active' : ''} ${isPinned(c) ? 'pinned' : ''}`}
               onClick={() => { setActiveChat(c.id); navigate('chat'); }}>
-              <span className="icon"><Icon name="chat" size={14} /></span>
+              <span className="icon"><Icon name={isPinned(c) ? 'pin' : 'chat'} size={14} /></span>
               <span className="title">{c.title}</span>
               <UnreadBadge chatId={c.id} />
               <span className="actions">
+                <button className={isPinned(c) ? 'pinned' : ''} title={isPinned(c) ? t('chat.unpin') : t('chat.pin')} aria-label={isPinned(c) ? t('chat.unpin') : t('chat.pin')} onClick={(e) => { e.stopPropagation(); togglePin(c); }}><Icon name="pin" size={13} /></button>
                 <button title="Rename" aria-label="Rename" onClick={(e) => { e.stopPropagation(); renameChat(c); }}><Icon name="pencil" size={13} /></button>
                 <button aria-label={t('chat.delete')} onClick={(e) => { e.stopPropagation(); deleteChat(c); }}><Icon name="trash" size={13} /></button>
               </span>

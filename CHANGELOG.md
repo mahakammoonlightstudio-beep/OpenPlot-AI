@@ -6,6 +6,33 @@ All notable changes to OpenPlot AI are documented here. The format follows [Keep
 
 Nothing yet.
 
+## [1.1.0] — 2026-09-30
+
+### Added
+- **Reply styles (Claude-style)** — six builtin personas (Default, Concise, Explanatory, Editorial, Empathetic, Formal) seeded into a new `prompt_styles` table and injected under “# Reply style”. Pick one from the composer's sparkle button; edit builtins or add custom styles in Settings → Styles. Builtins can be edited in place but never deleted; `resetAll` re-seeds them.
+- **Attachments as chips** — files attached via the ADD panel now land as removable chips above the composer instead of being pasted into the input as inline text. At send time they ride in the system prompt as fenced blocks.
+- **Drag & drop onto the chat** — drop OS files onto the message area, or drag a story-bible entry or chapter straight from the Story/Chapters views (custom `application/x-openplot-*` payload types); the drop target highlights.
+- **Token accounting** — `tokens_in`/`tokens_out` captured from provider usage when reported (OpenAI `usage`, Anthropic `message_start`/`message_delta`), estimated from the payload otherwise, stored per assistant message, shown as a compact chip on the bubble, and summarized per model and per chat in the new Settings → Usage section.
+- **Agent tools extended** — `read_story_bible` (whole bible in one call), `append_to_chapter` (safe end/beginning append), `list_projects` and `read_project`. The advertised tool list in the system prompt now matches the real registry.
+- **Default skills seeded** — Continuity Guardian, Prose Polisher, Dialogue Coach and Pacing Analyst ship in Settings → Skills on first run; editable and deletable like user skills.
+- **Pinned chats** — pin important conversations so they float to the top of the sidebar (persisted in the DB, works inside folders and search results).
+- **Zen mode for chat** — the header and composer dim to 35% while reading or writing; focus or hover brings them back, `Esc` exits. The sidebar can slide away too (`Esc` restores).
+- EPUB export now takes the author name from Settings → Chat Behavior and validates the language tag (`en`/`id`) instead of hard-coding `dc:language=en`.
+- `OPENPLOT_DATA_DIR` env var redirects the whole profile (DB + settings) for clean-room test runs and screenshots.
+- New icons: `expand`, `panelLeft`. Full EN + ID translations for every new string.
+
+### Fixed
+- Deep search (search inside message content) leaked LIKE wildcards in the per-chat match-count subquery — searches containing `%` or `_` returned wrong match counts.
+- Deleting a message while a reply is generating is now refused (in the main process, not just the UI) so an in-flight reply can never be stranded out of order.
+- `updateMessage` used COALESCE semantics that made clearing `content`/`thinking` impossible; it is now tri-state (undefined = keep, null = clear).
+- Chat rows found via deep search but not by title had no rename/delete affordances and no unread badge in the sidebar.
+- Scroll-position memory for deleted chats is now freed instead of accumulating.
+- Plugin sandbox documented honestly: `new Function` execution is a convenience boundary, not a security boundary — plugins run with full Node access and must be trusted.
+- Style button active state used accent-on-accent text that failed the 3:1 contrast minimum on the Nord theme (accent dot + normal text now, matching the thinking toggle).
+
+### Changed
+- Settings navigation gained Styles and Usage sections (12 total).
+
 ## [1.0.2] — 2026-09-29
 
 ### Added

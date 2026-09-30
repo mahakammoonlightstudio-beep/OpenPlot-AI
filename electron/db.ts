@@ -62,7 +62,8 @@ CREATE TABLE IF NOT EXISTS folders (
 CREATE TABLE IF NOT EXISTS chats (
   id TEXT PRIMARY KEY, title TEXT DEFAULT 'New chat', folder_id TEXT DEFAULT NULL,
   project_id TEXT DEFAULT NULL, model TEXT DEFAULT NULL,
-  system_prompt TEXT DEFAULT NULL, created_at INTEGER, updated_at INTEGER
+  system_prompt TEXT DEFAULT NULL, pinned INTEGER DEFAULT 0,
+  created_at INTEGER, updated_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, role TEXT NOT NULL,
@@ -111,6 +112,10 @@ CREATE TABLE IF NOT EXISTS chapter_versions (
   content TEXT DEFAULT '', word_count INTEGER DEFAULT 0,
   source TEXT DEFAULT 'manual', created_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS prompt_styles (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, content TEXT NOT NULL,
+  builtin INTEGER DEFAULT 0, created_at INTEGER, updated_at INTEGER
+);
 `;
 
 export function uid(): string {
@@ -147,6 +152,12 @@ export async function initDb(dir: string, fileName = 'openplot.db'): Promise<str
   try { db.exec("ALTER TABLE automations ADD COLUMN param TEXT DEFAULT ''"); } catch { /* column exists */ }
   try { db.exec("ALTER TABLE projects ADD COLUMN format TEXT DEFAULT 'novel'"); } catch { /* column exists */ }
   try { db.exec("ALTER TABLE projects ADD COLUMN rating TEXT DEFAULT 'teen'"); } catch { /* column exists */ }
+  // v1.1: pinned chats (pinned conversations float to the top of the sidebar)
+  try { db.exec('ALTER TABLE chats ADD COLUMN pinned INTEGER DEFAULT 0'); } catch { /* column exists */ }
+  // v1.1: per-message token accounting (NULL for rows written by older versions)
+  try { db.exec('ALTER TABLE messages ADD COLUMN tokens_in INTEGER'); } catch { /* column exists */ }
+  try { db.exec('ALTER TABLE messages ADD COLUMN tokens_out INTEGER'); } catch { /* column exists */ }
+  try { db.exec('CREATE TABLE IF NOT EXISTS prompt_styles (id TEXT PRIMARY KEY, name TEXT NOT NULL, content TEXT NOT NULL, builtin INTEGER DEFAULT 0, created_at INTEGER, updated_at INTEGER)'); } catch { /* table exists */ }
   seedDefaults();
   persistNow();
   return dbFile;
@@ -177,6 +188,27 @@ function seedDefaults(): void {
         stmt.free();
       }
     }
+    // Builtin reply styles (Claude-style) — seeded once, flagged builtin so
+    // they can be edited (updated in place) but never deleted from the UI.
+    const styleCount = get('SELECT COUNT(*) AS n FROM prompt_styles WHERE builtin=1');
+    if (!styleCount?.n) {
+      for (const s of DEFAULT_STYLES) {
+        const stmt = db.prepare('INSERT INTO prompt_styles (id, name, content, builtin, created_at, updated_at) VALUES (?,?,?,1,?,?)');
+        stmt.bind([s.id, s.name, s.content, Date.now(), Date.now()]);
+        stmt.step();
+        stmt.free();
+      }
+    }
+    // Starter skills (agent abilities) — same deal: seeded once, deletable.
+    const skillCount = get('SELECT COUNT(*) AS n FROM skills');
+    if (!skillCount?.n) {
+      for (const s of DEFAULT_SKILLS) {
+        const stmt = db.prepare('INSERT INTO skills (id, name, content, enabled) VALUES (?,?,?,1)');
+        stmt.bind([s.id, s.name, s.content]);
+        stmt.step();
+        stmt.free();
+      }
+    }
   } catch (e) {
     console.error('seedDefaults failed:', e);
   }
@@ -193,6 +225,66 @@ export const DEFAULT_AGENT_MD = `You are OpenPlot, a focused AI writing and chat
 - Use save_memory for durable user preferences, create/update_story_entry for worldbuilding, and chapter tools for drafts.
 - Ask at most one clarifying question when a request is ambiguous; otherwise make a reasonable creative choice and say so.
 - Keep chat replies tight; put long-form output in chapters when asked.`;
+
+// Builtin reply styles — seeded into prompt_styles on first run. `content`
+// is a system-prompt fragment injected verbatim under "# Reply style".
+export const DEFAULT_STYLES: Array<{ id: string; name: string; content: string }> = [
+  {
+    id: 'style-default',
+    name: 'Default',
+    content: 'Match the tone of the conversation. Clear, direct, concrete. Use markdown for structure when the reply is long.'
+  },
+  {
+    id: 'style-concise',
+    name: 'Concise',
+    content: 'Answer in as few words as possible. No preamble, no restating the question, no summaries of what you are about to say. Lead with the answer. Skip filler like "Great question" or "Certainly". When a list works, use it; when prose is shorter, use prose.'
+  },
+  {
+    id: 'style-explanatory',
+    name: 'Explanatory',
+    content: 'Explain as you answer: give the reasoning behind choices, one short example where it helps, and note trade-offs. Keep the teaching tone friendly, never condescending, and still lead with the answer before the explanation.'
+  },
+  {
+    id: 'style-editorial',
+    name: 'Editorial',
+    content: 'Write with a strong editorial voice: confident, opinionated where justified, vivid but not purple. Vary sentence rhythm; prefer verbs over adverbs. When critiquing writing, name specifically what works and what does not, and always say why.'
+  },
+  {
+    id: 'style-empathetic',
+    name: 'Empathetic',
+    content: 'Be warm and supportive. Acknowledge the user\'s effort and feelings before advice. Keep encouragement specific (praise the craft, not generic positivity). Never let warmth blur accuracy — if something needs fixing, say so kindly and clearly.'
+  },
+  {
+    id: 'style-formal',
+    name: 'Formal',
+    content: 'Use a formal, professional register: complete sentences, precise vocabulary, no slang, no contractions. Structure longer replies with headings or numbered points. Suitable for queries, outlines, and correspondence within the story.'
+  }
+];
+
+// Starter skills — shown in Settings → Skills; the user can edit or delete
+// them like any other skill. They ride along in the system prompt.
+export const DEFAULT_SKILLS: Array<{ id: string; name: string; content: string }> = [
+  {
+    id: 'skill-continuity',
+    name: 'Continuity Guardian',
+    content: 'Before adding any story fact (name, place, date, ability, relationship), search the story bible and read the relevant chapter. If the new fact conflicts with established canon, say so and propose the smallest change that preserves both.'
+  },
+  {
+    id: 'skill-prose',
+    name: 'Prose Polisher',
+    content: 'When asked to improve prose: cut filler words, vary sentence length, replace weak verbs + adverbs with strong verbs, and prefer concrete sensory detail. Show the revised passage first, then a short bullet list of what changed and why.'
+  },
+  {
+    id: 'skill-dialogue',
+    name: 'Dialogue Coach',
+    content: 'Give each character a distinct voice: vocabulary, rhythm, and what they leave unsaid. When writing dialogue, read it back per character; if two voices could swap lines unnoticed, differentiate them. Use subtext — characters rarely state feelings directly.'
+  },
+  {
+    id: 'skill-pacing',
+    name: 'Pacing Analyst',
+    content: 'When reviewing chapters, track scene-level pacing: goal, conflict, disaster/turn per scene. Flag scenes that run long without a turn, summarize slow middle stretches, and suggest where to cut or add a beat. Reference the story flow board when it exists.'
+  }
+];
 
 export function persistNow(): void {
   if (!db || !dbFile) return;
@@ -306,7 +398,8 @@ export function handleDb(op: string, payload: any): any {
       return true;
     // chats
     case 'listChats':
-      return all('SELECT * FROM chats ORDER BY updated_at DESC, created_at DESC');
+      // Pinned chats first, then recency — matches how the sidebar renders.
+      return all('SELECT * FROM chats ORDER BY pinned DESC, updated_at DESC, created_at DESC');
     case 'createChat': {
       const id = uid();
       run('INSERT INTO chats (id, title, folder_id, project_id, created_at, updated_at) VALUES (?,?,?,?,?,?)', [id, payload.title || 'New chat', payload.folder_id ?? null, payload.project_id ?? null, now, now]);
@@ -323,7 +416,9 @@ export function handleDb(op: string, payload: any): any {
         ['folder_id', payload.folder_id],
         ['project_id', payload.project_id],
         ['model', payload.model],
-        ['system_prompt', payload.system_prompt]
+        ['system_prompt', payload.system_prompt],
+        // Booleans are normalized to 0/1 so SQLite keeps them comparable.
+        ['pinned', payload.pinned === undefined ? undefined : (payload.pinned ? 1 : 0)]
       ];
       for (const [col, val] of fields) {
         if (val === undefined) continue;
@@ -345,16 +440,35 @@ export function handleDb(op: string, payload: any): any {
       return all('SELECT * FROM messages WHERE chat_id=? ORDER BY created_at', [payload.chatId]);
     case 'addMessage': {
       const id = uid();
-      run('INSERT INTO messages (id, chat_id, role, content, thinking, model, created_at) VALUES (?,?,?,?,?,?,?)', [id, payload.chatId, payload.role, payload.content, payload.thinking ?? null, payload.model ?? null, now]);
+      // tokens_in/out ride along when provided (assistant rows from a real
+      // generation). NULL for older rows — Usage views treat NULL as unknown.
+      run('INSERT INTO messages (id, chat_id, role, content, thinking, model, tokens_in, tokens_out, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+        [id, payload.chatId, payload.role, payload.content, payload.thinking ?? null, payload.model ?? null, payload.tokens_in ?? null, payload.tokens_out ?? null, now]);
       run('UPDATE chats SET updated_at=? WHERE id=?', [now, payload.chatId]);
       (globalThis as any).__pluginHook?.('message:new', { chatId: payload.chatId, messageId: id, role: payload.role });
       return get('SELECT * FROM messages WHERE id = ?', [id]);
     }
     case 'updateMessage': {
-      run('UPDATE messages SET content=COALESCE(?,content), thinking=COALESCE(?,thinking) WHERE id=?', [payload.content ?? null, payload.thinking ?? null, payload.id]);
+      // Tri-state: undefined keeps the column, null clears it (COALESCE made
+      // clearing impossible — e.g. erasing a bad thinking trace).
+      const sets: string[] = [];
+      const vals: any[] = [];
+      if (payload.content !== undefined) { sets.push('content=?'); vals.push(payload.content); }
+      if (payload.thinking !== undefined) { sets.push('thinking=?'); vals.push(payload.thinking); }
+      if (payload.tokens_in !== undefined) { sets.push('tokens_in=?'); vals.push(payload.tokens_in); }
+      if (payload.tokens_out !== undefined) { sets.push('tokens_out=?'); vals.push(payload.tokens_out); }
+      if (!sets.length) return get('SELECT * FROM messages WHERE id = ?', [payload.id]);
+      vals.push(payload.id);
+      run(`UPDATE messages SET ${sets.join(', ')} WHERE id=?`, vals);
       return get('SELECT * FROM messages WHERE id = ?', [payload.id]);
     }
     case 'deleteMessage':
+      // Guarded: deleting the message that a live generation is about to
+      // append next to would strand the reply (it is saved with the OLD
+      // timestamp but a new row id — appearing out of order forever).
+      if ((globalThis as any).__busyChats?.has(payload.chatId)) {
+        throw new Error('A reply is being generated in this chat — stop it first.');
+      }
       run('DELETE FROM messages WHERE id=?', [payload.id]);
       return true;
     case 'searchMessages': {
@@ -363,12 +477,14 @@ export function handleDb(op: string, payload: any): any {
       const needle = String(payload.q || '').trim();
       if (!needle) return [];
       // Escape LIKE wildcards so searching "100%" or "who?" matches literally
-      // instead of silently matching every message.
+      // instead of silently matching every message. The per-chat match-count
+      // subquery used to run WITHOUT its own ESCAPE clause, so wildcards in
+      // the needle leaked through and the counts were wrong for those queries.
       const escaped = needle.replace(/[\\%_]/g, (ch) => '\\' + ch);
       const like = `%${escaped}%`;
       return all(
         `SELECT m.id, m.chat_id, m.role, m.content, m.created_at, c.title AS chat_title,
-                (SELECT COUNT(*) FROM messages m2 WHERE m2.chat_id = m.chat_id AND m2.content LIKE ?) AS matches
+                (SELECT COUNT(*) FROM messages m2 WHERE m2.chat_id = m.chat_id AND m2.content LIKE ? ESCAPE '\\') AS matches
            FROM messages m JOIN chats c ON c.id = m.chat_id
           WHERE m.content LIKE ? ESCAPE '\\'
           ORDER BY m.created_at DESC LIMIT 20`,
@@ -511,6 +627,45 @@ export function handleDb(op: string, payload: any): any {
     case 'deletePrompt':
       run('DELETE FROM prompts WHERE id=?', [payload.id]);
       return true;
+    // ---- token usage summary (Usage section in Settings) ----
+    case 'usageSummary': {
+      // Only rows with actual token data are counted; old messages (NULL)
+      // are simply absent rather than guessed twice.
+      const byModel = all(`SELECT model, COUNT(*) AS messages, SUM(tokens_in) AS tin, SUM(tokens_out) AS tout
+        FROM messages WHERE model IS NOT NULL AND (tokens_in IS NOT NULL OR tokens_out IS NOT NULL)
+        GROUP BY model ORDER BY tout DESC`);
+      const byChat = all(`SELECT c.id, c.title, COUNT(*) AS messages, SUM(m.tokens_in) AS tin, SUM(m.tokens_out) AS tout
+        FROM messages m JOIN chats c ON c.id = m.chat_id
+        WHERE m.model IS NOT NULL AND (m.tokens_in IS NOT NULL OR m.tokens_out IS NOT NULL)
+        GROUP BY c.id ORDER BY tout DESC LIMIT 10`);
+      const total = get(`SELECT COUNT(*) AS messages, SUM(tokens_in) AS tin, SUM(tokens_out) AS tout
+        FROM messages WHERE tokens_in IS NOT NULL OR tokens_out IS NOT NULL`);
+      return { byModel, byChat, total };
+    }
+    // ---- reply styles (Claude-style persona for the assistant) ----
+    case 'listStyles':
+      return all('SELECT * FROM prompt_styles ORDER BY builtin DESC, created_at');
+    case 'saveStyle': {
+      // Upsert. Builtin rows are updated IN PLACE (builtin flag preserved) so
+      // re-seeding on upgrade can never duplicate them; only name/content.
+      const existing = payload.id ? get('SELECT id, builtin FROM prompt_styles WHERE id=?', [payload.id]) : undefined;
+      if (existing) {
+        run('UPDATE prompt_styles SET name=?, content=?, updated_at=? WHERE id=?', [payload.name, payload.content, now, payload.id]);
+        return get('SELECT * FROM prompt_styles WHERE id=?', [payload.id]);
+      }
+      const id = uid();
+      run('INSERT INTO prompt_styles (id, name, content, builtin, created_at, updated_at) VALUES (?,?,?,0,?,?)', [id, payload.name, payload.content, now, now]);
+      return get('SELECT * FROM prompt_styles WHERE id=?', [id]);
+    }
+    case 'deleteStyle': {
+      // Builtin styles are permanent — delete is refused rather than silently
+      // ignored so the UI can say why.
+      const row = get('SELECT builtin FROM prompt_styles WHERE id=?', [payload.id]);
+      if (!row) return true;
+      if (row.builtin) throw new Error('Built-in styles cannot be deleted — edit them instead.');
+      run('DELETE FROM prompt_styles WHERE id=?', [payload.id]);
+      return true;
+    }
     // chapters
     case 'listAllChapters':
       return all('SELECT * FROM chapters ORDER BY position');
@@ -593,7 +748,15 @@ export function handleDb(op: string, payload: any): any {
       return true;
     case 'resetAll':
       if (db) {
-        db.exec('DELETE FROM settings; DELETE FROM projects; DELETE FROM folders; DELETE FROM chats; DELETE FROM messages; DELETE FROM memories; DELETE FROM story; DELETE FROM chapters; DELETE FROM providers; DELETE FROM plugins; DELETE FROM skills; DELETE FROM automations; DELETE FROM mcp_servers; DELETE FROM scenes; DELETE FROM flow_beats; DELETE FROM prompts; DELETE FROM chapter_versions;');
+        db.exec('DELETE FROM settings; DELETE FROM projects; DELETE FROM folders; DELETE FROM chats; DELETE FROM messages; DELETE FROM memories; DELETE FROM story; DELETE FROM chapters; DELETE FROM providers; DELETE FROM plugins; DELETE FROM skills; DELETE FROM automations; DELETE FROM mcp_servers; DELETE FROM scenes; DELETE FROM flow_beats; DELETE FROM prompts; DELETE FROM chapter_versions; DELETE FROM prompt_styles;');
+        // Builtin styles are permanent furniture — re-seed immediately so the
+        // user never sees an empty style picker until the next app start.
+        for (const s of DEFAULT_STYLES) {
+          const stmt = db.prepare('INSERT INTO prompt_styles (id, name, content, builtin, created_at, updated_at) VALUES (?,?,?,1,?,?)');
+          stmt.bind([s.id, s.name, s.content, now, now]);
+          stmt.step();
+          stmt.free();
+        }
         persistNow();
       }
       return true;

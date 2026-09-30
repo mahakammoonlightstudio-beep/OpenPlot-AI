@@ -23,6 +23,24 @@ function clampNum(v: number, min: number, max: number, fb: number): number {
 
 const contentWordCount = (s: string) => (s.trim().match(/\S+/g) || []).length;
 
+/** One file/story/chapter attached to the NEXT message (chip, not inline text). */
+interface Attachment { id: string; name: string; kind: 'file' | 'story' | 'chapter'; content: string }
+
+function fmtTokens(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '';
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n));
+}
+
+/** Compact "in→out" token label for a message meta row ('' when unknown). */
+function tokenLabel(m: Message): string {
+  const i = fmtTokens(m.tokens_in);
+  const o = fmtTokens(m.tokens_out);
+  if (i && o) return `${i}→${o} tok`;
+  if (o) return `${o} tok`;
+  if (i) return `${i} tok`;
+  return '';
+}
+
 // ---- context guard ----
 // Rough token estimate (~4 chars/token) is good enough for guarding; exact
 // tokenization is model-specific and not worth a dependency. When the
@@ -124,7 +142,7 @@ function ModelBadge({ model, withBar }: { model: string | null | undefined; with
 // scrolls up — keeps long chats fast without breaking autoscroll anchoring.
 const RENDER_WINDOW = 60;
 
-function MessageBubble({ msg, onDelete, onEdit, youLabel, editLabel, saveResendLabel, cancelLabel, deleteLabel, onSaveChapter, savedToChapter }: {
+function MessageBubble({ msg, onDelete, onEdit, youLabel, editLabel, saveResendLabel, cancelLabel, deleteLabel, onSaveChapter, savedToChapter, tokensLabel }: {
   msg: Message;
   onDelete: () => void;
   onEdit: (msg: Message, newText: string) => void;
@@ -135,6 +153,7 @@ function MessageBubble({ msg, onDelete, onEdit, youLabel, editLabel, saveResendL
   deleteLabel: string;
   onSaveChapter?: (msg: Message) => void;
   savedToChapter?: boolean;
+  tokensLabel?: string;
 }) {
   const t = useT();
   const [editing, setEditing] = useState(false);
@@ -152,6 +171,7 @@ function MessageBubble({ msg, onDelete, onEdit, youLabel, editLabel, saveResendL
       <div className="bubble">
         <div className="meta">
           <span className="who">{isUser ? youLabel : <ModelBadge model={msg.model} />}</span>
+          {tokensLabel && <span className="tok-chip">{tokensLabel}</span>}
         </div>
         {!isUser && msg.thinking ? <ThinkingBlock text={msg.thinking} /> : null}
         {!isUser && toolsUsed.length > 0 && (
@@ -204,7 +224,7 @@ function MessageBubble({ msg, onDelete, onEdit, youLabel, editLabel, saveResendL
 export function ChatView() {
   const t = useT();
   const settings = useSettings();
-  const { chats, projects, providers, activeChatId, setActiveChat, activeProjectId, setActiveProject, reloadChatRelated } = useData();
+  const { chats, projects, providers, styles, activeChatId, setActiveChat, activeProjectId, setActiveProject, reloadChatRelated } = useData();
   const ui = useUi();
 
   const chat = chats.find((c) => c.id === activeChatId) || null;
@@ -231,6 +251,11 @@ export function ChatView() {
   // Per-chat scroll memory: chatId -> scrollTop
   const scrollPosRef = useRef<Map<string, number>>(new Map());
   const pendingRestoreRef = useRef<string | null>(null);
+
+  // Zen mode: dim the chat chrome for distraction-free reading; the sidebar
+  // can also be slid away (state lives in useUi so App can class the shell).
+  const [zen, setZen] = useState(false);
+  useEffect(() => { if (!zen && !ui.sidebarHidden) return; const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setZen(false); ui.setSidebarHidden(false); } }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey); }, [zen, ui.sidebarHidden]);
 
   // Progressive message rendering: only the newest RENDER_WINDOW messages get
   // full markdown; older ones collapse to skeletons until scrolled into view.
@@ -286,6 +311,58 @@ export function ChatView() {
   // system prompt until cleared (null = no goal).
   const [goal, setGoal] = useState<string | null>(null);
   useEffect(() => { setGoal(null); }, [activeChatId]);
+
+  // ---- attachments: files & story content as chips (never inline text) ----
+  // OS files keep their whole content; story bible entries and chapters can
+  // be dragged straight from their views. At send time they ride in the
+  // system prompt as fenced blocks and the composer text stays clean.
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  useEffect(() => { setAttachments([]); setDragOver(false); }, [activeChatId]);
+
+  function addAttachments(next: Attachment[]) {
+    setAttachments((cur) => {
+      const room = Math.max(0, 8 - cur.length);
+      if (next.length > room) ui.toast(t('chat.attachLimit'), 'error');
+      return [...cur, ...next.slice(0, room)];
+    });
+  }
+  function removeAttachment(id: string) { setAttachments((a) => a.filter((x) => x.id !== id)); }
+
+  async function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const dt = e.dataTransfer;
+    const next: Attachment[] = [];
+    // 1) story bible entries / chapters dragged from inside the app
+    try {
+      const storyRaw = dt.getData('application/x-openplot-story');
+      if (storyRaw) {
+        const { id } = JSON.parse(storyRaw);
+        const entry = useData.getState().story.find((s) => s.id === id);
+        if (entry) next.push({ id: uid(), name: `${entry.title} (story)`, kind: 'story', content: entry.content });
+      }
+      const chapterRaw = dt.getData('application/x-openplot-chapter');
+      if (chapterRaw) {
+        const { id } = JSON.parse(chapterRaw);
+        const ch = useData.getState().chapters.find((c) => c.id === id);
+        if (ch) next.push({ id: uid(), name: `${ch.title} (chapter)`, kind: 'chapter', content: ch.content });
+      }
+    } catch { /* malformed drag payload — ignore */ }
+    // 2) OS files (path via preload webUtils; fallback to in-memory read)
+    for (const f of Array.from(dt.files || []).slice(0, 8)) {
+      try {
+        const path = window.inkwell.pathForFile?.(f) || '';
+        if (path) {
+          const rows = await window.inkwell.readFiles([path]);
+          if (rows.length) next.push({ id: uid(), name: rows[0].name, kind: 'file', content: rows[0].content });
+        } else if (f.size < 300_000) {
+          next.push({ id: uid(), name: f.name, kind: 'file', content: await f.text() });
+        }
+      } catch { /* unreadable — skip */ }
+    }
+    if (next.length) addAttachments(next);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -432,11 +509,24 @@ export function ChatView() {
       parts.push('# Active skills\n' + skills.map((s) => `## skill: ${s.name}\n${s.content}`).join('\n\n'));
     }
     if (goal && goal.trim()) parts.push('# Session goal\n' + goal.trim());
+    // Reply style (Claude-style): a named persona/tone the user picks in the
+    // composer and edits in Settings. Builtin = shipped with the app.
+    const style = useData.getState().styles.find((s) => s.id === settings.defaultStyleId);
+    const styleName = style?.name || null;
+    if (style) parts.push('# Reply style' + (style.builtin ? '' : ' (custom)') + '\n' + style.content);
     // Only advertise tools when they will actually be sent to the provider —
     // the old hint told models to "use tools proactively" even when the
     // tools toggle was off, and they replied with unusable tool-call text.
     if (toolsOn ?? settings.toolsEnabled) {
-      parts.push('# Story tools\nYou have native tools (save_memory, create_story_entry, update_story_entry, search_story, create_chapter, update_chapter, list_chapters, read_chapter). Use them proactively when the user discusses story worldbuilding, characters, items, lore or chapters.');
+      const toolNames = 'save_memory, list_memories, create_story_entry, update_story_entry, search_story, read_story_bible, create_chapter, update_chapter, append_to_chapter, list_chapters, read_chapter, list_projects, read_project';
+      const toolHint = styleName
+        ? `You have native story tools (${toolNames}). When a tool result comes back, write the surrounding reply in the user's "${styleName}" style — but tool calls themselves stay plain and functional. Use tools proactively when the user discusses story worldbuilding, characters, items, lore or chapters.`
+        : `You have native tools (${toolNames}). Use them proactively when the user discusses story worldbuilding, characters, items, lore or chapters.`;
+      parts.push('# Story tools\n' + toolHint);
+    }
+    if (attachments.length) {
+      const blocks = attachments.map((a) => `=== FILE: ${a.name} ===\n${a.content}`).join('\n\n');
+      parts.push(`# Attached files (${attachments.length}) — user-provided context for this turn\n${blocks}`);
     }
     return parts.join('\n\n');
   }
@@ -444,7 +534,8 @@ export function ChatView() {
   async function send(pendingUser?: Message, textOverride?: string, historyBase?: Message[]) {
     if (streaming) return;
     const text = (textOverride ?? input).trim();
-    if (!pendingUser && !text) return;
+    // Attachments alone (no typed text) are a valid send.
+    if (!pendingUser && !text && !attachments.length) return;
 
     if (!enabledProviders.length) { ui.toast(t('chat.noProvider'), 'error'); return; }
     if (!effModel || !effProvider) { ui.toast(t('chat.noModel'), 'error'); return; }
@@ -469,6 +560,8 @@ export function ChatView() {
       userMsg = await dbCall<Message>('addMessage', { chatId, role: 'user', content: text });
       setMessages((m) => [...m, userMsg!]);
       setInput('');
+      // Attachments rode along with this send — the next message starts clean.
+      setAttachments([]);
     }
 
     // auto title from first user message
@@ -541,6 +634,7 @@ export function ChatView() {
     const provider = modelProvider;
     const req: GenerateRequest = {
       reqId: uid(),
+      chatId,
       provider: {
         id: provider.id, name: provider.name, baseUrl: provider.baseUrl,
         apiKey: provider.apiKey, enabled: true, models: provider.models as string[], kind: (provider as any).kind
@@ -623,7 +717,9 @@ export function ChatView() {
           role: 'assistant',
           content: finalText,
           thinking: finalThink || null,
-          model: effModel
+          model: effModel,
+          tokens_in: res.data?.tokensIn ?? null,
+          tokens_out: res.data?.tokensOut ?? null
         });
         (saved as any).toolsUsed = toolsUsed;
         if (stillHere) setMessages((m) => [...m, saved]);
@@ -754,6 +850,9 @@ export function ChatView() {
   }
 
   async function deleteMsg(id: string) {
+    // Deleting mid-generation would leave the in-flight reply with nowhere to
+    // land (it is appended to `messages` when the stream settles) — block it.
+    if (streaming) { ui.toast(t('chat.stopFirst'), 'error'); return; }
     await dbCall('deleteMessage', { id });
     setMessages((m) => m.filter((x) => x.id !== id));
   }
@@ -797,6 +896,7 @@ export function ChatView() {
     if (!(await confirmDialog({ title: t('confirm.deleteChat'), danger: true, confirmLabel: t('confirm.delete'), cancelLabel: t('confirm.cancel') }))) return;
     await dbCall('deleteChat', { id: chat.id });
     useUnreadStore.getState().forget(chat.id); // unread state dies with the chat
+    scrollPosRef.current.delete(chat.id); // scroll memory dies with it too
     await reloadChatRelated();
     setActiveChat(null);
   }
@@ -919,12 +1019,14 @@ export function ChatView() {
   const ov = showAdvanced;
 
   return (
-    <div className={`chat-root ${headerHidden ? 'header-hidden' : ''}`}>
+    <div className={`chat-root ${headerHidden ? 'header-hidden' : ''} ${zen ? 'zen' : ''}`}>
       <div className={`chat-header ${headerScrolled ? 'scrolled' : ''}`}>
         <div className="title">{chat.title}</div>
         {effModel && effProvider && <ModelBadge model={effModel} withBar />}
         <button className="small ghost" onClick={() => setModelModal(true)} title={t('model.editTitle')} aria-label={t('model.editTitle')}><Icon name="cpu" size={15} /></button>
         <button className="small ghost" onClick={() => setShowAdvanced(!showAdvanced)} title="Advanced settings" aria-label="Advanced settings"><Icon name="settings" size={15} /></button>
+        <button className={`small ghost ${zen ? 'active' : ''}`} onClick={() => setZen(!zen)} title={t('chat.zen')} aria-label={t('chat.zen')}><Icon name="expand" size={15} /></button>
+        <button className={`small ghost ${ui.sidebarHidden ? 'active' : ''}`} onClick={() => ui.setSidebarHidden(!ui.sidebarHidden)} title={ui.sidebarHidden ? t('chat.showSidebar') : t('chat.hideSidebar')} aria-label={ui.sidebarHidden ? t('chat.showSidebar') : t('chat.hideSidebar')}><Icon name="panelLeft" size={15} /></button>
         <button className="small ghost" onClick={regenLast} disabled={streaming} title={t('chat.regenLast')} aria-label={t('chat.regenLast')}><Icon name="refresh" size={15} /></button>
         <button className="small ghost" onClick={() => exportChat('md')} disabled={messages.length === 0} title={t('chat.export')} aria-label={t('chat.export')}><Icon name="download" size={15} /></button>
         <button className="small ghost" onClick={() => exportChat('json')} disabled={messages.length === 0} title={t('chat.exportJson')} aria-label={t('chat.exportJson')}><Icon name="file" size={15} /></button>
@@ -964,7 +1066,15 @@ export function ChatView() {
         </div>
       )}
 
-      <div className="messages" ref={scrollRef} onScroll={onMessagesScroll} style={{ fontSize: settings.chatFontSize }}>
+      <div
+        className={`messages ${dragOver ? 'drag-over' : ''}`}
+        ref={scrollRef}
+        onScroll={onMessagesScroll}
+        style={{ fontSize: settings.chatFontSize }}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
+        onDrop={handleDrop}
+      >
         {renderLimit < messages.length && (
           <button className="load-earlier" onClick={expandEarlier} disabled={loadingEarlier} aria-busy={loadingEarlier}>
             {t('chat.loadEarlier').replace('{n}', String(Math.min(RENDER_WINDOW, messages.length - renderLimit)))}
@@ -980,7 +1090,8 @@ export function ChatView() {
               onDelete={() => deleteMsg(m.id)}
               onEdit={editMsg}
               onSaveChapter={() => saveToChapter(m)}
-              savedToChapter={savedChapters.has(m.id)} />
+              savedToChapter={savedChapters.has(m.id)}
+              tokensLabel={tokenLabel(m)} />
           ) : (
             <div key={m.id} className="msg skeleton-msg"><div className="avatar" /><div className="bubble"><div className="skeleton-line" /></div></div>
           )
@@ -1056,6 +1167,17 @@ export function ChatView() {
         goal={goal}
         setGoal={setGoal}
         wordCount={(input.trim().match(/\S+/g) || []).length}
+        styles={styles}
+        activeStyleId={settings.defaultStyleId}
+        onPickStyle={(id) => settings.set('defaultStyleId', id)}
+        attachments={attachments}
+        onRemoveAttachment={removeAttachment}
+        onAttachClick={async () => {
+          const paths = await window.inkwell.pickFiles();
+          if (!paths.length) return;
+          const files = await window.inkwell.readFiles(paths);
+          if (files.length) addAttachments(files.map((f) => ({ id: uid(), name: f.name, kind: 'file' as const, content: f.content })));
+        }}
       />
 
       {modelModal && effModel && effProvider && (

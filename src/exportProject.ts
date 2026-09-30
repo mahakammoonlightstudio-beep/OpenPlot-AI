@@ -9,6 +9,7 @@
  */
 
 import { Project, StoryEntry, Chapter, FlowBeat } from './types';
+import { useSettings } from './store';
 
 const KINDS: Array<StoryEntry['kind']> = ['world', 'location', 'character', 'item', 'lore'];
 
@@ -168,8 +169,11 @@ export async function exportProjectAs(
       content: (c.content || '').trim() + (i === projChapters.length - 1 && appendix ? `\n\n${appendix}` : '')
     }));
     // Main process assembles the ZIP (zlib) and shows the native save dialog.
-    // (No author field exists on projects yet — EPUB metadata gets a fallback.)
-    res = await window.inkwell.exportEpub(`${project.name}.epub`, 'Unknown Author', epubChapters);
+    // The author name comes from Settings → Chat Behavior (falls back to
+    // 'Unknown Author'); the language tag mirrors the UI language.
+    const author = useSettings.getState().authorName?.trim() || 'Unknown Author';
+    const lang = useSettings.getState().lang === 'id' ? 'id' : 'en';
+    res = await window.inkwell.exportEpub(`${project.name}.epub`, author, epubChapters, lang);
     return { ok: res.ok, cancelled: res.error === 'cancelled', chapters: projChapters.length, words, entries: 0, beats: 0 };
   }
   res = await window.inkwell.exportMarkdown(`${project.name}.md`, md.markdown);

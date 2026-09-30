@@ -279,13 +279,50 @@ const PROBE = `(() => {
   await run('settings sections', async () => {
     await nav('settings');
     await sleep(400);
-    for (const s of ['providers', 'appearance', 'memory', 'behavior', 'agentmd', 'skills', 'plugins', 'automations', 'mcp', 'data']) {
+    for (const s of ['providers', 'appearance', 'styles', 'usage', 'memory', 'behavior', 'agentmd', 'skills', 'plugins', 'automations', 'mcp', 'data']) {
       await cdp.evalJS(`[...document.querySelectorAll('.settings-nav button')].find(b=>b.textContent.toLowerCase().includes('${s.slice(0, 5)}')).click()`);
       await sleep(350);
       const issues = await cdp.evalJS(PROBE);
       check('settings/' + s + ': clean', issues.length === 0, issues.slice(0, 3).join(' | '));
-      if (s === 'providers' || s === 'appearance' || s === 'data') await cdp.shot('08-settings-' + s + '.png');
+      if (s === 'providers' || s === 'appearance' || s === 'styles' || s === 'usage' || s === 'data') await cdp.shot('08-settings-' + s + '.png');
     }
+  });
+
+  await run('new features (styles / tokens / pin / zen)', async () => {
+    // Token chip: the streamed reply was saved with estimated tokens.
+    await nav('chat');
+    await waitUntil(() => cdp.evalJS("!!document.querySelector('.comp-box textarea')"), 15000, 'composer back');
+    check('token chip on messages', (await cdp.evalJS("!!document.querySelector('.tok-chip')")) === true);
+    // Reply style picker: opens, lists builtins, picking one persists.
+    check('style button in composer', (await cdp.evalJS("!!document.querySelector('.style-btn')")) === true);
+    await cdp.evalJS("document.querySelector('.style-btn').click()");
+    await sleep(300);
+    const hasBuiltin = await cdp.evalJS("[...document.querySelectorAll('.ui-popover .ui-menu-item')].some(e=>/concise/i.test(e.textContent))");
+    check('style popover lists builtins', hasBuiltin === true);
+    await cdp.shot('12-style-picker.png');
+    await cdp.evalJS("[...document.querySelectorAll('.ui-popover .ui-menu-item')].find(e=>/concise/i.test(e.textContent))?.click()");
+    await sleep(300);
+    check('picked style persisted', /concise/i.test(String(await cdp.evalJS("window.useSettings.getState().defaultStyleId || ''"))) === true);
+    // Pinned chat: flip via DB, reload, expect it ordered first.
+    const chatId = await cdp.evalJS("window.useData.getState().activeChatId");
+    await cdp.evalJS(`(async()=>{await window.inkwell.dbCall('updateChat',{id:'${chatId}',pinned:true});await window.useData.getState().reloadChatRelated();return 1;})()`);
+    await sleep(400);
+    const firstPinned = await cdp.evalJS("Number(window.useData.getState().chats[0]?.pinned)===1");
+    check('pinned chat sorts first', firstPinned === true);
+    // Zen mode: toggle adds the class, focus dims chrome via CSS.
+    await cdp.evalJS("document.querySelector('.chat-header button[aria-label*=" + JSON.stringify('Zen') + "], .chat-header button[title*=Zen]')?.click()");
+    await sleep(300);
+    check('zen mode toggles', (await cdp.evalJS("!!document.querySelector('.chat-root.zen')")) === true);
+    await cdp.shot('13-zen-mode.png');
+    await cdp.evalJS("document.querySelector('.chat-header button[aria-label*=" + JSON.stringify('Zen') + "], .chat-header button[title*=Zen]')?.click()");
+    await sleep(200);
+    // Settings → Styles shows the six builtins.
+    await nav('settings');
+    await sleep(300);
+    await cdp.evalJS("[...document.querySelectorAll('.settings-nav button')].find(b=>/style/i.test(b.textContent)).click()");
+    await sleep(400);
+    const builtinRows = await cdp.evalJS("document.querySelectorAll('.style-row').length");
+    check('styles section lists builtins', builtinRows >= 6, 'rows=' + builtinRows);
   });
 
   await run('prompt library shortcut', async () => {

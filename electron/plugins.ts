@@ -52,6 +52,11 @@ export function wireDbHooks(): void {
   (globalThis as any).__pluginHook = runHook;
 }
 
+// SECURITY NOTE: this is a CONVENIENCE sandbox, not a security boundary.
+// `new Function` runs plugin code with full Node access (fs, net, process) —
+// a malicious plugin can do anything the user can. Only install plugins you
+// trust; the Settings → Plugins docs should say the same. True isolation
+// would require a utilityProcess/iframe split, deliberately out of scope.
 function makeSandbox(id: string, name: string): { plugin: LoadedPlugin; context: any } {
   const plugin: LoadedPlugin = { id, name, enabled: true, hooks: {}, commands: [] };
   const context = {

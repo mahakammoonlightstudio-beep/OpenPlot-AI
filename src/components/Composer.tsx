@@ -3,7 +3,7 @@ import { useData, useUi, dbCall } from '../store';
 import { useT } from '../i18nReact';
 import { Icon } from './Icons';
 import { Popover, MenuItem } from './Ui';
-import { Provider } from '../types';
+import { Provider, StyleRow } from '../types';
 import {
   PROMPT_LIBRARY, PROMPT_CATEGORIES, applyPromptTemplate, mergePrompts,
   LibraryPrompt, PromptCategory
@@ -27,6 +27,8 @@ export function Composer({
   chatProjectId, onPickProject, onDetachProject,
   goal, setGoal,
   wordCount,
+  styles, activeStyleId, onPickStyle,
+  attachments, onRemoveAttachment, onAttachClick,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -48,6 +50,14 @@ export function Composer({
   goal: string | null;
   setGoal: (v: string | null) => void;
   wordCount: number;
+  /** Reply styles (builtin + custom) and the active pick. */
+  styles: StyleRow[];
+  activeStyleId: string | null;
+  onPickStyle: (id: string | null) => void;
+  /** Files/story/chapter chips for the NEXT message. */
+  attachments: Array<{ id: string; name: string; kind: 'file' | 'story' | 'chapter'; content: string }>;
+  onRemoveAttachment: (id: string) => void;
+  onAttachClick: () => void | Promise<void>;
 }) {
   const t = useT();
   const ui = useUi();
@@ -55,9 +65,10 @@ export function Composer({
   const [addOpen, setAddOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [thinkOpen, setThinkOpen] = useState(false);
+  const [styleOpen, setStyleOpen] = useState(false);
   const [projOpen, setProjOpen] = useState(false);
-  const [attaching, setAttaching] = useState(false);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const activeStyle = styles.find((s) => s.id === activeStyleId) || null;
   const chatProject = projects.find((p) => p.id === chatProjectId) || null;
 
   // ---- @-mentions (story bible & chapters) ----
@@ -192,24 +203,6 @@ export function Composer({
   };
   useEffect(() => { autoGrow(taRef.current); }, [input]);
 
-  async function attach() {
-    if (attaching) return;
-    setAttaching(true);
-    try {
-      const paths = await window.inkwell.pickFiles();
-      if (!paths.length) return;
-      const files = await window.inkwell.readFiles(paths);
-      if (!files.length) { ui.toast(t('composer.attachFail'), 'error'); return; }
-      const label = files.map((f) => f.name).join(', ');
-      const body = files.map((f) => `--- ${f.name} ---\n${f.content}`).join('\n\n');
-      setInput((input ? input + '\n\n' : '') + `${t('composer.attached')} ${label}:\n${body}`);
-      ui.toast(t('composer.attachedToast').replace('{n}', String(files.length)), 'ok');
-    } finally {
-      setAttaching(false);
-      setAddOpen(false);
-    }
-  }
-
   function saveComposerAsPrompt() {
     const text = input.trim();
     if (!text) return;
@@ -221,6 +214,19 @@ export function Composer({
 
   return (
     <div className="composer2">
+      {attachments.length > 0 && (
+        <div className="attach-row">
+          {attachments.map((a) => (
+            <span key={a.id} className={`attach-chip kind-${a.kind}`} title={`${a.name} · ${a.content.length.toLocaleString()} chars`}>
+              <Icon name={a.kind === 'file' ? 'paperclip' : a.kind === 'story' ? 'book' : 'file'} size={12} />
+              <span className="n">{a.name}</span>
+              <button className="x" aria-label="Remove attachment" onClick={() => onRemoveAttachment(a.id)}>
+                <Icon name="x" size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       {editorState && (
         <PromptEditorModal
           existing={editorState.mode === 'edit' ? (userPrompts.find((u) => u.id === userRowId(editorState.prompt)) || null) : null}
@@ -409,7 +415,7 @@ export function Composer({
             </button>
             <Popover open={addOpen} onClose={() => setAddOpen(false)} width={380}>
               <div className="add-head">{t('composer.addPanel')}</div>
-              <button className="add-row" onClick={attach} disabled={attaching}>
+              <button className="add-row" onClick={() => { setAddOpen(false); void onAttachClick(); }}>
                 <Icon name="paperclip" size={15} /> <span className="lbl">{t('composer.attachments')}</span>
                 <span className="desc">{t('composer.attachDesc')}</span>
               </button>
@@ -481,6 +487,22 @@ export function Composer({
               <Popover open={thinkOpen} onClose={() => setThinkOpen(false)} align="right" width={230}>
                 <MenuItem label={t('composer.off')} active={!thinkOn} onClick={() => { setThinkOpen(false); setThinkOn(false); }} />
                 <MenuItem label={t('composer.on')} active={thinkOn} onClick={() => { setThinkOpen(false); setThinkOn(true); }} />
+              </Popover>
+            </div>
+
+            {/* Reply style picker (Claude-style) — edit builtins in Settings → Styles */}
+            <div className="comp-menu-wrap">
+              <button className={`style-btn ${activeStyle ? 'on' : ''}`} onClick={() => setStyleOpen(!styleOpen)}
+                aria-expanded={styleOpen} title={t('style.pick')}>
+                <Icon name="sparkle" size={13} /> {activeStyle ? activeStyle.name : t('style.none')}
+                <Icon name="chevronDown" size={12} />
+              </button>
+              <Popover open={styleOpen} onClose={() => setStyleOpen(false)} align="right" width={280}>
+                <MenuItem label={t('style.none')} desc={t('style.noneDesc')} active={!activeStyle} onClick={() => { setStyleOpen(false); onPickStyle(null); }} />
+                {styles.map((s) => (
+                  <MenuItem key={s.id} label={s.name} desc={s.content.length > 60 ? s.content.slice(0, 60) + '…' : s.content}
+                    active={s.id === activeStyleId} onClick={() => { setStyleOpen(false); onPickStyle(s.id); }} />
+                ))}
               </Popover>
             </div>
 

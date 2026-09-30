@@ -1,7 +1,12 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 const api = {
   platform: process.platform,
+  // Absolute path of a dragged File — webUtils must run in the preload
+  // (renderer File.path was removed in newer Electron). Powers drag & drop.
+  pathForFile: (file: File) => {
+    try { return webUtils.getPathForFile(file); } catch { return ''; }
+  },
   dbCall: (op: string, payload?: any) => ipcRenderer.invoke('db', op, payload),
   generate: (req: any) => ipcRenderer.invoke('ai:generate', req),
   abort: (reqId: string) => ipcRenderer.invoke('ai:abort', reqId),
@@ -25,8 +30,8 @@ const api = {
   exportMarkdown: (name: string, content: string) => ipcRenderer.invoke('export:markdown', name, content),
   exportFile: (name: string, content: string, kind: 'txt' | 'md') => ipcRenderer.invoke('export:file', name, content, kind),
   // EPUB is assembled in the main process (zlib); the renderer sends chapter data.
-  exportEpub: (name: string, author: string, chapters: { title: string; content: string }[]) =>
-    ipcRenderer.invoke('export:epub', name, author, chapters),
+  exportEpub: (name: string, author: string, chapters: { title: string; content: string }[], lang?: string) =>
+    ipcRenderer.invoke('export:epub', name, author, chapters, lang),
   pickFiles: () => ipcRenderer.invoke('dialog:pickFiles'),
   readFiles: (paths: string[]) => ipcRenderer.invoke('files:read', paths),
   onAiChunk: (cb: (data: { reqId: string; chunk: any }) => void) => {

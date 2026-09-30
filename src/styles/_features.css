@@ -155,6 +155,107 @@ select.arc-set { font-size: 12px; padding: 3px 6px; }
   padding: 6px 8px 2px; font-style: italic;
 }
 
+/* ===== Pinned chats ===== */
+.nav-item.pinned .title { color: var(--text); font-weight: 500; }
+.nav-item .actions button.pinned { color: var(--accent); }
+.nav-item .actions button.pinned:hover { color: var(--accent); }
+
+/* ===== Chat: Zen mode =====
+   Dims the chat chrome (header + composer) so the conversation itself is the
+   star. Focus restores full brightness; Esc exits (handled in ChatView). */
+.chat-root.zen .chat-header,
+.chat-root.zen .composer2 {
+  opacity: 0.35; transition: opacity 0.25s ease;
+}
+.chat-root.zen .chat-header:hover,
+.chat-root.zen .composer2:hover,
+.chat-root.zen .chat-header:focus-within,
+.chat-root.zen .composer2:focus-within {
+  opacity: 1;
+}
+.chat-root.zen .chat-header { border-bottom-color: transparent; }
+.chat-root.zen .composer2 { border-top-color: transparent; }
+
+/* ===== Slidable sidebar (Zen companion toggle) ===== */
+.app .sidebar { transition: margin-left 0.22s ease, opacity 0.22s ease; }
+.app.sidebar-hidden .sidebar { margin-left: -270px; opacity: 0; pointer-events: none; }
+
+/* ===== Ghost buttons with a persistent active state (zen / panel toggles) ===== */
+button.small.ghost.active { color: var(--accent); background: var(--accent-soft); }
+
+/* ===== Attachments (chips, never inline text) ===== */
+.attach-row {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 8px 12px 0;
+}
+.attach-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: 260px;
+  font-size: 11.5px;
+  background: var(--bg-panel-2); border: 1px solid var(--border);
+  border-radius: 14px; padding: 3px 8px 3px 10px; color: var(--text-dim);
+}
+.attach-chip.kind-story { border-color: var(--accent); color: var(--accent); }
+.attach-chip.kind-chapter { border-color: var(--warn, #f5a623); }
+.attach-chip .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attach-chip .x {
+  border: none; background: transparent; color: inherit; cursor: pointer;
+  padding: 0 1px; display: inline-flex; opacity: 0.7;
+}
+.attach-chip .x:hover { opacity: 1; }
+
+/* Drag-over state on the messages area */
+.messages.drag-over {
+  outline: 2px dashed var(--accent); outline-offset: -6px;
+  background: var(--accent-soft);
+}
+
+/* ===== Token chip on message meta ===== */
+.tok-chip {
+  font-family: var(--mono); font-size: 10px;
+  color: var(--text-faint); background: var(--bg-panel-2);
+  border: 1px solid var(--border); border-radius: 8px; padding: 0 6px;
+}
+
+/* ===== Style button in composer ===== */
+.style-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; padding: 4px 9px;
+  border-radius: 14px; cursor: pointer;
+  background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+}
+.style-btn:hover { background: var(--bg-hover); color: var(--text); }
+/* ON state: accent DOT + normal text color (same pattern as .think-btn.on —
+   accent text on Nord's slate panel measured 2.3:1, under the 3:1 minimum). */
+.style-btn.on { border-color: var(--accent); color: var(--text); font-weight: 600; }
+.style-btn.on::before {
+  content: '';
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  background: var(--accent);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.style-btn .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
+
+/* ===== Settings → Styles editor ===== */
+.styles-grid { display: grid; grid-template-columns: 260px 1fr; gap: 14px; align-items: start; }
+.styles-list { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); overflow-y: auto; max-height: 60vh; }
+.style-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 10px 12px; border: none; border-bottom: 1px solid var(--border);
+  background: transparent; cursor: pointer; text-align: left; color: var(--text-dim);
+}
+.style-row:hover { background: var(--bg-hover); color: var(--text); }
+.style-row.active { background: var(--accent-soft); color: var(--text); }
+.style-row .t { flex: 1; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.styles-editor { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.styles-editor .head { display: flex; gap: 8px; align-items: center; }
+.styles-editor .head input { flex: 1; }
+@media (max-width: 1000px) { .styles-grid { grid-template-columns: 1fr; } }
+
+/* Builtin / custom tags (reuses version-row styling language) */
+.v-src.builtin { color: var(--accent); }
+.v-src.custom { color: var(--text-faint); }
+
 .empty-state {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   flex: 1; gap: 10px; color: var(--text-faint); text-align: center; padding: 40px;

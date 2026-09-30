@@ -12,7 +12,8 @@ export type IconName =
   | 'user' | 'quill' | 'globe' | 'pin' | 'person' | 'sword' | 'scroll' | 'file'
   | 'plug' | 'bolt' | 'heart' | 'donate' | 'clock' | 'search' | 'cpu' | 'server'
   | 'tag' | 'logo' | 'target' | 'flame' | 'paperclip' | 'folderOpen' | 'sparkle'
-  | 'github' | 'youtube' | 'linkedin' | 'twitter';
+  | 'github' | 'youtube' | 'linkedin' | 'twitter'
+  | 'expand' | 'panelLeft';
 
 const P = (d: string, key?: number) => <path key={key} d={d} />;
 
@@ -180,6 +181,20 @@ const ICONS: Record<IconName, JSX.Element> = {
   twitter: (
     <>
       <path key={0} d="M2 2l4.9 6.4L2.3 14h1.9l3.6-4.3L11 14h3l-5.1-6.7L13.4 2h-1.9L8.2 5.9 5 2z" fill="currentColor" stroke="none" />
+    </>
+  ),
+  expand: (
+    <>
+      {P('M2 6V3.5A1.5 1.5 0 0 1 3.5 2H6', 0)}
+      {P('M10 2h2.5A1.5 1.5 0 0 1 14 3.5V6', 1)}
+      {P('M14 10v2.5a1.5 1.5 0 0 1-1.5 1.5H10', 2)}
+      {P('M6 14H3.5A1.5 1.5 0 0 1 2 12.5V10', 3)}
+    </>
+  ),
+  panelLeft: (
+    <>
+      <rect key={0} x="2" y="2.5" width="12" height="11" rx="1.5" />
+      {P('M6.5 2.5v11', 1)}
     </>
   )
 };

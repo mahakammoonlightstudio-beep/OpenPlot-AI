@@ -10,10 +10,14 @@ const TOOL_DEFS = [
   { name: 'create_story_entry', description: 'Create a story bible entry. kind: world | location | character | item | lore.', input_schema: { type: 'object', properties: { kind: { type: 'string', enum: ['world', 'location', 'character', 'item', 'lore'] }, title: { type: 'string' }, content: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } }, projectId: { type: 'string', description: 'Optional project id; omit to use the active project' } }, required: ['kind', 'title', 'content'] } },
   { name: 'update_story_entry', description: 'Update an existing story entry. Find it by id, or by its exact current title; pass newTitle to rename it.', input_schema: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string', description: 'Exact current title to find the entry if id is unknown' }, newTitle: { type: 'string', description: 'New title when renaming' }, content: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } } } } },
   { name: 'search_story', description: 'Search story bible entries (world, locations, characters, items, lore) by keyword across titles and content. Returns matching entries with their full content.', input_schema: { type: 'object', properties: { query: { type: 'string', description: 'Keyword to search (case-insensitive substring)' }, kind: { type: 'string', enum: ['world', 'location', 'character', 'item', 'lore'], description: 'Optional filter by kind' } }, required: ['query'] } },
+  { name: 'read_story_bible', description: 'Read the WHOLE story bible of a project in one call: every world, location, character, item and lore entry with full content and tags. Use before writing or continuing a story so everything you invent stays consistent with established canon. Prefer this over search_story when you need full context.', input_schema: { type: 'object', properties: { projectId: { type: 'string', description: 'Optional project id; omit to use the active project' } } } },
   { name: 'create_chapter', description: 'Create a new chapter for a project.', input_schema: { type: 'object', properties: { title: { type: 'string' }, content: { type: 'string' }, projectId: { type: 'string' } }, required: ['title'] } },
   { name: 'update_chapter', description: 'Update chapter content or status (draft|revising|done). Find by id or exact current title; pass newTitle to rename it.', input_schema: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string', description: 'Exact current title to find the chapter' }, newTitle: { type: 'string', description: 'New title when renaming' }, content: { type: 'string' }, status: { type: 'string', enum: ['draft', 'revising', 'done'] } } } },
   { name: 'list_chapters', description: 'List chapters of a project with word counts.', input_schema: { type: 'object', properties: { projectId: { type: 'string' } } } },
-  { name: 'read_chapter', description: 'Read the full content of one chapter by id or exact title.', input_schema: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' } } } }
+  { name: 'read_chapter', description: 'Read the full content of one chapter by id or exact title.', input_schema: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' } } } },
+  { name: 'append_to_chapter', description: 'Append prose to the END of a chapter (or prepend to its beginning). Safer than update_chapter for adding text: you cannot accidentally overwrite existing prose. Use for continuing drafts, adding scenes, or inserting AI-written passages.', input_schema: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string', description: 'Exact current chapter title (when id is unknown)' }, content: { type: 'string', description: 'The text to add' }, where: { type: 'string', enum: ['end', 'beginning'], description: 'Default: end' } }, required: ['content'] } },
+  { name: 'list_projects', description: 'List all story projects with their format, rating and word totals. Use when the user has several stories and you need to find the right one.', input_schema: { type: 'object', properties: {} } },
+  { name: 'read_project', description: 'Read one project\'s metadata (name, description, context, format, rating) plus a compact overview of its chapters and story bible entry titles. Use to orient yourself before diving into a specific chapter or bible entry.', input_schema: { type: 'object', properties: { projectId: { type: 'string', description: 'Optional project id; omit to use the active project' } } } }
 ];
 
 export function toolDefsForApi(): any[] {
@@ -104,6 +108,19 @@ export function executeTool(call: ToolCall, ctx: { projectId?: string | null } =
         const hits = entries.filter((e: any) => e.title.toLowerCase().includes(q) || String(e.content).toLowerCase().includes(q));
         return JSON.stringify(hits.map((e: any) => ({ id: e.id, kind: e.kind, title: e.title, content: e.content, tags: JSON.parse(e.tags || '[]') })));
       }
+      case 'read_story_bible': {
+        const projectId = resolveProject(input, ctx.projectId);
+        if (!projectId) return JSON.stringify({ error: 'No project exists. Ask the user to create a project first.' });
+        const entries = (handleDb('listStory', {}) as any[]).filter((e) => e.project_id === projectId);
+        return JSON.stringify({
+          projectId,
+          entryCount: entries.length,
+          entries: entries.map((e) => ({
+            id: e.id, kind: e.kind, title: e.title, content: e.content,
+            tags: (() => { try { return JSON.parse(e.tags || '[]'); } catch { return []; } })()
+          }))
+        });
+      }
       case 'create_chapter': {
         const projectId = resolveProject(input, ctx.projectId);
         if (!projectId) return JSON.stringify({ error: 'No project exists. Ask the user to create a project first.' });
@@ -129,6 +146,43 @@ export function executeTool(call: ToolCall, ctx: { projectId?: string | null } =
         const ch = findChapter(input, ctx.projectId);
         if (!ch) return JSON.stringify({ error: 'Chapter not found.' });
         return JSON.stringify({ id: ch.id, title: ch.title, status: ch.status, content: ch.content });
+      }
+      case 'append_to_chapter': {
+        const ch = findChapter(input, ctx.projectId);
+        if (!ch) return JSON.stringify({ error: 'Chapter not found.' });
+        const addition = String(input.content || '');
+        if (!addition.trim()) return JSON.stringify({ error: 'Nothing to append — content was empty.' });
+        const base = String(ch.content || '');
+        const merged = input.where === 'beginning'
+          ? `${addition.trimEnd()}\n\n${base}`
+          : `${base.trimEnd()}${base.trim() ? '\n\n' : ''}${addition.trimStart()}`;
+        handleDb('updateChapter', { id: ch.id, content: merged });
+        return JSON.stringify({ ok: true, id: ch.id, title: ch.title, words: wordCount(merged) });
+      }
+      case 'list_projects': {
+        const projects = handleDb('listProjects', {}) as any[];
+        const allChapters = handleDb('listAllChapters', {}) as any[];
+        return JSON.stringify(projects.map((p) => ({
+          id: p.id, name: p.name, format: p.format, rating: p.rating,
+          description: p.description,
+          chapters: allChapters.filter((c) => c.project_id === p.id).length,
+          words: allChapters.filter((c) => c.project_id === p.id).reduce((a, c) => a + wordCount(c.content || ''), 0)
+        })));
+      }
+      case 'read_project': {
+        const projectId = resolveProject(input, ctx.projectId);
+        if (!projectId) return JSON.stringify({ error: 'No project exists. Ask the user to create a project first.' });
+        const p = (handleDb('listProjects', {}) as any[]).find((x) => x.id === projectId);
+        if (!p) return JSON.stringify({ error: 'Project not found.' });
+        const chapters = (handleDb('listChapters', { projectId }) as any[]).map((c) => ({ id: c.id, title: c.title, status: c.status, words: wordCount(c.content || '') }));
+        const bible = (handleDb('listStory', {}) as any[])
+          .filter((e) => e.project_id === projectId)
+          .map((e) => ({ id: e.id, kind: e.kind, title: e.title }));
+        return JSON.stringify({
+          id: p.id, name: p.name, description: p.description, context: p.context,
+          format: p.format, rating: p.rating,
+          chapters, bible
+        });
       }
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
