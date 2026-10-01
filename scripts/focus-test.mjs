@@ -113,7 +113,7 @@ const setReactInput = `(function(el,val){var p=Object.getOwnPropertyDescriptor(w
   const cdpPort = 9750 + Math.floor(Math.random() * 200);
   const electron = spawn(electronExe, ['--remote-debugging-port=' + cdpPort, '.'], {
     stdio: ['ignore', 'pipe', 'pipe'], cwd: PROJ,
-    env: { ...process.env, INKWELL_DEV: '1', APPDATA: tmpAppData, ELECTRON_ENABLE_LOGGING: '1' }
+    env: { ...process.env, INKWELL_DEV: '1', APPDATA: tmpAppData, OPENPLOT_DATA_DIR: tmpAppData, ELECTRON_ENABLE_LOGGING: '1' }
   });
   let cleaningUp = false;
   electron.on('exit', () => { if (!cleaningUp) { console.error('ELECTRON EXITED early'); process.exit(3); } });

@@ -92,18 +92,18 @@ The project was formerly known as **InkWell**.
 
 ## Downloads
 
-Prebuilt binaries for v1.1.0 are attached to the [GitHub releases](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases). Two packaging styles are provided for each platform:
+Prebuilt binaries for v1.1.1 are attached to the [GitHub releases](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases). Two packaging styles are provided for each platform:
 
 - **Full app** — a single installer or self-contained file. Install (or run) and the app appears in the usual place for your system.
 - **Folder** — a compressed archive containing the application directory. Extract it anywhere and run the binary inside; useful for portable setups and systems without installer permissions.
 
 | Platform | Full app | Folder |
 | --- | --- | --- |
-| Windows | `OpenPlot.AI.Setup.1.1.0.exe` (NSIS installer) | `OpenPlot.AI-1.1.0-win.zip` |
-| macOS | `OpenPlot.AI-1.1.0-universal.dmg` (universal) | `OpenPlot.AI-1.1.0-universal-mac.zip` (universal) / `OpenPlot.AI-1.1.0-arm64-mac.zip` (Apple silicon) |
-| Linux | `OpenPlot.AI-1.1.0.AppImage` | `openplot-ai-1.1.0.tar.gz` |
+| Windows | `OpenPlot.AI.Setup.1.1.1.exe` (NSIS installer) | `OpenPlot.AI-1.1.1-win.zip` |
+| macOS | `OpenPlot.AI-1.1.1-universal.dmg` (universal) | `OpenPlot.AI-1.1.1-universal-mac.zip` (universal) / `OpenPlot.AI-1.1.1-arm64-mac.zip` (Apple silicon) |
+| Linux | `OpenPlot.AI-1.1.1.AppImage` | `openplot-ai-1.1.1.tar.gz` |
 
-The macOS disk image and the main macOS zip are universal binaries containing both Intel and Apple silicon builds; the `arm64-mac.zip` remains available for a smaller Apple silicon-only download. Older assets for v1.0.0, v1.0.1 and v1.0.2 stay attached to their releases.
+The macOS disk image and the main macOS zip are universal binaries containing both Intel and Apple silicon builds; the `arm64-mac.zip` remains available for a smaller Apple silicon-only download. Older assets for v1.0.0, v1.0.1, v1.0.2 and v1.1.0 stay attached to their releases.
 
 Releases are built automatically by GitHub Actions on tagged commits.
 

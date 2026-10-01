@@ -196,7 +196,10 @@ const PROBE = `(() => {
   const cdpPort = 9700 + Math.floor(Math.random() * 200);
   const electron = spawn(electronExe, ['--remote-debugging-port=' + cdpPort, '.'], {
     stdio: ['ignore', 'pipe', 'pipe'], cwd: PROJ,
-    env: { ...process.env, INKWELL_DEV: '1', APPDATA: tmpAppData, ELECTRON_ENABLE_LOGGING: '1' }
+    // OPENPLOT_DATA_DIR is what actually isolates the DB on Windows — Electron
+    // ignores an APPDATA override there. Without it this harness's resetAll
+    // seeds/wipes the USER'S REAL database (this really happened once).
+    env: { ...process.env, INKWELL_DEV: '1', APPDATA: tmpAppData, OPENPLOT_DATA_DIR: tmpAppData, ELECTRON_ENABLE_LOGGING: '1' }
   });
   let consoleErrors = [];
   electron.stderr.on('data', (d) => {

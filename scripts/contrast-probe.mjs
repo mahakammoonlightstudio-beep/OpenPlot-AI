@@ -38,7 +38,7 @@ await waitUntil(async () => { try { return (await fetch('http://localhost:5173/'
 const cdpPort = 9600 + Math.floor(Math.random() * 90);
 const electron = spawn(electronExe, ['--remote-debugging-port=' + cdpPort, '.'], {
   stdio: 'ignore', cwd: PROJ,
-  env: { ...process.env, INKWELL_DEV: '1', APPDATA: tmpAppData }
+  env: { ...process.env, INKWELL_DEV: '1', APPDATA: tmpAppData, OPENPLOT_DATA_DIR: tmpAppData }
 });
 await waitUntil(async () => { try { return (await fetch('http://127.0.0.1:' + cdpPort + '/json/list')).ok; } catch { return false; } }, 60000, 'cdp');
 

@@ -173,7 +173,7 @@ const setReactSelect = `(function(el,val){var p=Object.getOwnPropertyDescriptor(
   const cdpPort = 9300 + Math.floor(Math.random() * 400);
   const electron = spawn(electronExe, ['--remote-debugging-port=' + cdpPort, '.'], {
     stdio: ['ignore', 'pipe', 'pipe'], cwd: PROJ,
-    env: { ...process.env, INKWELL_DEV: '1', APPDATA: tmpAppData, ELECTRON_ENABLE_LOGGING: '1' }
+    env: { ...process.env, INKWELL_DEV: '1', APPDATA: tmpAppData, OPENPLOT_DATA_DIR: tmpAppData, ELECTRON_ENABLE_LOGGING: '1' }
   });
   let elOut = '';
   electron.stdout.on('data', (d) => { elOut += d; if (elOut.length > 4000) elOut = elOut.slice(-2000); });

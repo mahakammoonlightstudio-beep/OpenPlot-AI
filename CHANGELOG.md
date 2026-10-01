@@ -2,7 +2,7 @@
 
 All notable changes to OpenPlot AI are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.1.1] — 2026-10-01
 
 ### Fixed
 - **App could exit instantly while validating an API key** against a misbehaving relay or local endpoint. Windows Event Log showed V8 fast-fail crashes (`0xc0000409`) with the same fault offset since v1.0.2. The main-process HTTP layer now caps buffered response bodies at 8 MB (a hostile/buggy endpoint streaming gigabytes used to exhaust the heap), `fetchModels` caps the rendered model list at 400 entries (some relays return absurd lists that froze the renderer), `updateProvider` tolerates partial payloads instead of throwing on undefined bindings, and the main process installs `uncaughtException`/`render-process-gone` guards so a future internal error shows a message instead of killing the app silently.
