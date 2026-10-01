@@ -17,8 +17,40 @@ const aborts = new Map<string, () => void>();
 const busyChats = new Set<string>();
 (globalThis as any).__busyChats = busyChats;
 
+// Last-resort crash guard: an uncaught exception in the main process used to
+// kill the whole app with no dialog, no log, nothing (Windows Event Log
+// showed 0xc0000409 fast-fails during API-key validation). The app now
+// surfaces the error in the UI and keeps running — a stuck renderer beats a
+// dead app. Also log periodic unhandled rejections so they can be diagnosed.
+process.on('uncaughtException', (err) => {
+  try {
+    console.error('[openplot] uncaught exception:', err?.stack || err);
+    // ui:toast carries a plain string (see App.tsx onUi handler).
+    send('ui:toast', 'Internal error caught: ' + String(err?.message || err).slice(0, 140));
+  } catch { /* nothing more we can do */ }
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[openplot] unhandled rejection:', String((reason as any)?.stack || reason).slice(0, 400));
+});
+
 function send(channel: string, ...args: any[]): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, ...args);
+}
+
+// Forward renderer crashes to a visible dialog instead of a silent white
+// screen — users then have something concrete to report.
+function rendererCrashGuard(): void {
+  app.on('render-process-gone', (_e, _wc, details) => {
+    try {
+      dialog.showMessageBoxSync({
+        type: 'error',
+        title: 'OpenPlot AI',
+        message: 'The interface crashed and will reload.',
+        detail: `Reason: ${details?.reason || 'unknown'}. Your data is safe on disk.`
+      });
+    } catch { /* ignore */ }
+    if (win && !win.isDestroyed()) win.webContents.reload();
+  });
 }
 
 function createWindow(): void {
@@ -604,6 +636,7 @@ if (!gotLock) {
     loadPlugins();
     runHook('app:ready', {});
     buildMenu();
+    rendererCrashGuard();
     createWindow();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

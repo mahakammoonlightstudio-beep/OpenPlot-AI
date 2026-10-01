@@ -117,7 +117,19 @@ function httpRequest(
       (res) => {
         res.setEncoding('utf8');
         let body = '';
+        // A misbehaving relay can stream gigabytes before the 30s timeout —
+        // buffering it all killed the main process with a V8 fatal error
+        // (0xc0000409, seen in Windows Event Log) while the user was just
+        // validating an API key. Cap the buffer and fail gracefully instead.
+        const MAX_BODY_BYTES = 8 * 1024 * 1024;
+        let truncated = false;
         res.on('data', (chunk: string) => {
+          if (!truncated && body.length + chunk.length > MAX_BODY_BYTES) {
+            truncated = true;
+            req.destroy(new Error('Response too large (>8 MB) — this does not look like a valid AI API endpoint.'));
+            return;
+          }
+          if (truncated) return;
           body += chunk;
           armIdleWatchdog();
           if (onData) {
@@ -824,7 +836,10 @@ export async function fetchModels(provider: ProviderConfig): Promise<string[]> {
     );
   }
   const list = json.data || json.models || [];
-  return list.map((m: any) => m.id || m.name).filter(Boolean);
+  // Some relays return absurd lists (thousands of entries per model family).
+  // Cap it: the picker renders every entry and a 100k-row <select> freezes
+  // the renderer hard enough to look like a crash.
+  return list.map((m: any) => m.id || m.name).filter(Boolean).slice(0, 400);
 }
 
 // ---------- API key validation ----------

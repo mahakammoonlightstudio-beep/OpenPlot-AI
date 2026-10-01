@@ -700,7 +700,24 @@ export function handleDb(op: string, payload: any): any {
       return get('SELECT * FROM providers WHERE id = ?', [id]);
     }
     case 'updateProvider': {
-      run('UPDATE providers SET name=?, base_url=?, api_key=?, enabled=?, models=?, kind=? WHERE id=?', [payload.name, payload.baseUrl, protectKey(payload.apiKey || ''), payload.enabled === false ? 0 : 1, JSON.stringify(payload.models || []), payload.kind || 'auto', payload.id]);
+      // Partial-payload safe: undefined fields keep their stored value (the
+      // old direct-SET version threw on undefined bindings or silently reset
+      // name/baseUrl when a caller sent only the changed field).
+      const encKey = payload.apiKey === undefined ? null : protectKey(String(payload.apiKey));
+      run(
+        'UPDATE providers SET name=COALESCE(?,name), base_url=COALESCE(?,base_url), '
+        + 'api_key=CASE WHEN ? IS NOT NULL THEN ? ELSE api_key END, '
+        + 'enabled=COALESCE(?,enabled), models=COALESCE(?,models), kind=COALESCE(?,kind) WHERE id=?',
+        [
+          payload.name ?? null,
+          payload.baseUrl ?? null,
+          encKey, encKey,
+          payload.enabled === undefined ? null : (payload.enabled === false ? 0 : 1),
+          payload.models === undefined ? null : JSON.stringify(Array.isArray(payload.models) ? payload.models : []),
+          payload.kind ?? null,
+          payload.id
+        ]
+      );
       return get('SELECT * FROM providers WHERE id = ?', [payload.id]);
     }
     case 'deleteProvider':
