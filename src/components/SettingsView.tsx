@@ -478,10 +478,20 @@ function ProvidersSection() {
 
   async function verifyAll() {
     if (!providers.length) return;
+    const enabled = providers.filter((p) => p.enabled);
+    if (!enabled.reduce((a, p) => a + (Array.isArray(p.models) ? p.models.length : 0), 0)) {
+      ui.toast(t('providers.verifyNone'), 'error');
+      return;
+    }
     ui.toast(t('providers.verifyAllRunning'));
-    await useVerifyStore.getState().verifyAll(providers.filter((p) => p.enabled));
+    await useVerifyStore.getState().verifyAll(enabled);
     const rs = useVerifyStore.getState().results;
-    const entries = Object.values(rs);
+    // Count only models belonging to the providers just verified —
+    // Object.values(rs) also holds stale entries from deleted providers,
+    // which skewed the ok/total ratio.
+    const entries = enabled
+      .flatMap((p) => (Array.isArray(p.models) ? p.models : []).map((m) => rs[`${p.id}::${m}`]))
+      .filter(Boolean);
     const okCount = entries.filter((e) => e.ok).length;
     ui.toast(`${t('providers.verifyAllDone')}: ${okCount}/${entries.length} ${t('providers.verifyOk')}`, okCount === entries.length ? 'ok' : 'error');
   }

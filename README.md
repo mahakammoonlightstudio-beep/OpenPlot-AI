@@ -2,6 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/mahakammoonlightstudio-beep/OpenPlot-AI?style=flat-square)](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/mahakammoonlightstudio-beep/OpenPlot-AI/release.yml?branch=main&style=flat-square)](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/actions/workflows/release.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/mahakammoonlightstudio-beep/OpenPlot-AI/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/mahakammoonlightstudio-beep/OpenPlot-AI?style=flat-square)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/mahakammoonlightstudio-beep/OpenPlot-AI/total?style=flat-square&logo=github)](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases)
 [![Stars](https://img.shields.io/github/stars/mahakammoonlightstudio-beep/OpenPlot-AI?style=flat-square&logo=github)](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/stargazers)
@@ -117,6 +118,8 @@ npm run dev          # development (Vite + Electron, hot reload)
 npm run typecheck    # TypeScript, no emit
 npm run build        # build renderer and main process
 npm start            # run the built app
+npm test             # headless test suite (DB, engine, parsers, tools)
+npm run test:e2e     # + GUI end-to-end tests (boots vite + Electron)
 
 npm run dist:win     # Windows NSIS + zip
 npm run dist:linux   # Linux AppImage + tar.gz
@@ -124,6 +127,25 @@ npm run dist:mac     # macOS dmg + zip
 ```
 
 DevTools do not open automatically in development; set `OPENPLOT_DEVTOOLS=1` to enable them.
+
+## Testing
+
+`npm test` runs every headless test in `scripts/` (mock HTTP servers + temp
+sqlite DB — no GUI, no network beyond localhost, no real API keys). It
+auto-rebuilds `dist-electron` when `electron/*.ts` is newer than the build.
+
+```bash
+npm test                                  # headless group (~10s)
+npm run test:e2e                          # headless + GUI end-to-end groups
+node scripts/run-all-tests.mjs --list     # show all groups
+node scripts/run-all-tests.mjs --include=e2e-attach   # + tests for a RUNNING app (:9222)
+```
+
+Groups: `headless` (default), `e2e-local` (boots its own vite + Electron in an
+isolated profile), `e2e-attach` (drives an already-running dev app over CDP;
+skipped with a notice when the app isn't running), and `manual` (touches the
+real installed app / real profile / real API keys — never run automatically,
+only via explicit `--include=manual`).
 
 ## Connecting a provider
 

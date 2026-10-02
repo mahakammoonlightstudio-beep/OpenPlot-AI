@@ -192,7 +192,11 @@ export function FlowView() {
       else if (at >= targetList.length) pos = targetList[targetList.length - 1].position + 1;
       else pos = (targetList[at - 1].position + targetList[at].position) / 2;
       await dbCall('updateFlowBeat', { id: beat.id, act, position: pos });
-      await normalizeAct(act);
+      // Pass the locally-patched list: the `beats` closure is still stale here
+      // (the moved beat keeps its old act until refresh() re-reads the DB),
+      // so normalizing from state would compute the target act's order
+      // without the beat that was just moved in.
+      await normalizeAct(act, beats.map((b) => (b.id === beat.id ? { ...b, act, position: pos } : b)));
     }
     await refresh();
   }
@@ -219,10 +223,13 @@ export function FlowView() {
     ui.toast(t('flow.beatToChapter').replace('{t}', b.title), 'ok');
   }
 
-  /** Rewrite integer positions for every beat of an act (after 0.5 insertion). */
-  async function normalizeAct(act: number) {
+  /** Rewrite integer positions for every beat of an act (after 0.5 insertion).
+   *  `updated` overrides the state closure when it is stale (cross-act moves). */
+  async function normalizeAct(act: number, updated?: FlowBeat[]) {
     if (!project) return;
-    const list = beats.filter((b) => b.act === act).sort((a, b) => a.position - b.position);
+    const list = (updated ?? beats)
+      .filter((b) => b.act === act)
+      .sort((a, b) => a.position - b.position);
     await dbCall('reorderFlowBeats', { order: list.map((b) => b.id) });
   }
 

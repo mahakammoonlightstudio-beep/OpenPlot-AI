@@ -376,6 +376,10 @@ export function handleDb(op: string, payload: any): any {
       run('DELETE FROM story WHERE project_id=?', [payload.id]);
       run('DELETE FROM chapters WHERE project_id=?', [payload.id]);
       run('DELETE FROM flow_beats WHERE project_id=?', [payload.id]);
+      // Global chats (project_id NULL) can sit in folders owned by this
+      // project — detach them or they'd reference folders deleted below
+      // (same cleanup deleteFolder does per-folder).
+      run('UPDATE chats SET folder_id=NULL WHERE folder_id IN (SELECT id FROM folders WHERE project_id=?)', [payload.id]);
       run('DELETE FROM folders WHERE project_id=?', [payload.id]);
       // remove scenes orphaned by the deleted chapters
       run('DELETE FROM scenes WHERE chapter_id NOT IN (SELECT id FROM chapters)');

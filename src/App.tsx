@@ -74,7 +74,9 @@ export default function App() {
   useEffect(() => {
     const unsub = useUnreadStore.subscribe((s) => {
       const total = Object.values(s.unread).reduce((a, b) => a + b, 0);
-      window.inkwell.setUnreadCount(total).catch(() => {});
+      // Optional chaining: this effect also runs when the renderer is opened
+      // in a plain browser (no preload bridge) during development.
+      window.inkwell?.setUnreadCount(total)?.catch(() => {});
     });
     return unsub;
   }, []);

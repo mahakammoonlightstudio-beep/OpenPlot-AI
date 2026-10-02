@@ -19,6 +19,8 @@
     "build": "vite build && tsc -p tsconfig.electron.json",
     "build:electron": "tsc -p tsconfig.electron.json",
     "typecheck": "tsc --noEmit",
+    "test": "node scripts/run-all-tests.mjs",
+    "test:e2e": "node scripts/run-all-tests.mjs --all",
     "start": "electron .",
     "dist": "vite build && tsc -p tsconfig.electron.json && electron-builder",
     "dist:win": "vite build && tsc -p tsconfig.electron.json && electron-builder --win",

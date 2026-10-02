@@ -1,0 +1,48 @@
+name: CI
+
+# Keep main green: typecheck + full build + the headless test suite on every
+# push/PR, on the same three platforms the release workflow ships installers
+# for. GUI e2e and manual tests stay local (see scripts/run-all-tests.mjs).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Full build (vite renderer + tsc electron) — validates exactly what the
+      # release workflow compiles, on the same runner matrix.
+      - name: Build
+        run: npm run build
+
+      # Headless group: mock HTTP servers + temp sqlite DB — no GUI, no
+      # network beyond localhost, no real API keys.
+      - name: Headless test suite
+        run: npm test

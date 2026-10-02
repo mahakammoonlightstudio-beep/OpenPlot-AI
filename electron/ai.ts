@@ -67,7 +67,7 @@ interface HttpResult { status: number; body: string; aborted: boolean }
  * Incremental SSE parser: feed raw network chunks, get complete events
  * out as soon as they arrive (so the renderer can render live).
  */
-class SseParser {
+export class SseParser {
   private buf = '';
   push(chunk: string): string[] {
     this.buf += chunk;
@@ -82,7 +82,7 @@ class SseParser {
   }
 }
 
-function dataLines(event: string): string[] {
+export function dataLines(event: string): string[] {
   return event
     .split(/\r?\n/)
     .filter((l) => l.startsWith('data:'))
@@ -162,29 +162,39 @@ function httpRequest(
         req.destroy(new Error('The stream went silent for 90s and was aborted. Usually a dropped connection — retry.'));
       }, IDLE_TIMEOUT_MS);
     };
+    // Abort polling: watch the external cancel flag and destroy the request
+    // when it trips. Timer/listeners are torn down exactly once by
+    // settleReq(), and the response handlers below also funnel into it.
+    let settled = false;
+    let abortTimer: NodeJS.Timeout | null = null;
+    const settleReq = (err: Error | null) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      if (idleTimer) clearTimeout(idleTimer);
+      if (abortTimer) clearInterval(abortTimer);
+      if (err) {
+        if (getSignal && getSignal()) resolve({ status: 0, body: '', aborted: true });
+        else reject(err);
+      }
+    };
+    if (getSignal) {
+      abortTimer = setInterval(() => {
+        if (getSignal()) {
+          if (abortTimer) clearInterval(abortTimer);
+          abortTimer = null;
+          req.destroy(new AbortedError());
+        }
+      }, 120);
+    }
     req.on('response', () => {
       clearTimeout(timeout);
       armIdleWatchdog();
     });
     req.on('error', (err: any) => {
-      clearTimeout(timeout);
-      if (getSignal && getSignal()) {
-        resolve({ status: 0, body: '', aborted: true });
-      } else {
-        reject(err);
-      }
+      settleReq(err);
     });
-    if (getSignal) {
-      const timer = setInterval(() => {
-        if (getSignal()) {
-          clearInterval(timer);
-          req.destroy(new AbortedError());
-        }
-      }, 120);
-    const clear = () => clearInterval(timer);
-    req.on('close', () => { clear(); if (idleTimer) clearTimeout(idleTimer); });
-    req.on('error', () => { clear(); if (idleTimer) clearTimeout(idleTimer); });
-    }
+    req.on('close', () => { settleReq(null); });
     if (opts.body) req.write(opts.body);
     req.end();
   });
@@ -628,7 +638,7 @@ function splitEvents(body: string): string[] {
   return body.split(/\r?\n\r?\n/).filter((e) => e.trim());
 }
 
-function extractError(body: string): string {
+export function extractError(body: string): string {
   const trimmed = (body || '').trim();
   try {
     const json = JSON.parse(trimmed);
@@ -651,7 +661,7 @@ function extractError(body: string): string {
  * The raw provider message is appended when available — some providers
  * (e.g. Chinese relays) reply with opaque bodies like "openai_error".
  */
-function statusHint(status: number, providerMsg: string): string {
+export function statusHint(status: number, providerMsg: string): string {
   const raw = providerMsg && providerMsg !== 'unknown error' ? ` (provider said: "${providerMsg.slice(0, 120)}")` : '';
   switch (status) {
     case 400:
@@ -711,6 +721,9 @@ export function baseUrlCandidates(rawUrl: string): string[] {
     } else {
       push(origin + withoutEp); // whatever remains before the endpoint
       push(origin);
+      // Pasted a bare endpoint (…/chat/completions with NO version segment):
+      // also try the common /v1 root — same fallback philosophy as bare hosts.
+      if (!withoutEp) push(`${origin}/v1`);
     }
     return candidates;
   }

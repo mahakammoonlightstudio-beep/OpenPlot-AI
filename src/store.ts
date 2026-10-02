@@ -312,9 +312,13 @@ export const useData = create<DataState>((set) => ({
 //   log           -> (unused)
 //   clearMemory   -> (unused; wipes ALL long-term memories)
 //   addMemory     -> memory text to save
-//   navigate      -> route name: chat | story | chapters | projects | stats | settings | about
+//   navigate      -> route name: chat | story | flow | chapters | projects | stats | settings | about
 //   newChat       -> optional chat title (empty = 'New chat')
 //   openExternal  -> URL to open in the OS browser
+
+/** Routes a navigate automation may switch to (kept in sync with SettingsView). */
+const NAVIGABLE_ROUTES = ['chat', 'story', 'flow', 'chapters', 'projects', 'stats', 'settings', 'about'];
+
 export async function runAutomations(trigger: string, payload: any): Promise<void> {
   try {
     const autos = useData.getState().automations.filter((a) => a.trigger === trigger && Number(a.enabled) !== 0);
@@ -340,7 +344,9 @@ export async function runAutomations(trigger: string, payload: any): Promise<voi
           break;
         }
         case 'navigate': {
-          if (param) useData.getState().navigate(param);
+          // Ignore unknown routes (imported automations can carry stale
+          // params) instead of silently falling back to the chat view.
+          if (param && NAVIGABLE_ROUTES.includes(param)) useData.getState().navigate(param);
           break;
         }
         case 'newChat': {

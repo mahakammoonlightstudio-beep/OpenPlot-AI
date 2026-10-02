@@ -60,8 +60,7 @@ function ThinkingBlock({ text, live }: { text: string; live?: boolean }) {
   // Auto-open while streaming so users see reasoning arrive live; when the
   // reply completes (live=false) it collapses back to the compact header.
   const [open, setOpen] = useState(!!live);
-  useEffect(() => { if (live) setOpen(true); }, [live]);
-  useEffect(() => { if (!live) setOpen(false); }, [live]);
+  useEffect(() => { setOpen(!!live); }, [live]);
   return (
     <div className="thinking-block">
       <div className="tb-head" onClick={() => setOpen(!open)} role="button" tabIndex={0} aria-expanded={open}
