@@ -2,6 +2,34 @@
 
 All notable changes to OpenPlot AI are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-10-24
+
+The “smoother studio” release: a guided story agent, reference files in the Story Bible, and a lighter, more careful core.
+
+### Added
+- **Plot Smith — the story agent.** A four-step, option-driven wizard: brief (genre, tone, POV, length, format, audience, story language, must-haves) → **three premise options** → cast & world (4–6 characters, locations, lore, all individually includable) → three-act outline with concrete beats and a chapter plan. Plans are saved locally and can be reopened; **Create project** builds the project, bible entries, chapters and flow beats from the plan. Each step explains what it does and every generation can be cancelled. New route, sidebar entry and command-palette action.
+- **Reference files in the Story Bible.** Attach `.md`, `.txt`, `.json` or `.csv` files to any entry with the file picker or by dropping them on the editor. Files are stored with the entry (2 MB each, binary files refused), listed as chips with a read-only preview, searchable by name and content, and readable by the agent through the new `read_story_file` tool (safely truncated for very large files). No more copy-pasting notes into entries.
+- **Bulk import into the Story Bible.** Turn Markdown/JSON/CSV/TXT files into entries in one pass, with a preview, category inference from filenames/headings/columns, duplicate-title skipping and a hard cap. One IPC call handles the whole batch.
+- **Settings → Data → storage card.** Shows the database size on disk and row counts, and adds a safe **Compact database** action (VACUUM + orphan cleanup).
+- Story-agent attachment awareness: `read_story_bible`, `search_story` and `read_project` now list attached file names, `search_story` matches text inside attachments, and `read_story_file` returns the file body.
+- New test groups: Story Bible import parser (25 checks), Plot Smith engine (31 checks), story vault/data-layer tests including bulk creation and compaction, and a headless server-render smoke test for the app shell and every main view.
+
+### Changed
+- **Database writes are cheaper and safer.** Persistence now runs only when a write actually happened (read-only work no longer rewrites the file), writes through a temp file + atomic rename, and avoids an extra full-size Buffer copy on each save. Added indexes for messages, story entries, chapters, flow beats, versions and attachments.
+- **Bulk operations are one round-trip.** Importing entries and creating a Plot Smith project no longer fire one IPC call per row; each is a single validated operation with one persistence pass.
+- **Long chats mount less.** Only the visible window of messages is mounted (older turns collapse into one spacer) and message bubbles are memoized, so a streaming reply no longer reconciles the whole transcript. Chat and app shells use narrow store subscriptions; the toast strip is isolated; the composer attaches its prompt-library shortcut once instead of on every keystroke.
+- Model-health history is capped at 60 models with 40 events each, both in memory and localStorage (previously every model ever probed stayed forever).
+- `search_story` now returns `{ entries, files }` so attachment hits are visible to the model.
+- Story Bible import and attachment limits are enforced in the main process, not just the UI.
+- Version 1.2.0 across the app, README, changelog and landing pages.
+
+### Fixed
+- Copy-button timers now clear on unmount, and the health-history cache can no longer grow without bound.
+- Story-bible attachments are deleted with their entry or project (no orphaned rows or blobs), and are included in “reset all”.
+- `read_story_file` prefers files from the active project, so two projects with the same filename cannot resolve to the wrong canon.
+- Attaching an unreadable/empty/binary file reports a clear error instead of silently creating an empty entry.
+- Server-render/test environments without a DOM no longer crash inside the Markdown sanitizer.
+
 ## [1.1.1] — 2026-10-01
 
 ### Fixed
@@ -76,7 +104,9 @@ Initial public release. A local-first AI chat and story-writing studio for Windo
 - Markdown rendering during streaming is throttled to animation frames.
 - Database persistence debounced to 1200 ms; DevTools no longer open automatically in development (opt-in with `OPENPLOT_DEVTOOLS=1`).
 
-[Unreleased]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.1.1...v1.2.0
+[1.1.1]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.1.0...v1.1.1
 [1.0.2]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/tag/v1.0.0

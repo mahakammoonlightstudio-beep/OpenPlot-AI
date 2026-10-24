@@ -231,13 +231,16 @@ export function Sidebar() {
 
         <div className="nav-section">
           <div className="nav-section-title">{t('app.story')} / {t('app.chapters')}</div>
+          <div className={`nav-item ${route === 'agent' ? 'active' : ''}`} onClick={() => navigate('agent')}>
+            <span className="icon"><Icon name="sparkle" size={14} /></span><span className="title">{t('app.agent')}</span>
+          </div>
           <div className="nav-item" onClick={() => { useData.getState().setActiveProject(activeProjectId); navigate('story'); }}>
             <span className="icon"><Icon name="book" size={14} /></span><span className="title">{t('app.story')}</span>
           </div>
           <div className={`nav-item ${route === 'flow' ? 'active' : ''}`} onClick={() => navigate('flow')}>
             <span className="icon"><Icon name="target" size={14} /></span><span className="title">{t('app.flow')}</span>
           </div>
-          <div className="nav-item" onClick={() => navigate('chapters')}>
+          <div className={`nav-item ${route === 'chapters' ? 'active' : ''}`} onClick={() => navigate('chapters')}>
             <span className="icon"><Icon name="book" size={14} /></span><span className="title">{t('app.chapters')}</span>
           </div>
         </div>

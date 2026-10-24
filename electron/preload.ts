@@ -33,7 +33,7 @@ const api = {
   exportEpub: (name: string, author: string, chapters: { title: string; content: string }[], lang?: string) =>
     ipcRenderer.invoke('export:epub', name, author, chapters, lang),
   pickFiles: () => ipcRenderer.invoke('dialog:pickFiles'),
-  readFiles: (paths: string[]) => ipcRenderer.invoke('files:read', paths),
+  readFiles: (paths: string[], maxBytes?: number) => ipcRenderer.invoke('files:read', paths, maxBytes),
   onAiChunk: (cb: (data: { reqId: string; chunk: any }) => void) => {
     const handler = (_e: unknown, data: any) => cb(data);
     ipcRenderer.on('ai:chunk', handler);

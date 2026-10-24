@@ -12,7 +12,7 @@
 
 A local-first AI chat and story-writing studio for Windows, macOS and Linux. **[Website & download](https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/)**
 
-OpenPlot AI is a desktop application built on Electron, React and SQLite. It connects to any AI provider — OpenAI, Anthropic, OpenRouter, Groq, Ollama, LM Studio, or any OpenAI-compatible `/v1` endpoint — and combines the conversation with a structured writing environment: a story bible, an outline board, chapters, writing statistics and long-term memory. All data is stored locally. There is no account, no cloud service and no telemetry.
+OpenPlot AI is a desktop application built on Electron, React and SQLite. It connects to any AI provider — OpenAI, Anthropic, OpenRouter, Groq, Ollama, LM Studio, or any OpenAI-compatible `/v1` endpoint — and combines the conversation with a structured writing environment: a story bible, an outline board, chapters, writing statistics and long-term memory. **Plot Smith**, the built-in story agent, turns a short brief into three premise options, a cast, a three-act outline and a ready project — with you choosing every option. All data is stored locally. There is no account, no cloud service and no telemetry.
 
 The project was formerly known as **InkWell**.
 
@@ -67,6 +67,8 @@ The project was formerly known as **InkWell**.
 - Per-chat overrides: system prompt, temperature, max tokens, top-p, thinking budget, tools and memory toggles, project binding.
 
 **Writing tools**
+- **Plot Smith story agent** — a four-step guided wizard (brief → three premise options → cast & world → three-act outline). Pick options for genre, tone, POV, length, format, audience, language and must-haves; include or exclude any character/location/lore card; then create the project with bible entries, chapters and flow beats in one click. Plans are saved locally and can be reopened, and every step can be cancelled mid-generation.
+- **Story-bible reference files** — attach `.md`, `.txt`, `.json` or `.csv` files to any entry (picker or drag & drop) and they stay with the entry: preview, search by name, and let the agent read them with `read_story_file`. **Import files** turns Markdown headings, JSON arrays/objects, or CSV rows into entries in one pass, with a preview, automatic category inference and duplicate skipping.
 - Story bible entries with tags and links, full-text search, and per-category counts.
 - Chapters with draft/revising/done status, reading-order reordering, focus mode, and a scene board per chapter.
 - Default skills shipped with the app (Continuity Guardian, Prose Polisher, Dialogue Coach, Pacing Analyst) — editable, deletable, and extensible with your own.
@@ -86,6 +88,11 @@ The project was formerly known as **InkWell**.
 - `agent.md` instructions injected into every chat.
 - Reply styles (builtin + custom), skill packs, sandboxed JavaScript plugins with lifecycle hooks, when/then automations, and an MCP server registry. See [docs/PLUGIN_API.md](docs/PLUGIN_API.md).
 
+**Performance and storage**
+- The database is written only when something changed, through a temp file + atomic rename, and Settings → Data shows the on-disk size with a safe **Compact database** action.
+- Streaming replies are coalesced per animation frame; Markdown is parsed at most once per frame; only the visible window of a long chat is mounted; message bubbles are memoized.
+- Story-bible imports and Plot Smith project creation are single validated operations (one IPC round-trip and one persistence pass).
+
 **Privacy and storage**
 - All data lives in a local SQLite database in the OS user-data directory.
 - API keys are encrypted at rest with the OS credential vault (DPAPI, Keychain or libsecret) when available.
@@ -93,18 +100,18 @@ The project was formerly known as **InkWell**.
 
 ## Downloads
 
-Prebuilt binaries for v1.1.1 are attached to the [GitHub releases](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases). Two packaging styles are provided for each platform:
+Prebuilt binaries for v1.2.0 are attached to the [GitHub releases](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases). Two packaging styles are provided for each platform:
 
 - **Full app** — a single installer or self-contained file. Install (or run) and the app appears in the usual place for your system.
 - **Folder** — a compressed archive containing the application directory. Extract it anywhere and run the binary inside; useful for portable setups and systems without installer permissions.
 
 | Platform | Full app | Folder |
 | --- | --- | --- |
-| Windows | `OpenPlot.AI.Setup.1.1.1.exe` (NSIS installer) | `OpenPlot.AI-1.1.1-win.zip` |
-| macOS | `OpenPlot.AI-1.1.1-universal.dmg` (universal) | `OpenPlot.AI-1.1.1-universal-mac.zip` (universal) / `OpenPlot.AI-1.1.1-arm64-mac.zip` (Apple silicon) |
-| Linux | `OpenPlot.AI-1.1.1.AppImage` | `openplot-ai-1.1.1.tar.gz` |
+| Windows | `OpenPlot.AI.Setup.1.2.0.exe` (NSIS installer) | `OpenPlot.AI-1.2.0-win.zip` |
+| macOS | `OpenPlot.AI-1.2.0-universal.dmg` (universal) | `OpenPlot.AI-1.2.0-universal-mac.zip` (universal) / `OpenPlot.AI-1.2.0-arm64-mac.zip` (Apple silicon) |
+| Linux | `OpenPlot.AI-1.2.0.AppImage` | `openplot-ai-1.2.0.tar.gz` |
 
-The macOS disk image and the main macOS zip are universal binaries containing both Intel and Apple silicon builds; the `arm64-mac.zip` remains available for a smaller Apple silicon-only download. Older assets for v1.0.0, v1.0.1, v1.0.2 and v1.1.0 stay attached to their releases.
+The macOS disk image and the main macOS zip are universal binaries containing both Intel and Apple silicon builds; the `arm64-mac.zip` remains available for a smaller Apple silicon-only download. Older assets for v1.0.0, v1.0.1, v1.0.2, v1.1.0 and v1.1.1 stay attached to their releases.
 
 Releases are built automatically by GitHub Actions on tagged commits.
 
@@ -141,8 +148,10 @@ node scripts/run-all-tests.mjs --list     # show all groups
 node scripts/run-all-tests.mjs --include=e2e-attach   # + tests for a RUNNING app (:9222)
 ```
 
-Groups: `headless` (default), `e2e-local` (boots its own vite + Electron in an
-isolated profile), `e2e-attach` (drives an already-running dev app over CDP;
+Groups: `headless` (default; DB/tools/engine/parsers plus the Story Bible import
+parser, the Plot Smith engine, the story-vault data layer and a server-render
+smoke test for every main view), `e2e-local` (boots its own vite + Electron in
+an isolated profile), `e2e-attach` (drives an already-running dev app over CDP;
 skipped with a notice when the app isn't running), and `manual` (touches the
 real installed app / real profile / real API keys — never run automatically,
 only via explicit `--include=manual`).
@@ -185,9 +194,11 @@ The database is stored at the OS user-data path (`%APPDATA%/openplot-ai` on Wind
 ```
 electron/          main process: database, AI engine, tools, plugins, IPC
 src/               React renderer
-  components/      ChatView, StoryBibleView, ChaptersView, SettingsView, ...
+  components/      ChatView, StoryAgentView, StoryBibleView, ChaptersView, SettingsView, ...
+  lib/             pure testable logic: Plot Smith engine, Story Bible file import
+  styles/          ordered CSS partials (agent + feature styles included)
 docs/              plugin API reference, stress test notes, original README
-scripts/           engine, GUI and end-to-end test scripts
+scripts/           headless, UI-render, GUI and end-to-end test scripts
 ```
 
 ## Documentation

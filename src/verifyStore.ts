@@ -39,17 +39,29 @@ function loadHistory(): Record<string, HealthEvent[]> {
     const raw = localStorage.getItem(HISTORY_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
-    return typeof parsed === 'object' && parsed ? parsed : {};
+    if (!parsed || typeof parsed !== 'object') return {};
+    const trimmed: Record<string, HealthEvent[]> = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, HealthEvent[]>).slice(0, MAX_MODELS)) {
+      if (Array.isArray(v)) trimmed[k] = v.slice(-MAX_EVENTS);
+    }
+    return trimmed;
   } catch {
     return {};
   }
 }
 
+const MAX_MODELS = 60; // relays can advertise thousands of models
+
 function saveHistory(history: Record<string, HealthEvent[]>) {
   try {
-    // keep storage small: only the last MAX_EVENTS per model
+    // Keep the last MAX_EVENTS for at most MAX_MODELS models. Without the
+    // second cap, every model ever probed kept its own array in memory and in
+    // localStorage forever (a relay with 1,000 models = a permanent leak).
+    const entries = Object.entries(history)
+      .sort((a, b) => (b[1][b[1].length - 1]?.at || 0) - (a[1][a[1].length - 1]?.at || 0))
+      .slice(0, MAX_MODELS);
     const trimmed: Record<string, HealthEvent[]> = {};
-    for (const [k, events] of Object.entries(history)) {
+    for (const [k, events] of entries) {
       trimmed[k] = events.slice(-MAX_EVENTS);
     }
     localStorage.setItem(HISTORY_KEY, JSON.stringify(trimmed));

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { memo, useEffect, useRef, useState, useCallback } from 'react';
 import { useData, useSettings, useUi, dbCall, uid, runAutomations, createChatUi, DONATE_URL, SAWERIA_URL, getModelOverride } from '../store';
 import { Chat, Message, Provider, GenerateRequest, GenChunk } from '../types';
 import { useMarkdown, useThrottledMarkdown, extractFirstTitle, hardenLinks } from '../markdown';
@@ -77,6 +77,10 @@ function ThinkingBlock({ text, live }: { text: string; live?: boolean }) {
 function CopyBtn({ text }: { text: string }) {
   const t = useT();
   const [done, setDone] = useState(false);
+  // Clear the timer on unmount: an open chat could unmount mid-countdown and
+  // the old setTimeout kept a closure (and a pending state update) alive.
+  const timerRef = useRef<number | null>(null);
+  useEffect(() => () => { if (timerRef.current !== null) window.clearTimeout(timerRef.current); }, []);
   return (
     <button
       className="small ghost"
@@ -85,7 +89,8 @@ function CopyBtn({ text }: { text: string }) {
       onClick={() => {
         navigator.clipboard.writeText(text);
         setDone(true);
-        setTimeout(() => setDone(false), 1200);
+        if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+        timerRef.current = window.setTimeout(() => { timerRef.current = null; setDone(false); }, 1200);
       }}
     >
       <Icon name={done ? 'check' : 'copy'} size={14} />
@@ -141,9 +146,15 @@ function ModelBadge({ model, withBar }: { model: string | null | undefined; with
 // scrolls up — keeps long chats fast without breaking autoscroll anchoring.
 const RENDER_WINDOW = 60;
 
-function MessageBubble({ msg, onDelete, onEdit, youLabel, editLabel, saveResendLabel, cancelLabel, deleteLabel, onSaveChapter, savedToChapter, tokensLabel }: {
+/**
+ * Memoized so a streaming reply (which re-renders ChatView on every frame)
+ * does not reconcile every message bubble in the transcript. The callbacks
+ * passed from ChatView are stable (they read the latest logic from a ref), so
+ * only the message whose data actually changed re-renders.
+ */
+const MessageBubble = memo(function MessageBubble({ msg, onDelete, onEdit, youLabel, editLabel, saveResendLabel, cancelLabel, deleteLabel, onSaveChapter, savedToChapter, tokensLabel }: {
   msg: Message;
-  onDelete: () => void;
+  onDelete: (msg: Message) => void;
   onEdit: (msg: Message, newText: string) => void;
   youLabel: string;
   editLabel: string;
@@ -214,16 +225,26 @@ function MessageBubble({ msg, onDelete, onEdit, youLabel, editLabel, saveResendL
               <Icon name={savedToChapter ? 'check' : 'book'} size={14} />
             </button>
           )}
-          <button className="small ghost" title={deleteLabel} aria-label={deleteLabel} onClick={onDelete}><Icon name="trash" size={14} /></button>
+          <button className="small ghost" title={deleteLabel} aria-label={deleteLabel} onClick={() => onDelete(msg)}><Icon name="trash" size={14} /></button>
         </div>      </div>
     </div>
   );
-}
+});
 
 export function ChatView() {
   const t = useT();
   const settings = useSettings();
-  const { chats, projects, providers, styles, activeChatId, setActiveChat, activeProjectId, setActiveProject, reloadChatRelated } = useData();
+  // Field-level selectors: ChatView used to subscribe to the WHOLE data store,
+  // so adding a story entry or chapter re-rendered the entire transcript.
+  const chats = useData((s) => s.chats);
+  const projects = useData((s) => s.projects);
+  const providers = useData((s) => s.providers);
+  const styles = useData((s) => s.styles);
+  const activeChatId = useData((s) => s.activeChatId);
+  const activeProjectId = useData((s) => s.activeProjectId);
+  const setActiveChat = useData((s) => s.setActiveChat);
+  const setActiveProject = useData((s) => s.setActiveProject);
+  const reloadChatRelated = useData((s) => s.reloadChatRelated);
   const ui = useUi();
 
   const chat = chats.find((c) => c.id === activeChatId) || null;
@@ -517,7 +538,7 @@ export function ChatView() {
     // the old hint told models to "use tools proactively" even when the
     // tools toggle was off, and they replied with unusable tool-call text.
     if (toolsOn ?? settings.toolsEnabled) {
-      const toolNames = 'save_memory, list_memories, create_story_entry, update_story_entry, search_story, read_story_bible, create_chapter, update_chapter, append_to_chapter, list_chapters, read_chapter, list_projects, read_project';
+      const toolNames = 'save_memory, list_memories, create_story_entry, update_story_entry, search_story, read_story_bible, read_story_file, create_chapter, update_chapter, append_to_chapter, list_chapters, read_chapter, list_projects, read_project';
       const toolHint = styleName
         ? `You have native story tools (${toolNames}). When a tool result comes back, write the surrounding reply in the user's "${styleName}" style — but tool calls themselves stay plain and functional. Use tools proactively when the user discusses story worldbuilding, characters, items, lore or chapters.`
         : `You have native tools (${toolNames}). Use them proactively when the user discusses story worldbuilding, characters, items, lore or chapters.`;
@@ -953,6 +974,15 @@ export function ChatView() {
     ui.toast(t('chat.savedToChapter'), 'ok');
   }
 
+  // Stable bubble callbacks: the latest logic lives in a ref, the identity
+  // never changes, so `memo(MessageBubble)` actually skips re-renders while a
+  // reply streams into the sibling bubble.
+  const bubbleActions = useRef({ deleteMsg, editMsg, saveToChapter });
+  bubbleActions.current = { deleteMsg, editMsg, saveToChapter };
+  const onDeleteMessage = useCallback((m: Message) => { void bubbleActions.current.deleteMsg(m.id); }, []);
+  const onEditMessage = useCallback((m: Message, text: string) => { void bubbleActions.current.editMsg(m, text); }, []);
+  const onSaveMessage = useCallback((m: Message) => { bubbleActions.current.saveToChapter(m); }, []);
+
   // Per-chat model options: union of all providers' models
   const allModels = Array.from(new Set(enabledProviders.flatMap((p) => p.models as string[])));
 
@@ -1079,21 +1109,25 @@ export function ChatView() {
             {t('chat.loadEarlier').replace('{n}', String(Math.min(RENDER_WINDOW, messages.length - renderLimit)))}
           </button>
         )}
-        {messages.map((m, idx) => (
-          idx >= messages.length - renderLimit ? (
-            <MessageBubble key={m.id} msg={m} youLabel={t('chat.you')}
-              editLabel={t('chat.edit')}
-              saveResendLabel={t('chat.saveAndResend')}
-              cancelLabel={t('chat.cancelEdit')}
-              deleteLabel={t('chat.delete')}
-              onDelete={() => deleteMsg(m.id)}
-              onEdit={editMsg}
-              onSaveChapter={() => saveToChapter(m)}
-              savedToChapter={savedChapters.has(m.id)}
-              tokensLabel={tokenLabel(m)} />
-          ) : (
-            <div key={m.id} className="msg skeleton-msg"><div className="avatar" /><div className="bubble"><div className="skeleton-line" /></div></div>
-          )
+        {/* Only the render window is mounted. Older turns used to render as
+            skeleton rows, which kept every message in the DOM (a 2,000-message
+            chat meant 2,000 extra nodes) — now a single spacer keeps the
+            scrollbar honest and the turns mount when the reader asks for
+            them. */}
+        {messages.length > renderLimit && (
+          <div className="msg-spacer" style={{ height: (messages.length - renderLimit) * 84 }} aria-hidden />
+        )}
+        {messages.slice(Math.max(0, messages.length - renderLimit)).map((m) => (
+          <MessageBubble key={m.id} msg={m} youLabel={t('chat.you')}
+            editLabel={t('chat.edit')}
+            saveResendLabel={t('chat.saveAndResend')}
+            cancelLabel={t('chat.cancelEdit')}
+            deleteLabel={t('chat.delete')}
+            onDelete={onDeleteMessage}
+            onEdit={onEditMessage}
+            onSaveChapter={onSaveMessage}
+            savedToChapter={savedChapters.has(m.id)}
+            tokensLabel={tokenLabel(m)} />
         ))}
         {streaming && (
           <div className="msg assistant streaming">

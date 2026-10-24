@@ -136,6 +136,7 @@ function buildMenu(): void {
         { label: 'Prompt Library', accelerator: 'CmdOrCtrl+/', click: () => send('ui:action', 'open-prompts') },
         { label: 'New Chat', accelerator: 'CmdOrCtrl+N', click: () => send('ui:action', 'new-chat') },
         { label: 'New Project', accelerator: 'CmdOrCtrl+Shift+N', click: () => send('ui:action', 'new-project') },
+        { label: 'Story Agent', accelerator: 'CmdOrCtrl+Shift+A', click: () => send('ui:navigate', 'agent') },
         { type: 'separator' },
         { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: () => send('ui:navigate', 'settings') }
       ]
@@ -587,13 +588,21 @@ ipcMain.handle('dialog:pickFiles', async () => {
   }
 });
 
-ipcMain.handle('files:read', async (_e, paths: string[]) => {
-  const out: { name: string; content: string }[] = [];
-  for (const p of (paths || []).slice(0, 8)) {
+// Read text files for attachments / Story Bible import. `maxBytes` is capped
+// at 2 MB so a renderer bug can never ask the main process to slurp a 2 GB
+// blob into memory. Chat attachments keep the historical 300 KB default.
+ipcMain.handle('files:read', async (_e, paths: string[], maxBytes?: number) => {
+  const cap = Math.min(2_000_000, Math.max(1_000, Number(maxBytes) || 300_000));
+  const out: { name: string; content: string; size?: number }[] = [];
+  for (const p of (paths || []).slice(0, 40)) {
     try {
       const st = fs.statSync(p);
-      if (st.size > 300_000) continue; // skip huge files silently
-      out.push({ name: p.split(/[\\/]/).pop() || p, content: fs.readFileSync(p, 'utf8') });
+      if (!st.isFile() || st.size > cap) continue;
+      // NUL bytes are a reliable tell for binary files (images, archives,
+      // office zip formats). Reading those as UTF-8 would import garbage.
+      const buf = fs.readFileSync(p);
+      if (buf.subarray(0, 256).includes(0)) continue;
+      out.push({ name: path.basename(p), content: buf.toString('utf8'), size: st.size });
     } catch { /* unreadable file — skip */ }
   }
   return out;

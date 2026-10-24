@@ -49,6 +49,35 @@ export interface FlowBeat {
   created_at?: number;
   updated_at?: number;
 }
+/** A text file attached to a story-bible entry (or to the project itself). */
+export interface StoryFile {
+  id: string;
+  project_id: string;
+  story_id: string | null;
+  name: string;
+  bytes: number;
+  created_at?: number;
+}
+/** A saved Plot Smith plan (Story Agent). `brief`/`plan` are JSON strings. */
+export interface StoryPlanRow {
+  id: string;
+  project_id: string | null;
+  title: string;
+  brief?: string;
+  plan?: string;
+  created_at?: number;
+  updated_at?: number;
+}
+export interface DbStats {
+  bytes: number;
+  path: string;
+  messages: number;
+  chats: number;
+  chapters: number;
+  story: number;
+  storyFiles: number;
+  versions: number;
+}
 export interface PluginRow { id: string; name: string; code: string; enabled: number }
 export interface SkillRow { id: string; name: string; content: string; enabled: number }
 export interface AutomationRow { id: string; name: string; trigger: string; action: string; param?: string; enabled?: number }
@@ -142,8 +171,9 @@ export interface InkwellApi {
   exportEpub(name: string, author: string, chapters: { title: string; content: string }[], lang?: string): Promise<{ ok: boolean; data?: string; error?: string }>;
   /** Native open-file dialog → picked files' absolute paths (empty if cancelled). */
   pickFiles(): Promise<string[]>;
-  /** Read small text files picked via pickFiles (skips >300KB or unreadable). */
-  readFiles(paths: string[]): Promise<{ name: string; content: string }[]>;
+  /** Read text files picked via pickFiles. Defaults to 300 KB per file; pass
+   *  a higher cap (max 2 MB) for Story Bible imports. Binary files are skipped. */
+  readFiles(paths: string[], maxBytes?: number): Promise<{ name: string; content: string; size?: number }[]>;
   onAiChunk(cb: (data: { reqId: string; chunk: GenChunk }) => void): () => void;
   onUi(channel: string, cb: (payload: any) => void): () => void;
 }

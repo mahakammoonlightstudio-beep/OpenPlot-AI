@@ -10,7 +10,8 @@ const TOOL_DEFS = [
   { name: 'create_story_entry', description: 'Create a story bible entry. kind: world | location | character | item | lore.', input_schema: { type: 'object', properties: { kind: { type: 'string', enum: ['world', 'location', 'character', 'item', 'lore'] }, title: { type: 'string' }, content: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } }, projectId: { type: 'string', description: 'Optional project id; omit to use the active project' } }, required: ['kind', 'title', 'content'] } },
   { name: 'update_story_entry', description: 'Update an existing story entry. Find it by id, or by its exact current title; pass newTitle to rename it.', input_schema: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string', description: 'Exact current title to find the entry if id is unknown' }, newTitle: { type: 'string', description: 'New title when renaming' }, content: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } } } } },
   { name: 'search_story', description: 'Search story bible entries (world, locations, characters, items, lore) by keyword across titles and content. Returns matching entries with their full content.', input_schema: { type: 'object', properties: { query: { type: 'string', description: 'Keyword to search (case-insensitive substring)' }, kind: { type: 'string', enum: ['world', 'location', 'character', 'item', 'lore'], description: 'Optional filter by kind' } }, required: ['query'] } },
-  { name: 'read_story_bible', description: 'Read the WHOLE story bible of a project in one call: every world, location, character, item and lore entry with full content and tags. Use before writing or continuing a story so everything you invent stays consistent with established canon. Prefer this over search_story when you need full context.', input_schema: { type: 'object', properties: { projectId: { type: 'string', description: 'Optional project id; omit to use the active project' } } } },
+  { name: 'read_story_bible', description: 'Read the WHOLE story bible of a project in one call: every world, location, character, item and lore entry with full content and tags, plus the names of any attached reference files. Use before writing or continuing a story so everything you invent stays consistent with established canon. Prefer this over search_story when you need full context.', input_schema: { type: 'object', properties: { projectId: { type: 'string', description: 'Optional project id; omit to use the active project' } } } },
+  { name: 'read_story_file', description: 'Read the full text of a reference file attached to a story-bible entry (or to the project). Use after read_story_bible lists attachment names and you need the details inside one.', input_schema: { type: 'object', properties: { id: { type: 'string', description: 'Attachment id when known' }, name: { type: 'string', description: 'Attachment file name (exact, case-insensitive)' } } } },
   { name: 'create_chapter', description: 'Create a new chapter for a project.', input_schema: { type: 'object', properties: { title: { type: 'string' }, content: { type: 'string' }, projectId: { type: 'string' } }, required: ['title'] } },
   { name: 'update_chapter', description: 'Update chapter content or status (draft|revising|done). Find by id or exact current title; pass newTitle to rename it.', input_schema: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string', description: 'Exact current title to find the chapter' }, newTitle: { type: 'string', description: 'New title when renaming' }, content: { type: 'string' }, status: { type: 'string', enum: ['draft', 'revising', 'done'] } } } },
   { name: 'list_chapters', description: 'List chapters of a project with word counts.', input_schema: { type: 'object', properties: { projectId: { type: 'string' } } } },
@@ -105,20 +106,78 @@ export function executeTool(call: ToolCall, ctx: { projectId?: string | null } =
         const q = String(input.query || '').toLowerCase();
         let entries = handleDb('listStory', {}) as any[];
         if (input.kind) entries = entries.filter((e: any) => e.kind === input.kind);
-        const hits = entries.filter((e: any) => e.title.toLowerCase().includes(q) || String(e.content).toLowerCase().includes(q));
-        return JSON.stringify(hits.map((e: any) => ({ id: e.id, kind: e.kind, title: e.title, content: e.content, tags: JSON.parse(e.tags || '[]') })));
+        // Attached reference files are searchable too — the whole point of
+        // attaching them is that the agent can find canon without copy-paste.
+        const files = ((handleDb('listStoryFiles', {}) as any[]) || []);
+        const fileIdsByEntry = new Map<string, any[]>();
+        for (const f of files) {
+          if (!f.story_id) continue;
+          const arr = fileIdsByEntry.get(f.story_id) || [];
+          arr.push(f);
+          fileIdsByEntry.set(f.story_id, arr);
+        }
+        // Attachment bodies live in the DB, so search them there instead of
+        // loading every file into this process just to filter it.
+        const fileHits = (handleDb('searchStoryFiles', { q: input.query }) as any[]) || [];
+        const hitFileEntryIds = new Set(fileHits.map((f) => f.story_id).filter(Boolean));
+        const hits = entries.filter((e: any) =>
+          e.title.toLowerCase().includes(q) ||
+          String(e.content).toLowerCase().includes(q) ||
+          (fileIdsByEntry.get(e.id) || []).some((f: any) => String(f.name).toLowerCase().includes(q)) ||
+          hitFileEntryIds.has(e.id)
+        );
+        return JSON.stringify({
+          entries: hits.map((e: any) => ({
+            id: e.id, kind: e.kind, title: e.title, content: e.content,
+            tags: (() => { try { return JSON.parse(e.tags || '[]'); } catch { return []; } })(),
+            attachments: (fileIdsByEntry.get(e.id) || []).map((f: any) => f.name)
+          })),
+          files: fileHits.map((f: any) => ({ name: f.name, storyId: f.story_id, matchedIn: f.matched_in }))
+        });
       }
       case 'read_story_bible': {
         const projectId = resolveProject(input, ctx.projectId);
         if (!projectId) return JSON.stringify({ error: 'No project exists. Ask the user to create a project first.' });
         const entries = (handleDb('listStory', {}) as any[]).filter((e) => e.project_id === projectId);
+        const files = (handleDb('listStoryFiles', { projectId }) as any[]);
         return JSON.stringify({
           projectId,
           entryCount: entries.length,
           entries: entries.map((e) => ({
             id: e.id, kind: e.kind, title: e.title, content: e.content,
-            tags: (() => { try { return JSON.parse(e.tags || '[]'); } catch { return []; } })()
-          }))
+            tags: (() => { try { return JSON.parse(e.tags || '[]'); } catch { return []; } })(),
+            // Names only here; the full text is loaded on demand by
+            // read_story_file so one huge attachment cannot flood the context.
+            attachments: files.filter((f) => f.story_id === e.id).map((f) => f.name)
+          })),
+          projectFiles: files.filter((f) => !f.story_id).map((f) => f.name)
+        });
+      }
+      case 'read_story_file': {
+        const name = String(input.name || '').trim().toLowerCase();
+        const id = String(input.id || '').trim();
+        if (!name && !id) return JSON.stringify({ error: 'Pass the attachment id or file name.' });
+        // Scope to the chat's project first so two projects with a
+        // "notes.md" never resolve to the wrong story's canon.
+        const files = (handleDb('listStoryFiles', ctx.projectId ? { projectId: ctx.projectId } : {}) as any[])
+          .concat(ctx.projectId ? (handleDb('listStoryFiles', {}) as any[]).filter((f) => f.project_id !== ctx.projectId) : []);
+        const found = id
+          ? files.find((f) => f.id === id)
+          : files.find((f) => String(f.name).toLowerCase() === name);
+        if (!found) return JSON.stringify({ error: 'Attachment not found.' });
+        const row = handleDb('getStoryFile', { id: found.id }) as any;
+        // A single 2 MB attachment would otherwise dominate the whole context
+        // window. The model gets the head of the file plus a clear notice.
+        const MAX_TOOL_FILE_CHARS = 60_000;
+        const content = String(row.content || '');
+        const truncated = content.length > MAX_TOOL_FILE_CHARS;
+        return JSON.stringify({
+          id: row.id,
+          name: row.name,
+          storyId: row.story_id,
+          content: truncated ? content.slice(0, MAX_TOOL_FILE_CHARS) : content,
+          truncated,
+          ...(truncated ? { note: `Only the first ${MAX_TOOL_FILE_CHARS.toLocaleString('en-US')} characters are shown.` } : {})
         });
       }
       case 'create_chapter': {
@@ -178,10 +237,12 @@ export function executeTool(call: ToolCall, ctx: { projectId?: string | null } =
         const bible = (handleDb('listStory', {}) as any[])
           .filter((e) => e.project_id === projectId)
           .map((e) => ({ id: e.id, kind: e.kind, title: e.title }));
+        const files = (handleDb('listStoryFiles', { projectId }) as any[])
+          .map((f) => ({ name: f.name, storyId: f.story_id }));
         return JSON.stringify({
           id: p.id, name: p.name, description: p.description, context: p.context,
           format: p.format, rating: p.rating,
-          chapters, bible
+          chapters, bible, files
         });
       }
       default:

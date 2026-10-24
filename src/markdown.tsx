@@ -120,7 +120,10 @@ const PURIFY_CFG = {
 };
 
 export function sanitizeHtml(html: string): string {
-  if (typeof window === 'undefined') return html;
+  // The renderer always has a real DOM + DOMPurify. The extra checks keep
+  // server-side renderers / test harnesses from crashing (DOMPurify exports a
+  // document-less stub when it is imported without a browser).
+  if (typeof window === 'undefined' || typeof (DOMPurify as any)?.sanitize !== 'function') return html;
   return DOMPurify.sanitize(html, PURIFY_CFG);
 }
 

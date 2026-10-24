@@ -85,13 +85,36 @@ const fallback = parse(executeTool({ name: 'create_chapter', input: { title: 'Or
 check('create_chapter falls back to most recent project', fallback.ok === true, JSON.stringify(fallback));
 
 // ---------- 4. search ----------
-const hits = parse(executeTool({ name: 'search_story', input: { query: 'crown' } }));
+const searchRes = parse(executeTool({ name: 'search_story', input: { query: 'crown' } }));
+const hits = searchRes.entries || [];
 check('search_story finds renamed entry', hits.some((h) => h.title === 'Sunken Crown'), JSON.stringify(hits.map((h) => h.title)));
 const kindHits = parse(executeTool({ name: 'search_story', input: { query: 'storm', kind: 'character' } }));
-check('search_story kind filter returns none for mismatch', kindHits.length === 0);
+check('search_story kind filter returns none for mismatch', (kindHits.entries || []).length === 0);
 
 // unknown tool → error JSON, never throws
 check('unknown tool returns error JSON', !!parse(executeTool({ name: 'nope', input: {} })).error);
+
+// ---------- 4b. attached reference files are visible to the agent ----------
+const sera = dbCall('listStory', {}).find((e) => e.title === 'Kael');
+dbCall('attachStoryFile', { projectId: projA.id, storyId: sera.id, name: 'kael-notes.md', content: 'Kael was born during the Storm.' });
+dbCall('attachStoryFile', { projectId: projA.id, name: 'style-guide.txt', content: 'Past tense, close third.' });
+const bible = parse(executeTool({ name: 'read_story_bible', input: { projectId: projA.id } }));
+const kaelEntry = bible.entries.find((e) => e.title === 'Kael');
+check('read_story_bible lists attachment names', kaelEntry.attachments.includes('kael-notes.md'), JSON.stringify(kaelEntry));
+check('read_story_bible lists project-level files', bible.projectFiles.includes('style-guide.txt'));
+const fileBody = parse(executeTool({ name: 'read_story_file', input: { name: 'kael-notes.md' } }));
+check('read_story_file returns full text by name', /born during the Storm/.test(fileBody.content), JSON.stringify(fileBody).slice(0, 80));
+const fileById = parse(executeTool({ name: 'read_story_file', input: { id: fileBody.id } }));
+check('read_story_file works by id', fileById.name === 'kael-notes.md');
+const searchFile = parse(executeTool({ name: 'search_story', input: { query: 'style-guide' } }));
+check('search_story finds a file by name', searchFile.files.some((f) => f.name === 'style-guide.txt'));
+const searchFileBody = parse(executeTool({ name: 'search_story', input: { query: 'close third' } }));
+check('search_story searches inside attachment text', searchFileBody.files.some((f) => f.name === 'style-guide.txt' && f.matchedIn === 'content'), JSON.stringify(searchFileBody.files));
+dbCall('attachStoryFile', { projectId: projA.id, name: 'long.txt', content: 'z'.repeat(61_000) });
+const longFile = parse(executeTool({ name: 'read_story_file', input: { name: 'long.txt' } }));
+check('read_story_file truncates huge attachments for the context window', longFile.truncated === true && longFile.content.length === 60000, JSON.stringify({ truncated: longFile.truncated, len: longFile.content?.length }));
+const projectRead = parse(executeTool({ name: 'read_project', input: { projectId: projA.id } }));
+check('read_project lists files', projectRead.files.some((f) => f.name === 'kael-notes.md') && projectRead.files.some((f) => f.name === 'style-guide.txt'));
 
 // ---------- 5. truly empty workspace → friendly error, not a crash ----------
 for (const p of dbCall('listProjects', {})) dbCall('deleteProject', { id: p.id });

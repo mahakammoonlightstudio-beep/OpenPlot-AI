@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useData, useSettings, useUi, dbCall, uid, runAutomations, DONATE_LINKS } from '../store';
 import { confirmDialog } from './TextPrompt';
-import { Provider, PluginRow, SkillRow, AutomationRow, McpRow, AppInfo, ProviderPreset, PresetRefreshResult, ModelCapabilities } from '../types';
+import { Provider, PluginRow, SkillRow, AutomationRow, McpRow, AppInfo, DbStats, ProviderPreset, PresetRefreshResult, ModelCapabilities } from '../types';
+import { formatBytes } from '../lib/storyImport';
 import { useT } from '../i18nReact';
 import { Icon } from './Icons';
 import { useVerifyStore } from '../verifyStore';
@@ -1170,11 +1171,48 @@ function McpSection() {
 function DataSection({ appInfo }: { appInfo: AppInfo | null }) {
   const t = useT();
   const ui = useUi();
+  const [stats, setStats] = useState<DbStats | null>(null);
+  const [compacting, setCompacting] = useState(false);
+  const refreshStats = async () => {
+    try { setStats(await dbCall<DbStats>('dbStats')); } catch { /* stats are optional */ }
+  };
+  useEffect(() => { refreshStats(); }, []);
   return (
     <div>
       <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="folder" size={18} /> {t('settings.data')}</h1>
       <div className="subtitle">{t('data.sub')}</div>
       <div className="card">
+        <label>{t('data.storage')}</label>
+        <div className="db-stats">
+          <div className="db-size">{stats ? formatBytes(stats.bytes) : '…'}</div>
+          {stats && (
+            <div className="hint">
+              {t('data.counts')
+                .replace('{messages}', stats.messages.toLocaleString())
+                .replace('{chats}', stats.chats.toLocaleString())
+                .replace('{chapters}', stats.chapters.toLocaleString())
+                .replace('{story}', stats.story.toLocaleString())}
+              {stats.storyFiles > 0 ? <> · {t('data.files').replace('{n}', String(stats.storyFiles))}</> : null}
+            </div>
+          )}
+          <div className="row" style={{ gap: 8, marginTop: 8 }}>
+            <button className="small ghost" onClick={refreshStats}><Icon name="refresh" size={13} /> {t('data.refresh')}</button>
+            <button className="small" disabled={compacting} onClick={async () => {
+              setCompacting(true);
+              try {
+                await dbCall('compactDb');
+                await refreshStats();
+                ui.toast(t('data.compacted'), 'ok');
+              } catch (e: any) {
+                ui.toast(e?.message || 'Compaction failed', 'error');
+              } finally { setCompacting(false); }
+            }}>
+              <Icon name="bolt" size={13} /> {compacting ? t('data.compacting') : t('data.compact')}
+            </button>
+          </div>
+          <div className="hint">{t('data.compactHint')}</div>
+        </div>
+        <hr />
         <label>{t('data.location')}</label>
         <code>{appInfo?.dataPath || '…'}</code>
         <div className={`enc-badge ${appInfo?.encryption ? 'on' : 'off'}`}>

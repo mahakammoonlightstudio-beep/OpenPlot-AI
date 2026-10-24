@@ -58,6 +58,7 @@ export function CommandPalette() {
       } },
       { id: 'search', group: 'actions', label: t('palette.search'), icon: 'chat', hint: 'Ctrl+F', run: () => window.dispatchEvent(new CustomEvent('inkwell:focus-search')) },
       { id: 'prompts', group: 'actions', label: t('prompt.title'), icon: 'scroll', hint: 'Ctrl+/', run: () => openPromptLibraryUi() },
+      { id: 'agent', group: 'actions', label: t('app.agent'), icon: 'sparkle', run: () => navigate('agent') },
       { id: 'story', group: 'actions', label: t('app.story'), icon: 'book', run: () => navigate('story') },
       { id: 'chapters', group: 'actions', label: t('app.chapters'), icon: 'book', run: () => navigate('chapters') },
       { id: 'flow', group: 'actions', label: t('app.flow'), icon: 'target', run: () => navigate('flow') },

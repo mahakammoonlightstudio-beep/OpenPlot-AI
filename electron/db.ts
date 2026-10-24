@@ -5,6 +5,11 @@ import * as path from 'path';
 let db: Database | null = null;
 let dbFile = '';
 let saveTimer: NodeJS.Timeout | null = null;
+// PERF: only rewrite the whole database file when a write actually happened.
+// sql.js exports the ENTIRE DB as a new buffer, so a persist with no changes
+// burns CPU + RAM for nothing (the old timer could fire after read-only ops
+// and after the save that already ran).
+let dirty = false;
 
 // ---- secret-at-rest crypto hooks (wired by main.ts) ----
 // API keys are stored encrypted with Electron safeStorage (DPAPI on Windows,
@@ -27,6 +32,9 @@ const ENC_PREFIX = 'enc:v1:';
 
 // Per-chapter snapshot cap — oldest rows are pruned on every insert.
 const CHAPTER_VERSIONS_MAX = 30;
+// Story-bible attachments are stored as text inside the DB; keep a sane cap so
+// a stray binary or a 40 MB ebook can never bloat the local database.
+const STORY_FILE_MAX_BYTES = 2_000_000;
 
 function protectKey(plain: string): string {
   const s = String(plain || '');
@@ -116,6 +124,23 @@ CREATE TABLE IF NOT EXISTS prompt_styles (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, content TEXT NOT NULL,
   builtin INTEGER DEFAULT 0, created_at INTEGER, updated_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS story_files (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL, story_id TEXT,
+  name TEXT NOT NULL, content TEXT DEFAULT '', bytes INTEGER DEFAULT 0,
+  created_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS story_plans (
+  id TEXT PRIMARY KEY, project_id TEXT, title TEXT NOT NULL,
+  brief TEXT DEFAULT '{}', plan TEXT DEFAULT '{}',
+  created_at INTEGER, updated_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id);
+CREATE INDEX IF NOT EXISTS idx_story_project ON story(project_id);
+CREATE INDEX IF NOT EXISTS idx_chapters_project ON chapters(project_id);
+CREATE INDEX IF NOT EXISTS idx_flow_project ON flow_beats(project_id);
+CREATE INDEX IF NOT EXISTS idx_versions_chapter ON chapter_versions(chapter_id);
+CREATE INDEX IF NOT EXISTS idx_story_files_project ON story_files(project_id);
+CREATE INDEX IF NOT EXISTS idx_story_files_entry ON story_files(story_id);
 `;
 
 export function uid(): string {
@@ -158,7 +183,13 @@ export async function initDb(dir: string, fileName = 'openplot.db'): Promise<str
   try { db.exec('ALTER TABLE messages ADD COLUMN tokens_in INTEGER'); } catch { /* column exists */ }
   try { db.exec('ALTER TABLE messages ADD COLUMN tokens_out INTEGER'); } catch { /* column exists */ }
   try { db.exec('CREATE TABLE IF NOT EXISTS prompt_styles (id TEXT PRIMARY KEY, name TEXT NOT NULL, content TEXT NOT NULL, builtin INTEGER DEFAULT 0, created_at INTEGER, updated_at INTEGER)'); } catch { /* table exists */ }
+  // v1.2: file attachments for story-bible entries and story-agent plans.
+  try { db.exec(`CREATE TABLE IF NOT EXISTS story_files (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, story_id TEXT, name TEXT NOT NULL, content TEXT DEFAULT '', bytes INTEGER DEFAULT 0, created_at INTEGER)`); } catch { /* table exists */ }
+  try { db.exec(`CREATE TABLE IF NOT EXISTS story_plans (id TEXT PRIMARY KEY, project_id TEXT, title TEXT NOT NULL, brief TEXT DEFAULT '{}', plan TEXT DEFAULT '{}', created_at INTEGER, updated_at INTEGER)`); } catch { /* table exists */ }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id)'); } catch { /* index exists */ }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_story_files_entry ON story_files(story_id)'); } catch { /* index exists */ }
   seedDefaults();
+  dirty = true;
   persistNow();
   return dbFile;
 }
@@ -286,17 +317,39 @@ export const DEFAULT_SKILLS: Array<{ id: string; name: string; content: string }
   }
 ];
 
-export function persistNow(): void {
-  if (!db || !dbFile) return;
+/**
+ * Write the in-memory database to disk. Always atomic: the new bytes go to a
+ * temp file first and then rename over the real one, so a crash or a full disk
+ * during a write can never leave a half-written (unopenable) database behind.
+ * Returns true when bytes were written.
+ */
+export function persistNow(force = false): boolean {
+  if (!db || !dbFile) return false;
+  if (!dirty && !force) return false;
   try {
-    const data = Buffer.from(db.export());
-    fs.writeFileSync(dbFile, data);
+    // fs accepts a Uint8Array directly — no Buffer.from copy (sql.js export is
+    // already a full copy, a second one only doubles peak memory on big DBs).
+    const data = db.export();
+    const tmp = dbFile + '.tmp';
+    fs.writeFileSync(tmp, data);
+    try {
+      fs.renameSync(tmp, dbFile);
+    } catch {
+      // Windows can refuse the replace while another handle is open — fall
+      // back to a direct write rather than losing this save.
+      fs.writeFileSync(dbFile, data);
+      try { fs.unlinkSync(tmp); } catch { /* already gone */ }
+    }
+    dirty = false;
+    return true;
   } catch (e) {
     console.error('DB persist failed:', e);
+    return false;
   }
 }
 
 function schedulePersist(): void {
+  dirty = true;
   if (saveTimer) clearTimeout(saveTimer);
   // PERF: persist rewrites the WHOLE db file (sql.js export). 400ms during
   // streaming meant a full-file write every few tokens; 1200ms keeps the
@@ -369,6 +422,8 @@ export function handleDb(op: string, payload: any): any {
     }
     case 'deleteProject':
       run('DELETE FROM projects WHERE id=?', [payload.id]);
+      run('DELETE FROM story_files WHERE project_id=?', [payload.id]);
+      run('DELETE FROM story_plans WHERE project_id=?', [payload.id]);
       // Messages live on the deleted chats — remove them first or they stay
       // orphaned in the DB forever (they were never cleaned up before).
       run('DELETE FROM messages WHERE chat_id IN (SELECT id FROM chats WHERE project_id=?)', [payload.id]);
@@ -381,8 +436,9 @@ export function handleDb(op: string, payload: any): any {
       // (same cleanup deleteFolder does per-folder).
       run('UPDATE chats SET folder_id=NULL WHERE folder_id IN (SELECT id FROM folders WHERE project_id=?)', [payload.id]);
       run('DELETE FROM folders WHERE project_id=?', [payload.id]);
-      // remove scenes orphaned by the deleted chapters
+      // remove scenes/versions orphaned by the deleted chapters
       run('DELETE FROM scenes WHERE chapter_id NOT IN (SELECT id FROM chapters)');
+      run('DELETE FROM chapter_versions WHERE chapter_id NOT IN (SELECT id FROM chapters)');
       return true;
     // folders
     case 'listFolders':
@@ -519,8 +575,165 @@ export function handleDb(op: string, payload: any): any {
       return get('SELECT * FROM story WHERE id = ?', [payload.id]);
     }
     case 'deleteStory':
+      // Attached reference files die with their entry (no orphan rows).
+      run('DELETE FROM story_files WHERE story_id=?', [payload.id]);
       run('DELETE FROM story WHERE id=?', [payload.id]);
       return true;
+    // ---- files attached to story-bible entries (v1.2) ----
+    // The renderer reads the file text (through the preload bridge) and sends
+    // it here; the text is stored locally so the agent can read it with the
+    // story tools and the user never has to copy-paste reference material.
+    case 'listStoryFiles':
+      if (!payload?.projectId) return all('SELECT id, project_id, story_id, name, bytes, created_at FROM story_files ORDER BY created_at DESC');
+      return all('SELECT id, project_id, story_id, name, bytes, created_at FROM story_files WHERE project_id=? ORDER BY created_at DESC', [payload.projectId]);
+    case 'getStoryFile': {
+      const row = get('SELECT * FROM story_files WHERE id=?', [payload.id]);
+      if (!row) throw new Error('Attachment not found.');
+      return row;
+    }
+    case 'attachStoryFile': {
+      const name = String(payload.name || '').trim().slice(0, 200);
+      const content = String(payload.content ?? '');
+      if (!name) throw new Error('The file has no name.');
+      if (!content.trim()) throw new Error('The file is empty or not readable as text.');
+      const bytes = Buffer.byteLength(content, 'utf8');
+      if (bytes > STORY_FILE_MAX_BYTES) {
+        throw new Error(`File is too large (${(bytes / 1024 / 1024).toFixed(1)} MB). The limit is 2 MB per attachment.`);
+      }
+      let projectId = payload.projectId || null;
+      if (!projectId && payload.storyId) {
+        const entry = get('SELECT project_id FROM story WHERE id=?', [payload.storyId]);
+        projectId = entry?.project_id || null;
+      }
+      if (!projectId) throw new Error('No project is attached to this entry.');
+      const storyId = payload.storyId || null;
+      // Re-attaching the same filename refreshes it instead of stacking
+      // duplicates (drop the same notes file twice → one chip, new content).
+      const existing = storyId
+        ? get('SELECT id FROM story_files WHERE story_id=? AND name=?', [storyId, name])
+        : get('SELECT id FROM story_files WHERE project_id=? AND story_id IS NULL AND name=?', [projectId, name]);
+      if (existing) {
+        run('UPDATE story_files SET content=?, bytes=?, created_at=? WHERE id=?', [content, bytes, now, existing.id]);
+        return get('SELECT id, project_id, story_id, name, bytes, created_at FROM story_files WHERE id=?', [existing.id]);
+      }
+      const id = uid();
+      run('INSERT INTO story_files (id, project_id, story_id, name, content, bytes, created_at) VALUES (?,?,?,?,?,?,?)',
+        [id, projectId, storyId, name, content, bytes, now]);
+      return get('SELECT id, project_id, story_id, name, bytes, created_at FROM story_files WHERE id=?', [id]);
+    }
+    case 'deleteStoryFile':
+      run('DELETE FROM story_files WHERE id=?', [payload.id]);
+      return true;
+    // Search attachment names + text without shipping every file body to the
+    // renderer. LIKE wildcards are escaped so "100%" stays literal.
+    case 'searchStoryFiles': {
+      const needle = String(payload.q || '').trim();
+      if (!needle) return [];
+      const escaped = needle.replace(/[\\%_]/g, (ch) => '\\' + ch);
+      const like = `%${escaped}%`;
+      return all(
+        `SELECT id, project_id, story_id, name,
+                CASE WHEN name LIKE ? ESCAPE '\\' THEN 'name' ELSE 'content' END AS matched_in
+           FROM story_files
+          WHERE name LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\'
+          ORDER BY created_at DESC LIMIT 30`,
+        [like, like, like]
+      );
+    }
+    // Bulk import in ONE IPC round-trip (a 300-entry Markdown import used to
+    // mean 300 renderer↔main calls). Rows are validated and capped here.
+    case 'importStoryEntries': {
+      const projectId = String(payload.projectId || '');
+      if (!projectId) throw new Error('Choose a project before importing.');
+      const rows = Array.isArray(payload.entries) ? payload.entries.slice(0, 500) : [];
+      const allowed = new Set(['world', 'location', 'character', 'item', 'lore']);
+      let imported = 0;
+      for (const e of rows) {
+        const kind = String(e?.kind || '');
+        const title = String(e?.title || '').trim().slice(0, 200);
+        const content = String(e?.content || '');
+        if (!allowed.has(kind) || !title || !content.trim()) continue;
+        if (Buffer.byteLength(content, 'utf8') > STORY_FILE_MAX_BYTES) continue;
+        run('INSERT INTO story (id, project_id, kind, title, content, tags, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
+          [uid(), projectId, kind, title, content, JSON.stringify(Array.isArray(e.tags) ? e.tags.slice(0, 12) : []), now, now]);
+        imported++;
+      }
+      return { imported };
+    }
+    // ---- Story Agent saved plans (v1.2) ----
+    case 'listStoryPlans':
+      // List view never needs the (potentially large) plan JSON.
+      return all('SELECT id, project_id, title, created_at, updated_at FROM story_plans ORDER BY updated_at DESC');
+    case 'getStoryPlan': {
+      const row = get('SELECT * FROM story_plans WHERE id=?', [payload.id]);
+      if (!row) throw new Error('Plan not found.');
+      return row;
+    }
+    case 'saveStoryPlan': {
+      const id = payload.id || uid();
+      const title = String(payload.title || 'Untitled story plan').slice(0, 200);
+      const brief = JSON.stringify(payload.brief ?? {});
+      const plan = JSON.stringify(payload.plan ?? {});
+      if (plan.length > STORY_FILE_MAX_BYTES * 4) throw new Error('Plan is too large to save.');
+      const existing = get('SELECT id FROM story_plans WHERE id=?', [id]);
+      if (existing) {
+        run('UPDATE story_plans SET project_id=?, title=?, brief=?, plan=?, updated_at=? WHERE id=?',
+          [payload.projectId ?? null, title, brief, plan, now, id]);
+      } else {
+        run('INSERT INTO story_plans (id, project_id, title, brief, plan, created_at, updated_at) VALUES (?,?,?,?,?,?,?)',
+          [id, payload.projectId ?? null, title, brief, plan, now, now]);
+      }
+      return get('SELECT id, project_id, title, created_at, updated_at FROM story_plans WHERE id=?', [id]);
+    }
+    case 'deleteStoryPlan':
+      run('DELETE FROM story_plans WHERE id=?', [payload.id]);
+      return true;
+    // Create a whole Plot Smith project (metadata + bible + chapters + flow
+    // beats) in ONE IPC call and one persistence pass. The UI used to fire 40+
+    // separate dbCall round-trips for a single “Create project” click.
+    case 'createProjectFromPlan': {
+      const p = payload.project || {};
+      const name = String(p.name || '').trim().slice(0, 200);
+      if (!name) throw new Error('The project needs a name.');
+      const pid = uid();
+      run('INSERT INTO projects (id, name, description, context, format, rating, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
+        [pid, name, String(p.description || '').slice(0, 2000), String(p.context || ''), String(p.format || 'novel'), String(p.rating || 'teen'), now, now]);
+      const allowedKind = new Set(['world', 'location', 'character', 'item', 'lore']);
+      let entryCount = 0;
+      for (const e of (Array.isArray(payload.entries) ? payload.entries.slice(0, 200) : [])) {
+        const kind = String(e?.kind || '');
+        const title = String(e?.title || '').trim().slice(0, 200);
+        const content = String(e?.content || '');
+        if (!allowedKind.has(kind) || !title || !content.trim()) continue;
+        run('INSERT INTO story (id, project_id, kind, title, content, tags, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
+          [uid(), pid, kind, title, content, JSON.stringify(Array.isArray(e.tags) ? e.tags.slice(0, 12) : []), now, now]);
+        entryCount++;
+      }
+      let chapterCount = 0;
+      for (const c of (Array.isArray(payload.chapters) ? payload.chapters.slice(0, 100) : [])) {
+        const title = String(c?.title || '').trim().slice(0, 200);
+        if (!title) continue;
+        const status = ['draft', 'revising', 'done'].includes(c?.status) ? c.status : 'draft';
+        run('INSERT INTO chapters (id, project_id, title, content, status, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
+          [uid(), pid, title, String(c?.content || ''), status, chapterCount, now, now]);
+        chapterCount++;
+      }
+      let beatCount = 0;
+      for (const b of (Array.isArray(payload.beats) ? payload.beats.slice(0, 200) : [])) {
+        const title = String(b?.title || '').trim().slice(0, 200);
+        if (!title) continue;
+        const act = Math.min(4, Math.max(1, Number(b?.act) || 1));
+        const status = ['planned', 'drafting', 'written'].includes(b?.status) ? b.status : 'planned';
+        const maxPos = get('SELECT MAX(position) AS m FROM flow_beats WHERE project_id=? AND act=?', [pid, act]);
+        run('INSERT INTO flow_beats (id, project_id, act, title, summary, status, chapter_id, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+          [uid(), pid, act, title, String(b?.summary || ''), status, null, (maxPos?.m ?? -1) + 1, now, now]);
+        beatCount++;
+      }
+      if (payload.planId) {
+        run('UPDATE story_plans SET project_id=?, updated_at=? WHERE id=?', [pid, now, payload.planId]);
+      }
+      return { project: get('SELECT * FROM projects WHERE id=?', [pid]), entries: entryCount, chapters: chapterCount, beats: beatCount };
+    }
     // scenes (chapter beats)
     case 'listScenes':
       return all('SELECT * FROM scenes WHERE chapter_id=? ORDER BY position', [payload.chapterId]);
@@ -769,7 +982,7 @@ export function handleDb(op: string, payload: any): any {
       return true;
     case 'resetAll':
       if (db) {
-        db.exec('DELETE FROM settings; DELETE FROM projects; DELETE FROM folders; DELETE FROM chats; DELETE FROM messages; DELETE FROM memories; DELETE FROM story; DELETE FROM chapters; DELETE FROM providers; DELETE FROM plugins; DELETE FROM skills; DELETE FROM automations; DELETE FROM mcp_servers; DELETE FROM scenes; DELETE FROM flow_beats; DELETE FROM prompts; DELETE FROM chapter_versions; DELETE FROM prompt_styles;');
+        db.exec('DELETE FROM settings; DELETE FROM projects; DELETE FROM folders; DELETE FROM chats; DELETE FROM messages; DELETE FROM memories; DELETE FROM story; DELETE FROM chapters; DELETE FROM providers; DELETE FROM plugins; DELETE FROM skills; DELETE FROM automations; DELETE FROM mcp_servers; DELETE FROM scenes; DELETE FROM flow_beats; DELETE FROM prompts; DELETE FROM chapter_versions; DELETE FROM prompt_styles; DELETE FROM story_files; DELETE FROM story_plans;');
         // Builtin styles are permanent furniture — re-seed immediately so the
         // user never sees an empty style picker until the next app start.
         for (const s of DEFAULT_STYLES) {
@@ -778,9 +991,41 @@ export function handleDb(op: string, payload: any): any {
           stmt.step();
           stmt.free();
         }
+        dirty = true;
         persistNow();
       }
       return true;
+    // ---- maintenance (Settings → Data) ----
+    case 'dbStats': {
+      let bytes = 0;
+      try { bytes = fs.statSync(dbFile).size; } catch { /* not written yet */ }
+      const count = (t: string) => {
+        try { return Number(get(`SELECT COUNT(*) AS n FROM ${t}`)?.n || 0); } catch { return 0; }
+      };
+      return {
+        bytes,
+        path: dbFile,
+        messages: count('messages'),
+        chats: count('chats'),
+        chapters: count('chapters'),
+        story: count('story'),
+        storyFiles: count('story_files'),
+        versions: count('chapter_versions')
+      };
+    }
+    case 'compactDb': {
+      // VACUUM rebuilds the file without free pages / orphan blobs. sql.js is
+      // in-memory so it costs one temporary copy — persistence then rewrites
+      // the file once. Also prune orphaned rows from older versions.
+      run('DELETE FROM story_files WHERE project_id NOT IN (SELECT id FROM projects)');
+      run('DELETE FROM story_files WHERE story_id IS NOT NULL AND story_id NOT IN (SELECT id FROM story)');
+      run('DELETE FROM story_plans WHERE project_id IS NOT NULL AND project_id NOT IN (SELECT id FROM projects)');
+      run('DELETE FROM messages WHERE chat_id NOT IN (SELECT id FROM chats)');
+      try { db?.exec('VACUUM'); } catch (e) { console.warn('VACUUM skipped:', e); }
+      dirty = true;
+      persistNow(true);
+      return { ok: true };
+    }
     default:
       throw new Error('Unknown db op: ' + op);
   }
@@ -788,7 +1033,8 @@ export function handleDb(op: string, payload: any): any {
 
 export function closeDb(): void {
   if (saveTimer) clearTimeout(saveTimer);
-  persistNow();
+  persistNow(true);
   if (db) db.close();
   db = null;
+  dirty = false;
 }

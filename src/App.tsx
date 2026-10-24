@@ -3,6 +3,7 @@ import { useData, useSettings, useUi, runAutomations, dbCall, createChatUi } fro
 import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
 import { StoryBibleView } from './components/StoryBibleView';
+import { StoryAgentView } from './components/StoryAgentView';
 import { ChaptersView } from './components/ChaptersView';
 import { FlowView } from './components/FlowView';
 import { SettingsView } from './components/SettingsView';
@@ -24,8 +25,11 @@ export function openPromptLibraryUi(): void {
 
 export default function App() {
   const settings = useSettings();
-  const { route, activeChatId } = useData();
-  const ui = useUi();
+  // Narrow subscriptions: a toast or a data-store change no longer re-renders
+  // the whole shell (which used to reconcile the open view as a side effect).
+  const route = useData((s) => s.route);
+  const activeChatId = useData((s) => s.activeChatId);
+  const sidebarHidden = useUi((s) => s.sidebarHidden);
 
   // boot: load settings then data
   useEffect(() => {
@@ -143,6 +147,7 @@ export default function App() {
   let body: React.ReactNode;
   switch (route) {
     case 'story': body = <StoryBibleView />; break;
+    case 'agent': body = <StoryAgentView />; break;
     case 'chapters': body = <ChaptersView />; break;
     case 'flow': body = <FlowView />; break;
     case 'projects': body = <ProjectsView />; break;
@@ -155,17 +160,26 @@ export default function App() {
   }
 
   return (
-    <div className={`app ${ui.sidebarHidden ? 'sidebar-hidden' : ''}`} id="app-root" tabIndex={-1}>
+    <div className={`app ${sidebarHidden ? 'sidebar-hidden' : ''}`} id="app-root" tabIndex={-1}>
       <Sidebar />
       <div className="main">{body}</div>
       <CommandPalette />
-      <div className="toasts" role="status" aria-live="polite">
-        {ui.toasts.map((tst) => (
-          <div key={tst.id} className={`toast ${tst.kind}`} onClick={() => ui.dismiss(tst.id)} title="Dismiss">
-            {tst.msg}
-          </div>
-        ))}
-      </div>
+      <Toasts />
+    </div>
+  );
+}
+
+/** Isolated so toast countdowns only re-render this strip, not the app. */
+function Toasts() {
+  const toasts = useUi((s) => s.toasts);
+  const dismiss = useUi((s) => s.dismiss);
+  return (
+    <div className="toasts" role="status" aria-live="polite">
+      {toasts.map((tst) => (
+        <div key={tst.id} className={`toast ${tst.kind}`} onClick={() => dismiss(tst.id)} title="Dismiss">
+          {tst.msg}
+        </div>
+      ))}
     </div>
   );
 }

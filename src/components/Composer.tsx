@@ -172,19 +172,24 @@ export function Composer({
   // Global shortcut (native menu Ctrl+/ or command palette): only open from a
   // real chat with a DRAFT-SAFE seed — empty composer types a lone '/', but
   // existing text just opens the menu over it (the text doubles as filter).
+  // The listener is attached ONCE and reads the latest draft from a ref;
+  // re-binding it on every keystroke churned the listener list and could drop
+  // a shortcut fired during the re-render gap.
+  const openPromptsRef = useRef<() => void>(() => {});
+  openPromptsRef.current = () => {
+    if (streaming) return;
+    if (input.trim()) {
+      setPromptOpen(true);
+      setTimeout(() => taRef.current?.focus(), 0);
+    } else {
+      openPromptLibrary();
+    }
+  };
   useEffect(() => {
-    const handler = () => {
-      if (streaming) return;
-      if (input.trim()) {
-        setPromptOpen(true);
-        setTimeout(() => taRef.current?.focus(), 0);
-      } else {
-        openPromptLibrary();
-      }
-    };
+    const handler = () => openPromptsRef.current();
     window.addEventListener('inkwell:open-prompts', handler);
     return () => window.removeEventListener('inkwell:open-prompts', handler);
-  }, [input, streaming]);
+  }, []);
 
   const isUserPrompt = (p: LibraryPrompt) => p.category === 'user' && p.id.startsWith('user-');
   const userRowId = (p: LibraryPrompt) => p.id.slice('user-'.length);

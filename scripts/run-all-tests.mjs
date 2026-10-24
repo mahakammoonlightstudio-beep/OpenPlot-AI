@@ -37,6 +37,10 @@ const GROUPS = {
     'db-test.mjs',        // sql.js schema/migrations/CRUD — no build output needed
     'ai-parser-test.mjs', // baseUrlCandidates, SseParser, dataLines, extractError, statusHint
     'tools-test.mjs',     // agent tools vs a real temp DB
+    'story-import-test.mjs', // story-bible file import parser (markdown/json/csv/txt)
+    'story-agent-test.mjs',  // Plot Smith prompts, JSON recovery, plan → project
+    'story-vault-test.mjs',  // attachments, saved plans, stats + compaction (temp DB)
+    'ui-render-test.mjs',    // server-renders every main view (no display needed)
     'url-fix-test.mjs',   // provider URL recovery + readable HTML errors (mock http)
     'engine-test.mjs',    // streaming, tool-call ordering, abort (mock SSE server)
     'stress-test.mjs'     // hostile-relay scenarios vs the engine
