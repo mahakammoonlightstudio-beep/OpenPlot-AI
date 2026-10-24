@@ -5,7 +5,7 @@ import { useT } from '../i18nReact';
 import { Icon } from './Icons';
 import {
   AUDIENCES, Choice, DEFAULT_BRIEF, FORMATS, GENRES, LENGTHS, LENGTH_WORDS, POVS, TONES,
-  CastBundle, OutlineBundle, PremiseOption, StoryBrief, StoryPlanState, EMPTY_PLAN,
+  CastBundle, PremiseOption, StoryBrief, StoryPlanState, EMPTY_PLAN,
   buildProjectSeed, castPrompt, normalizeCast, normalizeOutline, normalizePlanState,
   normalizePremises, optionLabel, outlinePrompt, parseAgentJson, premisePrompt
 } from '../lib/storyAgent';
@@ -160,8 +160,6 @@ export function StoryAgentView() {
 
   const lang = settings.lang;
   const provider = providerFor(providers, model);
-  const planTitle = plan.premise?.title || brief.idea.trim().slice(0, 80) || 'Untitled story plan';
-
   // Persist the brief locally so a crash / navigation never loses the options.
   useEffect(() => {
     try { localStorage.setItem(BRIEF_KEY, JSON.stringify(brief)); } catch { /* storage full */ }
