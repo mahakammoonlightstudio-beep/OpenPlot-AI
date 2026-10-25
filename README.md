@@ -1,117 +1,115 @@
 # OpenPlot AI
 
+**Your story deserves a studio, not five browser tabs.**
+
+A free, open-source, local-first AI writing studio for Windows, macOS and Linux. Chat with any model, keep your canon in a structured story bible, outline in three acts, write chapters, and watch your progress — all in one desktop window.
+
+**[Download the latest release](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest)** · [Website](https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/) · [Changelog](CHANGELOG.md)
+
 [![Release](https://img.shields.io/github/v/release/mahakammoonlightstudio-beep/OpenPlot-AI?style=flat-square)](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases)
-[![Build](https://img.shields.io/github/actions/workflow/status/mahakammoonlightstudio-beep/OpenPlot-AI/release.yml?branch=main&style=flat-square)](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/actions/workflows/release.yml)
 [![CI](https://img.shields.io/github/actions/workflow/status/mahakammoonlightstudio-beep/OpenPlot-AI/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/mahakammoonlightstudio-beep/OpenPlot-AI?style=flat-square)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/mahakammoonlightstudio-beep/OpenPlot-AI/total?style=flat-square&logo=github)](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases)
-[![Stars](https://img.shields.io/github/stars/mahakammoonlightstudio-beep/OpenPlot-AI?style=flat-square&logo=github)](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/stargazers)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square)
 ![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white&style=flat-square)
-![Commit activity](https://img.shields.io/github/commit-activity/m/mahakammoonlightstudio-beep/OpenPlot-AI?style=flat-square)
 
-A local-first AI chat and story-writing studio for Windows, macOS and Linux. **[Website & download](https://mahakammoonlightstudio-beep.github.io/OpenPlot-AI/)**
-
-OpenPlot AI is a desktop application built on Electron, React and SQLite. It connects to any AI provider — OpenAI, Anthropic, OpenRouter, Groq, Ollama, LM Studio, or any OpenAI-compatible `/v1` endpoint — and combines the conversation with a structured writing environment: a story bible, an outline board, chapters, writing statistics and long-term memory. **Plot Smith**, the built-in story agent, turns a short brief into three premise options, a cast, a three-act outline and a ready project — with you choosing every option. All data is stored locally. There is no account, no cloud service and no telemetry.
-
-The project was formerly known as **InkWell**.
+![OpenPlot AI — your story deserves a studio](docs/og-image.png)
 
 ## Screenshots
 
-**Chat** — streaming replies, reasoning display, agent tools, reply styles, attachment chips, prompt library (`/`), @-mentions and per-message token counts.
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/showcase/01-chat.png" alt="Chat with streaming replies, model health, reasoning and token counts" />
+      <sub><b>Chat that stays out of the way.</b> Streaming replies, reasoning display, agent tools, per-message tokens and a model-health strip.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/showcase/12-style-picker.png" alt="Reply style picker with Concise, Editorial, Empathetic and other styles" />
+      <sub><b>Reply styles.</b> Choose how the assistant writes — Concise, Editorial, Empathetic, Formal — or add your own.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/showcase/09-prompt-menu.png" alt="Prompt library with categories for craft, story bible, revision and chat" />
+      <sub><b>Prompt library.</b> Type <code>/</code> for reusable prompts with placeholders, grouped by Craft, Story Bible, Revision and Chat.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/showcase/13-zen-mode.png" alt="Zen mode with the sidebar and chrome dimmed" />
+      <sub><b>Zen mode.</b> Hide the chrome and slide the sidebar away for a full-width writing surface. <code>Esc</code> brings everything back.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/showcase/06-stats.png" alt="Writing statistics with daily goal, streaks, heatmap and project totals" />
+      <sub><b>Writing statistics.</b> Daily goal, current and best streak, weekly totals, a 90-day heatmap and per-project progress.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/showcase/11-theme-light-paper.png" alt="The light-paper theme" />
+      <sub><b>Ten themes, ten accents.</b> From dark classic to light paper, in English or Bahasa Indonesia.</sub>
+    </td>
+  </tr>
+</table>
 
-![Chat](docs/review/01-chat.png)
+## Why OpenPlot AI
 
-**Reply styles** — pick how the assistant writes (Concise, Editorial, Empathetic, …) straight from the composer; edit or add your own in Settings.
+- **One window instead of five tabs.** Chat, story bible, outline board, chapters and statistics share the same project — no copy-pasting canon between tools.
+- **Your canon is structured, not a prompt.** Worlds, locations, characters, items and lore are real records with tags, links and attached reference files. The agent can read all of it with native tools.
+- **Bring your own model.** OpenAI, Anthropic, OpenRouter, Groq, Ollama, LM Studio or any OpenAI-compatible `/v1` endpoint. One provider card per service, any model per chat.
+- **Local-first by design.** SQLite on your disk, API keys in the OS credential vault, no account, no cloud sync, no telemetry.
 
-![Reply styles](docs/review/12-style-picker.png)
+## New in 1.2
 
-**Zen mode** — the header and composer dim while you read or write; `Esc` brings everything back. The sidebar slides away too, for a full-width chat.
-
-![Zen mode](docs/review/13-zen-mode.png)
-
-**Story bible** — worlds, locations, characters, items and lore with tags, search and cross-links.
-
-![Story bible](docs/review/02-story.png)
-
-**Chapters** — a per-project editor with statuses, word counts and version history.
-
-![Chapters](docs/review/03-chapters.png)
-
-**Story flow** — a three-act outline board that can be linked to chapters.
-
-![Story flow](docs/review/04-flow.png)
-
-**Statistics** — daily goals, streaks, a 90-day activity heatmap and per-project progress.
-
-![Statistics](docs/review/06-stats.png)
-
-**Themes** — ten themes and ten accent colors, with English and Bahasa Indonesia interface languages.
-
-![Light theme](docs/review/11-theme-light-paper.png)
+- **Plot Smith — the story agent.** A four-step guided wizard: brief → three premise options → cast & world → three-act outline. Pick genre, tone, POV, length, format, audience, language and must-haves; include or exclude any character, location or lore card; then create the whole project — bible entries, chapters and flow beats — in one click. Plans are saved locally and can be reopened, and every step can be cancelled mid-generation.
+- **Reference files in the Story Bible.** Attach `.md`, `.txt`, `.json` or `.csv` files to any entry with the picker or drag & drop. They stay with the entry, are searchable by name and content, and the agent can read them through `read_story_file` — no more pasting notes into prompts.
+- **Bulk import.** Turn Markdown headings, JSON arrays/objects or CSV rows into Story Bible entries in one pass, with a preview, automatic category inference and duplicate-title skipping.
+- **A lighter core.** Database writes happen only when something actually changed and go through a temp file + atomic rename; long chats mount only the visible window; Settings → Data shows the on-disk size and offers a safe **Compact database** action.
 
 ## Features
 
 **Chat**
-- Multi-provider, multi-model. Any model from any connected provider can be selected per chat.
+- Multi-provider, multi-model. Any model from any connected provider can be chosen per chat.
 - Streaming responses with a reasoning/thinking display (Anthropic extended thinking, DeepSeek-style `reasoning`, `<think>` tags).
-- **Reply styles** — builtin personas (Default, Concise, Explanatory, Editorial, Empathetic, Formal) injected as a system fragment; pick one in the composer, edit builtins or add custom styles in Settings → Styles.
-- **Attachments as chips** — attach files (or drag & drop them onto the chat), and drag story-bible entries or chapters straight from their views; they ride in the model context without polluting the composer text.
-- **Token accounting** — prompt/completion tokens are captured from the provider when reported (estimated otherwise) and shown per message; Settings → Usage summarizes per model and per chat.
-- **Pinned chats** — pin conversations to keep them at the top of the sidebar; **Zen mode** and a hideable sidebar for a distraction-free workspace.
-- Agent tools: the model can save memories, read the whole story bible in one call, append to chapters, list/read projects, and create, update and search story entries and chapters directly.
-- Prompt library with `/` templates and `{placeholder}` substitution.
-- @-mentions that expand story-bible entries and chapters into the model context.
-- Edit and resend, regenerate, delete, and export a conversation to Markdown.
-- A context guard trims the oldest turns from the request when a chat exceeds the configured model context window. Nothing is deleted from the transcript.
-- Per-chat overrides: system prompt, temperature, max tokens, top-p, thinking budget, tools and memory toggles, project binding.
+- **Reply styles** — builtin personas (Default, Concise, Explanatory, Editorial, Empathetic, Formal) injected as a system fragment; edit builtins or add custom styles in Settings → Styles.
+- **Attachments as chips** — attach files or drag them onto the chat; drag Story Bible entries and chapters straight from their views. They ride in the model context without polluting the composer.
+- **Token accounting** — prompt/completion tokens are captured from the provider when reported, estimated otherwise, and summarized per model and per chat in Settings → Usage.
+- **Agent tools** — the model can save memories, read the whole story bible in one call, search entries, create/update entries, create/update/append chapters, and read projects and chapters directly. Write actions refresh the Story Bible automatically.
+- **Prompt library** with `/` templates and `{placeholder}` substitution, **@-mentions** that expand entries and chapters into context, edit-and-resend, regenerate, delete and Markdown export.
+- **Context guard** — the oldest turns are trimmed from the request when a chat exceeds the model context window; nothing is deleted from the transcript.
+- **Pinned chats**, **Zen mode**, a hideable sidebar, and per-chat overrides for system prompt, temperature, max tokens, top-p, thinking budget, tools, memory and project binding.
 
-**Writing tools**
-- **Plot Smith story agent** — a four-step guided wizard (brief → three premise options → cast & world → three-act outline). Pick options for genre, tone, POV, length, format, audience, language and must-haves; include or exclude any character/location/lore card; then create the project with bible entries, chapters and flow beats in one click. Plans are saved locally and can be reopened, and every step can be cancelled mid-generation.
-- **Story-bible reference files** — attach `.md`, `.txt`, `.json` or `.csv` files to any entry (picker or drag & drop) and they stay with the entry: preview, search by name, and let the agent read them with `read_story_file`. **Import files** turns Markdown headings, JSON arrays/objects, or CSV rows into entries in one pass, with a preview, automatic category inference and duplicate skipping.
-- Story bible entries with tags and links, full-text search, and per-category counts.
-- Chapters with draft/revising/done status, reading-order reordering, focus mode, and a scene board per chapter.
-- Default skills shipped with the app (Continuity Guardian, Prose Polisher, Dialogue Coach, Pacing Analyst) — editable, deletable, and extensible with your own.
-- Chapter version history: snapshots are taken on save, before an AI reply is appended, and before a restore. Any snapshot can be restored or deleted (last 30 kept per chapter).
-- One-click AI actions on the open chapter: continue writing, critique, beat outline.
-- Writing statistics: daily goal with progress bar, current and best streak, weekly totals, 90-day heatmap, and per-project stakes (1–10) with an AI arc analysis.
+**Writing**
+- **Story Bible** — worlds, locations, characters, items and lore with tags, cross-links, full-text search, per-category counts, reference files and bulk import.
+- **Chapters** — draft/revising/done statuses, reading-order reordering, focus mode, a scene board per chapter and version history (snapshots on save, before an AI append and before a restore; last 30 kept).
+- **Story Flow** — a three-act outline board of beats that can be linked to chapters and moved between acts.
+- **One-click AI actions** on the open chapter: continue writing, critique, beat outline.
+- **Writing statistics** — daily goal, current and best streak, weekly totals, 90-day heatmap, per-project stakes and an AI arc analysis.
+- **Skills** — Continuity Guardian, Prose Polisher, Dialogue Coach and Pacing Analyst ship with the app; edit, delete or add your own.
 
-**Export**
-- Whole-project export to Markdown, plain-text manuscript, or EPUB (assembled in the main process, no external dependencies) with author and language metadata from Settings.
-- Per-chat Markdown export.
-
-**Organization**
-- Projects bind chats, story bible, chapters and statistics together.
-- Collapsible folders for chats, full-text chat search, command palette (`Ctrl/Cmd+K`).
+**Export and organization**
+- Whole-project export to Markdown, plain-text manuscript or EPUB (assembled in the main process, no external dependencies) with author and language metadata from Settings; per-chat Markdown export.
+- Projects bind chats, Story Bible, chapters and statistics together; collapsible chat folders, full-text chat search and a command palette (`Ctrl/Cmd+K`).
 
 **Extensibility**
-- `agent.md` instructions injected into every chat.
-- Reply styles (builtin + custom), skill packs, sandboxed JavaScript plugins with lifecycle hooks, when/then automations, and an MCP server registry. See [docs/PLUGIN_API.md](docs/PLUGIN_API.md).
+- `agent.md` instructions injected into every chat, reply styles, skill packs, sandboxed JavaScript plugins with lifecycle hooks, when/then automations, and an MCP server registry. See [docs/PLUGIN_API.md](docs/PLUGIN_API.md).
 
-**Performance and storage**
-- The database is written only when something changed, through a temp file + atomic rename, and Settings → Data shows the on-disk size with a safe **Compact database** action.
-- Streaming replies are coalesced per animation frame; Markdown is parsed at most once per frame; only the visible window of a long chat is mounted; message bubbles are memoized.
-- Story-bible imports and Plot Smith project creation are single validated operations (one IPC round-trip and one persistence pass).
-
-**Privacy and storage**
-- All data lives in a local SQLite database in the OS user-data directory.
-- API keys are encrypted at rest with the OS credential vault (DPAPI, Keychain or libsecret) when available.
-- Memories — manual and agent-saved — are visible and deletable in Settings; a single action clears all of them.
+**Performance and privacy**
+- Database persistence is dirty-checked, atomic, and debounced; imports and Plot Smith project creation are single validated operations with one persistence pass.
+- All data lives in a local SQLite database in the OS user-data directory. API keys are encrypted at rest with the OS credential vault (DPAPI, Keychain or libsecret) when available. Memories are visible and deletable in Settings, and one action clears all of them.
 
 ## Downloads
 
-Prebuilt binaries for v1.2.0 are attached to the [GitHub releases](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases). Two packaging styles are provided for each platform:
+Prebuilt binaries for **v1.2.1** are attached to the [GitHub releases](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases). Two packaging styles are provided for each platform:
 
 - **Full app** — a single installer or self-contained file. Install (or run) and the app appears in the usual place for your system.
 - **Folder** — a compressed archive containing the application directory. Extract it anywhere and run the binary inside; useful for portable setups and systems without installer permissions.
 
 | Platform | Full app | Folder |
 | --- | --- | --- |
-| Windows | `OpenPlot.AI.Setup.1.2.0.exe` (NSIS installer) | `OpenPlot.AI-1.2.0-win.zip` |
-| macOS | `OpenPlot.AI-1.2.0-universal.dmg` (universal) | `OpenPlot.AI-1.2.0-universal-mac.zip` (universal) / `OpenPlot.AI-1.2.0-arm64-mac.zip` (Apple silicon) |
-| Linux | `OpenPlot.AI-1.2.0.AppImage` | `openplot-ai-1.2.0.tar.gz` |
+| Windows | `OpenPlot.AI.Setup.1.2.1.exe` (NSIS installer) | `OpenPlot.AI-1.2.1-win.zip` |
+| macOS | `OpenPlot.AI-1.2.1-universal.dmg` (universal) | `OpenPlot.AI-1.2.1-universal-mac.zip` (universal) / `OpenPlot.AI-1.2.1-arm64-mac.zip` (Apple silicon) |
+| Linux | `OpenPlot.AI-1.2.1.AppImage` | `openplot-ai-1.2.1.tar.gz` |
 
-The macOS disk image and the main macOS zip are universal binaries containing both Intel and Apple silicon builds; the `arm64-mac.zip` remains available for a smaller Apple silicon-only download. Older assets for v1.0.0, v1.0.1, v1.0.2, v1.1.0 and v1.1.1 stay attached to their releases.
+The macOS disk image and the main macOS zip are universal binaries containing both Intel and Apple silicon builds; the `arm64-mac.zip` remains available for a smaller Apple silicon-only download. Older assets for v1.0.0, v1.0.1, v1.0.2, v1.1.0, v1.1.1 and v1.2.0 stay attached to their releases.
 
 Releases are built automatically by GitHub Actions on tagged commits.
 
@@ -137,9 +135,7 @@ DevTools do not open automatically in development; set `OPENPLOT_DEVTOOLS=1` to 
 
 ## Testing
 
-`npm test` runs every headless test in `scripts/` (mock HTTP servers + temp
-sqlite DB — no GUI, no network beyond localhost, no real API keys). It
-auto-rebuilds `dist-electron` when `electron/*.ts` is newer than the build.
+`npm test` runs every headless test in `scripts/` (mock HTTP servers + temp SQLite DB — no GUI, no network beyond localhost, no real API keys). It auto-rebuilds `dist-electron` when `electron/*.ts` is newer than the build output.
 
 ```bash
 npm test                                  # headless group (~10s)
@@ -148,13 +144,7 @@ node scripts/run-all-tests.mjs --list     # show all groups
 node scripts/run-all-tests.mjs --include=e2e-attach   # + tests for a RUNNING app (:9222)
 ```
 
-Groups: `headless` (default; DB/tools/engine/parsers plus the Story Bible import
-parser, the Plot Smith engine, the story-vault data layer and a server-render
-smoke test for every main view), `e2e-local` (boots its own vite + Electron in
-an isolated profile), `e2e-attach` (drives an already-running dev app over CDP;
-skipped with a notice when the app isn't running), and `manual` (touches the
-real installed app / real profile / real API keys — never run automatically,
-only via explicit `--include=manual`).
+Groups: `headless` (DB/tools/engine/parsers plus the Story Bible import parser, the Plot Smith engine, the story-vault data layer and a server-render smoke test for every main view), `e2e-local` (boots its own Vite + Electron in an isolated profile), `e2e-attach` (drives an already-running dev app over CDP; skipped with a notice when the app isn't running), and `manual` (touches the real installed app / profile / API keys — never run automatically, only via an explicit `--include=manual`).
 
 ## Connecting a provider
 
@@ -195,9 +185,9 @@ The database is stored at the OS user-data path (`%APPDATA%/openplot-ai` on Wind
 electron/          main process: database, AI engine, tools, plugins, IPC
 src/               React renderer
   components/      ChatView, StoryAgentView, StoryBibleView, ChaptersView, SettingsView, ...
-  lib/             pure testable logic: Plot Smith engine, Story Bible file import
+  lib/             pure testable logic: Plot Smith engine, Story Bible import, data helpers
   styles/          ordered CSS partials (agent + feature styles included)
-docs/              plugin API reference, stress test notes, original README
+docs/              plugin API reference, stress test notes, original README, screenshots
 scripts/           headless, UI-render, GUI and end-to-end test scripts
 ```
 

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { Provider, Project, Folder, Chat, Message, Memory, StoryEntry, Chapter, FlowBeat, PluginRow, SkillRow, AutomationRow, McpRow, AppInfo, UserPrompt, StyleRow } from './types';
+import { readPosition, writePosition } from './lib/uiPosition';
 
 // Mahakam Moonlight Studio — official links (v1.0.0 rebrand)
 export const DONATE_URL = 'https://sociabuzz.com/mahakam_moonlight_studio/tribe';
@@ -246,12 +247,23 @@ interface DataState {
   route: string;
   load(): Promise<void>;
   reloadChatRelated(): Promise<void>;
+  /** Refresh only the Story Bible rows — called after the agent writes an
+   *  entry so the view is current without reloading the whole app. */
+  reloadStory(): Promise<void>;
   setActiveChat(id: string | null): void;
   setActiveProject(id: string | null): void;
   navigate(route: string): void;
 }
 
-export const useData = create<DataState>((set) => ({
+// Restore the last screen synchronously so a reload no longer lands on an
+// empty chat. `load()` below drops ids whose row no longer exists.
+const savedPosition = readPosition();
+
+function persistPosition(state: Pick<DataState, 'route' | 'activeChatId' | 'activeProjectId'>): void {
+  writePosition({ route: state.route, activeChatId: state.activeChatId, activeProjectId: state.activeProjectId });
+}
+
+export const useData = create<DataState>((set, get) => ({
   providers: [],
   projects: [],
   folders: [],
@@ -266,9 +278,9 @@ export const useData = create<DataState>((set) => ({
   skills: [],
   automations: [],
   mcpServers: [],
-  activeChatId: null,
-  activeProjectId: null,
-  route: 'chat',
+  activeChatId: savedPosition.activeChatId,
+  activeProjectId: savedPosition.activeProjectId,
+  route: savedPosition.route,
   async load() {
     try {
       const [providers, projects, folders, chats, memories, story, chapters, flowBeats, userPrompts, styles, plugins, skills, automations, mcpServers] = await Promise.all([
@@ -287,9 +299,27 @@ export const useData = create<DataState>((set) => ({
         dbCall<AutomationRow[]>('listAutomations'),
         dbCall<McpRow[]>('listMcpServers')
       ]);
-      set({ providers: providers.map(normProvider), projects, folders, chats, memories, story, chapters, flowBeats, userPrompts, styles, plugins, skills, automations, mcpServers });
+      // A stored chat/project can be deleted while the app is closed. Keep the
+      // position only if the row still exists; otherwise fall back cleanly.
+      const current = get();
+      const activeChatId = current.activeChatId && chats.some((c) => c.id === current.activeChatId)
+        ? current.activeChatId : null;
+      const activeProjectId = current.activeProjectId && projects.some((p) => p.id === current.activeProjectId)
+        ? current.activeProjectId : null;
+      set({ providers: providers.map(normProvider), projects, folders, chats, memories, story, chapters, flowBeats, userPrompts, styles, plugins, skills, automations, mcpServers, activeChatId, activeProjectId });
+      if (activeChatId !== current.activeChatId || activeProjectId !== current.activeProjectId) {
+        writePosition({ route: current.route, activeChatId, activeProjectId });
+      }
     } catch (e) {
       console.error('data load failed', e);
+    }
+  },
+  async reloadStory() {
+    try {
+      const story = await dbCall<StoryEntry[]>('listStory');
+      set({ story: Array.isArray(story) ? story : [] });
+    } catch (e) {
+      console.error('story reload failed', e);
     }
   },
   async reloadChatRelated() {
@@ -300,9 +330,9 @@ export const useData = create<DataState>((set) => ({
       console.error('reload failed', e);
     }
   },
-  setActiveChat(id) { set({ activeChatId: id }); },
-  setActiveProject(id) { set({ activeProjectId: id }); },
-  navigate(route) { set({ route }); }
+  setActiveChat(id) { set({ activeChatId: id }); persistPosition(get()); },
+  setActiveProject(id) { set({ activeProjectId: id }); persistPosition(get()); },
+  navigate(route) { set({ route }); persistPosition(get()); }
 }));
 
 // Run automations helper (renderer side).

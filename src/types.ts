@@ -32,7 +32,7 @@ export interface Message { id: string; chat_id: string; role: 'user' | 'assistan
 export interface StyleRow { id: string; name: string; content: string; builtin: number; created_at?: number; updated_at?: number }
 export interface Memory { id: string; content: string; source: string; created_at?: number }
 export type StoryKind = 'world' | 'location' | 'character' | 'item' | 'lore';
-export interface StoryEntry { id: string; project_id: string; kind: StoryKind; title: string; content: string; tags: string; created_at?: number; updated_at?: number }
+export interface StoryEntry { id: string; project_id: string; kind: StoryKind; title: string; content: string; tags: string; /** JSON array string of related entry ids. */ links?: string; created_at?: number; updated_at?: number }
 export interface Chapter { id: string; project_id: string; title: string; content: string; status: 'draft' | 'revising' | 'done'; position: number; created_at?: number; updated_at?: number }
 /** One user-saved prompt in the Prompt Library. */
 export interface UserPrompt { id: string; category: string; title: string; template: string; created_at?: number; updated_at?: number }

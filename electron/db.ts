@@ -36,6 +36,57 @@ const CHAPTER_VERSIONS_MAX = 30;
 // a stray binary or a 40 MB ebook can never bloat the local database.
 const STORY_FILE_MAX_BYTES = 2_000_000;
 
+/**
+ * Story rows keep `tags` and `links` in TEXT columns as JSON arrays. The tool
+ * schema asks models for an array, but tool arguments are not validated: a
+ * model that sends `"tags": "fantasy, politics"` used to be stored as the
+ * JSON string `"fantasy, politics"`, which parsed back to a plain string and
+ * crashed the Story Bible view with `e.map is not a function` (white screen).
+ * Normalise on write AND on read so neither a model nor an older/other writer
+ * can leave a row that takes the renderer down.
+ */
+export function storyJsonArray(value: unknown): string {
+  // Only the SHAPE is repaired — real arrays keep their values, order and
+  // length exactly as the user/import wrote them.
+  const clean = (items: unknown[]): string => JSON.stringify(
+    items
+      .filter((item) => item !== null && item !== undefined && typeof item !== 'object')
+      .map((item) => String(item))
+  );
+  const fromText = (text: string): string => clean(text.split(',').map((s) => s.trim()).filter(Boolean));
+  if (Array.isArray(value)) return clean(value);
+  if (typeof value !== 'string') return '[]';
+  const raw = value.trim();
+  if (!raw) return '[]';
+  if (raw.startsWith('[') || raw.startsWith('"')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return clean(parsed);
+      if (typeof parsed === 'string') return fromText(parsed);
+    } catch { /* legacy plain text — split below */ }
+  }
+  // A JSON object is not a tag list; never render it as one literal chip.
+  if (raw.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return '[]';
+    } catch { /* plain text */ }
+  }
+  return fromText(raw);
+}
+
+/** Every story row leaving the DB has array-shaped tags/links and text fields. */
+function normalizeStoryRow(row: any): any {
+  if (!row) return row;
+  return {
+    ...row,
+    title: row.title == null ? '' : String(row.title),
+    content: row.content == null ? '' : String(row.content),
+    tags: storyJsonArray(row.tags),
+    links: storyJsonArray(row.links)
+  };
+}
+
 function protectKey(plain: string): string {
   const s = String(plain || '');
   if (!s || !encryptSecret) return s;
@@ -564,15 +615,15 @@ export function handleDb(op: string, payload: any): any {
       return true;
     // story entities
     case 'listStory':
-      return all('SELECT * FROM story ORDER BY kind, title');
+      return all('SELECT * FROM story ORDER BY kind, title').map(normalizeStoryRow);
     case 'createStory': {
       const id = uid();
-      run('INSERT INTO story (id, project_id, kind, title, content, tags, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)', [id, payload.projectId, payload.kind, payload.title, payload.content || '', JSON.stringify(payload.tags || []), now, now]);
-      return get('SELECT * FROM story WHERE id = ?', [id]);
+      run('INSERT INTO story (id, project_id, kind, title, content, tags, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)', [id, payload.projectId, payload.kind, payload.title, payload.content || '', storyJsonArray(payload.tags), now, now]);
+      return normalizeStoryRow(get('SELECT * FROM story WHERE id = ?', [id]));
     }
     case 'updateStory': {
-      run('UPDATE story SET title=?, content=?, tags=?, links=?, updated_at=? WHERE id=?', [payload.title, payload.content, JSON.stringify(payload.tags || []), JSON.stringify(payload.links || []), now, payload.id]);
-      return get('SELECT * FROM story WHERE id = ?', [payload.id]);
+      run('UPDATE story SET title=?, content=?, tags=?, links=?, updated_at=? WHERE id=?', [payload.title, payload.content, storyJsonArray(payload.tags), storyJsonArray(payload.links), now, payload.id]);
+      return normalizeStoryRow(get('SELECT * FROM story WHERE id = ?', [payload.id]));
     }
     case 'deleteStory':
       // Attached reference files die with their entry (no orphan rows).
@@ -655,7 +706,7 @@ export function handleDb(op: string, payload: any): any {
         if (!allowed.has(kind) || !title || !content.trim()) continue;
         if (Buffer.byteLength(content, 'utf8') > STORY_FILE_MAX_BYTES) continue;
         run('INSERT INTO story (id, project_id, kind, title, content, tags, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
-          [uid(), projectId, kind, title, content, JSON.stringify(Array.isArray(e.tags) ? e.tags.slice(0, 12) : []), now, now]);
+          [uid(), projectId, kind, title, content, storyJsonArray(e.tags), now, now]);
         imported++;
       }
       return { imported };
@@ -706,7 +757,7 @@ export function handleDb(op: string, payload: any): any {
         const content = String(e?.content || '');
         if (!allowedKind.has(kind) || !title || !content.trim()) continue;
         run('INSERT INTO story (id, project_id, kind, title, content, tags, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
-          [uid(), pid, kind, title, content, JSON.stringify(Array.isArray(e.tags) ? e.tags.slice(0, 12) : []), now, now]);
+          [uid(), pid, kind, title, content, storyJsonArray(e.tags), now, now]);
         entryCount++;
       }
       let chapterCount = 0;

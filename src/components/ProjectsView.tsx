@@ -105,7 +105,7 @@ export function ProjectsView() {
 
   return (
     <div className="page">
-      <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="folder" size={18} /> {t('app.projects')}</h1>
+      <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="project" size={18} /> {t('app.projects')}</h1>
       <div className="subtitle">{projects.length} {t('app.projects').toLowerCase()}</div>
       <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 14 }}>
         <div className="card" style={{ marginBottom: 0 }}>

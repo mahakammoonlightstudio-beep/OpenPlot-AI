@@ -16,6 +16,9 @@ import { useWriteStats } from '../writeStats';
 
 const DEGRADED_MS = 6000;
 
+/** Agent tools that change story-bible rows — the view must refresh itself. */
+const STORY_WRITE_TOOLS = new Set(['create_story_entry', 'update_story_entry']);
+
 function clampNum(v: number, min: number, max: number, fb: number): number {
   if (!Number.isFinite(v)) return fb;
   return Math.min(max, Math.max(min, v));
@@ -690,13 +693,29 @@ export function ChatView() {
       setStreamText(dirtyText);
       setStreamThink(dirtyThink);
     };
+    // Agent writes happen in the main process, so the renderer store went
+    // stale until the whole app was reloaded (users had to "reset" to see a
+    // profile the AI just created). Refresh just the Story Bible rows when a
+    // write tool returns — silent, debounced, no navigation.
+    let storyReloadTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleStoryReload = () => {
+      if (storyReloadTimer) clearTimeout(storyReloadTimer);
+      storyReloadTimer = setTimeout(() => {
+        storyReloadTimer = null;
+        useData.getState().reloadStory();
+      }, 250);
+    };
     const off = window.inkwell.onAiChunk(({ reqId, chunk }) => {
       if (reqId !== req.reqId) return;
       const c = chunk as GenChunk;
       if (c.type === 'text') { accText += c.text || ''; dirtyText = accText; }
       else if (c.type === 'thinking') { accThink += c.text || ''; dirtyThink = accThink; }
       else if (c.type === 'replaceText') { accText = c.text || ''; dirtyText = accText; }
-      else if (c.type === 'tool' && c.tool) { accTools.push(c.tool.name); setStreamTools((a) => [...a, c.tool!.name]); }
+      else if (c.type === 'tool' && c.tool) {
+        accTools.push(c.tool.name);
+        setStreamTools((a) => [...a, c.tool!.name]);
+        if (STORY_WRITE_TOOLS.has(c.tool.name)) scheduleStoryReload();
+      }
       if (!rafPending) { rafPending = true; requestAnimationFrame(flushStreamFrame); }
     });
 
@@ -775,6 +794,10 @@ export function ChatView() {
       setStreamThink('');
       setStreamTools([]);
       reqIdRef.current = null;
+      if (storyReloadTimer) { clearTimeout(storyReloadTimer); storyReloadTimer = null; }
+      // Guarantee a final refresh even when a write tool finished right before
+      // the reply ended (the debounce may not have fired yet).
+      if (accTools.some((n) => STORY_WRITE_TOOLS.has(n))) useData.getState().reloadStory();
     }
   }
 

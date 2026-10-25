@@ -7,6 +7,7 @@ import { Icon, IconName } from './Icons';
 import { confirmDialog } from './TextPrompt';
 import { Modal } from './Ui';
 import { ParsedEntry, formatBytes, guessKindFromName, parseStoryFiles } from '../lib/storyImport';
+import { toStoryArray } from '../lib/storyData';
 
 const KINDS: StoryKind[] = ['world', 'location', 'character', 'item', 'lore'];
 const KIND_ICON: Record<StoryKind, IconName> = { world: 'globe', location: 'pin', character: 'person', item: 'sword', lore: 'scroll' };
@@ -36,10 +37,6 @@ function TagInput({ tags, onChange }: { tags: string[]; onChange: (t: string[]) 
       />
     </div>
   );
-}
-
-function safeJson(raw: string | null | undefined, fb: any = []): any {
-  try { const v = JSON.parse(raw || '[]'); return v ?? fb; } catch { return fb; }
 }
 
 export function StoryBibleView() {
@@ -106,7 +103,7 @@ export function StoryBibleView() {
       return (
         e.title.toLowerCase().includes(q) ||
         String(e.content).toLowerCase().includes(q) ||
-        safeJson(e.tags).some((tg: any) => String(tg).toLowerCase().includes(q)) ||
+        toStoryArray(e.tags).some((tg) => tg.toLowerCase().includes(q)) ||
         names.some((n) => n.includes(q))
       );
     });
@@ -118,8 +115,8 @@ export function StoryBibleView() {
       setDraft({
         title: selected.title,
         content: selected.content,
-        tags: safeJson(selected.tags),
-        links: safeJson((selected as any).links)
+        tags: toStoryArray(selected.tags),
+        links: toStoryArray(selected.links)
       });
       setDirty(false);
     } else {
@@ -312,7 +309,7 @@ export function StoryBibleView() {
 
   return (
     <div className="page">
-      <h1>{KIND_ICON[kind]} {t('story.title')}</h1>
+      <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name={KIND_ICON[kind]} size={18} /> {t('story.title')}</h1>
       <div className="subtitle">
         {t('story.sub')}
         {project ? <> — <b>{project.name}</b></> : <> — <i>no project selected</i></>}
@@ -322,7 +319,7 @@ export function StoryBibleView() {
           <div className="kind-tabs">
             {KINDS.map((k) => (
               <button key={k} className={k === kind ? 'active' : ''} onClick={() => switchKind(k)}>
-                {KIND_ICON[k]} {t('story.' + k)}
+                <Icon name={KIND_ICON[k]} size={13} /> {t('story.' + k)}
                 <span className="count">{scoped.filter((e) => e.kind === k).length}</span>
               </button>
             ))}
@@ -384,7 +381,7 @@ export function StoryBibleView() {
               <div className="grid-3" style={{ width: '100%', maxWidth: 620, marginTop: 12 }}>
                 {KINDS.map((k) => (
                   <div key={k} className="welcome-card" onClick={() => createEntry(k)}>
-                    <div className="ic">{KIND_ICON[k]}</div>
+                    <div className="ic"><Icon name={KIND_ICON[k]} size={20} /></div>
                     <div className="t">{t('story.' + k)}</div>
                     <div className="d">{STORY_TEMPLATES[k] ? t('story.templateInc') : ''}</div>
                   </div>

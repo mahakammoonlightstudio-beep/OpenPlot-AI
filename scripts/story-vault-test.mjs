@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import initSqlJs from 'sql.js';
 
 const require = createRequire(import.meta.url);
 const { initDb, closeDb, handleDb, persistNow } = require('../dist-electron/db.js');
@@ -108,6 +109,34 @@ const imported = db('importStoryEntries', {
 check('importStoryEntries imports only valid rows', imported.imported === 2, JSON.stringify(imported));
 check('imported entries land in the right project', db('listStory', {}).filter((e) => e.project_id === p2.id).length === 3);
 
+// ---------- story tags/links normalisation (v1.2.1 white-screen fix) ----------
+// Models sometimes ignore the array schema and send `tags: "fantasy, politics"`.
+// Stored raw, that parses back to a string and the Story Bible's `.map()` used
+// to crash the whole renderer ("e.map is not a function").
+const normProject = db('createProject', { name: 'Normalise' });
+const fromString = db('createStory', {
+  projectId: normProject.id, kind: 'character', title: 'Sera', content: 'Broker.',
+  tags: 'fantasy, politics'
+});
+check('createStory: comma-separated tags become a JSON array', fromString.tags === '["fantasy","politics"]', fromString.tags);
+
+const fromJsonString = db('createStory', {
+  projectId: normProject.id, kind: 'world', title: 'Veyra', content: 'City.',
+  tags: '"fantasy"'
+});
+check('createStory: a JSON-encoded string becomes a JSON array', fromJsonString.tags === '["fantasy"]', fromJsonString.tags);
+
+const normUpdated = db('updateStory', {
+  id: fromString.id, title: 'Sera', content: 'Broker.',
+  tags: { bad: true }, links: 'l1, l2'
+});
+check('updateStory: object tags fall back to []', normUpdated.tags === '[]', normUpdated.tags);
+check('updateStory: links are normalised too', normUpdated.links === '["l1","l2"]', normUpdated.links);
+check(
+  'listStory always returns array-shaped tags/links',
+  db('listStory', {}).every((e) => Array.isArray(JSON.parse(e.tags)) && Array.isArray(JSON.parse(e.links)))
+);
+
 // ---------- one-call project creation (Plot Smith) ----------
 const planProject = db('createProjectFromPlan', {
   project: { name: 'Plot Smith Project', description: 'A logline', context: 'ctx', format: 'novella', rating: 'teen' },
@@ -148,6 +177,26 @@ check('read-only DB ops do not mark the database dirty', (() => { db('listStory'
 const chat = db('createChat', { title: 'Orphan source' });
 db('addMessage', { chatId: chat.id, role: 'user', content: 'hello' });
 check('message rows counted', db('dbStats').messages >= 1);
+
+// ---------- legacy rows already on disk (v1.2.0 databases) ----------
+// Write a bad row with raw SQL (bypassing the normaliser), reopen the file and
+// assert the read path repairs the shape without a schema migration.
+persistNow();
+closeDb();
+{
+  const SQL = await initSqlJs({ locateFile: (f) => path.join('node_modules', 'sql.js', 'dist', f) });
+  const raw = new SQL.Database(fs.readFileSync(stats.path));
+  raw.run('UPDATE story SET tags=?, links=? WHERE id=?', ['"fantasy"', '{"a":1}', fromJsonString.id]);
+  fs.writeFileSync(stats.path, Buffer.from(raw.export()));
+  raw.close();
+}
+await initDb(tmp, 'vault-test.db');
+const reopened = db('listStory', {}).find((e) => e.id === fromJsonString.id);
+check(
+  'reopening a v1.2.0 database repairs legacy tag/link rows',
+  !!reopened && reopened.tags === '["fantasy"]' && reopened.links === '[]',
+  JSON.stringify({ tags: reopened?.tags, links: reopened?.links })
+);
 
 closeDb();
 fs.rmSync(tmp, { recursive: true, force: true });

@@ -130,6 +130,52 @@ check('story bible renders import + attachment affordances', /Import/.test(views
 check('settings data view renders the storage card', /Local database/.test(views.settings || '') || /database/i.test(views.settings || ''));
 check('chat welcome renders without a provider', /New Chat|Welcome/i.test(views.chat || ''));
 
+// ---------- pure helpers (bundled with esbuild so TS is testable in node) ----------
+async function bundleHelper(entry, outfile) {
+  await build({
+    entryPoints: [path.join(PROJ, entry)],
+    outfile,
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    target: 'node18',
+    logLevel: 'silent'
+  });
+}
+const storyHelperFile = path.join(outDir, 'story-data.cjs');
+const positionFile = path.join(outDir, 'ui-position.cjs');
+let helperError = '';
+try {
+  await bundleHelper('src/lib/storyData.ts', storyHelperFile);
+  await bundleHelper('src/lib/uiPosition.ts', positionFile);
+} catch (e) {
+  helperError = String(e?.message || e);
+}
+check('pure helper modules bundle', !helperError, helperError);
+if (!helperError) {
+  const { toStoryArray } = require(storyHelperFile);
+  const json = (v) => JSON.stringify(v);
+  check('story tags: JSON array parses', json(toStoryArray('["a","b"]')) === '["a","b"]');
+  check('story tags: plain comma string parses', json(toStoryArray('fantasy, politics')) === '["fantasy","politics"]');
+  check('story tags: JSON-encoded string parses (the crash row)', json(toStoryArray('"fantasy"')) === '["fantasy"]');
+  check('story tags: JSON object never becomes a chip', json(toStoryArray('{"a":1}')) === '[]' && json(toStoryArray({ a: 1 })) === '[]');
+  check('story tags: null/undefined/number → []', json(toStoryArray(null)) === '[]' && json(toStoryArray(undefined)) === '[]' && json(toStoryArray(7)) === '[]');
+
+  const position = require(positionFile);
+  localStorage.removeItem('openplot.position.v1');
+  const fresh = position.readPosition();
+  check('position: defaults to chat with no ids', fresh.route === 'chat' && fresh.activeChatId === null && fresh.activeProjectId === null, json(fresh));
+  position.writePosition({ route: 'story', activeChatId: 'c1', activeProjectId: 'p1' });
+  const restored = position.readPosition();
+  check('position: round-trips route/chat/project', restored.route === 'story' && restored.activeChatId === 'c1' && restored.activeProjectId === 'p1', json(restored));
+  localStorage.setItem('openplot.position.v1', '{not json');
+  check('position: corrupt storage falls back safely', position.readPosition().route === 'chat');
+  localStorage.setItem('openplot.position.v1', JSON.stringify({ route: '../evil', activeChatId: 42, activeProjectId: 'p2' }));
+  const sanitized = position.readPosition();
+  check('position: unknown route and non-string ids are dropped', sanitized.route === 'chat' && sanitized.activeChatId === null && sanitized.activeProjectId === 'p2', json(sanitized));
+  localStorage.removeItem('openplot.position.v1');
+}
+
 fs.rmSync(outDir, { recursive: true, force: true });
 
 const failed = results.filter((r) => !r.ok).length;

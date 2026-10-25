@@ -2,6 +2,22 @@
 
 All notable changes to OpenPlot AI are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] — 2026-10-25
+
+A small user-experience patch on top of 1.2.0: one crash fixed, and the Story Bible now stays in sync with the agent.
+
+### Fixed
+- **Story Bible no longer blanks the window.** Opening an entry whose `tags` or `links` had been stored as a plain string crashed the whole view with `TypeError: e.map is not a function`. Tool arguments are not validated, so a model replying `"tags": "fantasy"` (instead of an array) could write that shape into the database. Both columns are now normalised in the main process on write **and** on read, and the renderer parses them defensively — existing databases with bad rows open safely, no migration needed.
+- Reloading the window no longer throws away your place. The app remembers the current route, chat and project, restores them on boot, and silently discards ids whose row was deleted.
+- The Story Bible header, category tabs and empty-state cards printed the raw icon name (`globe World`, `person Character`, …) instead of drawing the icon. They now render the SVG icons.
+
+### Changed
+- **The Story Bible refreshes itself after the agent writes.** Creating or editing a profile through chat tools updates the view in the background (debounced, no toast, no navigation) instead of requiring an app reload.
+- **Projects have their own icon.** The “new project” and “new folder” buttons in the sidebar were both a folder-with-plus; projects now use a layered stack and project rows use it too, so the two are distinguishable at a glance.
+
+### Tests
+- Added regression coverage for legacy/corrupted story `tags`/`links` rows (write normalisation, read normalisation and a simulated old database) plus the renderer-side array guard.
+
 ## [1.2.0] — 2026-10-24
 
 The “smoother studio” release: a guided story agent, reference files in the Story Bible, and a lighter, more careful core.
@@ -104,7 +120,8 @@ Initial public release. A local-first AI chat and story-writing studio for Windo
 - Markdown rendering during streaming is throttled to animation frames.
 - Database persistence debounced to 1200 ms; DevTools no longer open automatically in development (opt-in with `OPENPLOT_DEVTOOLS=1`).
 
-[Unreleased]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.1.0...v1.1.1
 [1.0.2]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.0.1...v1.0.2

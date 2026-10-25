@@ -6,7 +6,7 @@ import { CSSProperties } from 'react';
  */
 
 export type IconName =
-  | 'chat' | 'book' | 'settings' | 'folder' | 'folderPlus' | 'plus' | 'trash'
+  | 'chat' | 'book' | 'settings' | 'folder' | 'folderPlus' | 'project' | 'plus' | 'trash'
   | 'pencil' | 'chevronDown' | 'chevronRight' | 'chevronUp' | 'refresh' | 'download'
   | 'copy' | 'check' | 'x' | 'send' | 'stop' | 'brain' | 'tools' | 'memory'
   | 'user' | 'quill' | 'globe' | 'pin' | 'person' | 'sword' | 'scroll' | 'file'
@@ -36,6 +36,16 @@ const ICONS: Record<IconName, JSX.Element> = {
     <>
       {P('M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 2h4.5A1.5 1.5 0 0 1 14 6.5v5A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5v-7z', 0)}
       {P('M8 7v4M6 9h4', 1)}
+    </>
+  ),
+  // A project is a collection of chats/bible/chapters — a stack of layers,
+  // visually distinct from `folder` (which is a chat folder). These two sat
+  // side by side in the sidebar with the SAME icon, so neither was findable.
+  project: (
+    <>
+      {P('M8 2.2L2.5 5 8 7.8 13.5 5 8 2.2z', 0)}
+      {P('M2.5 8L8 10.8 13.5 8', 1)}
+      {P('M2.5 11L8 13.8 13.5 11', 2)}
     </>
   ),
   plus: P('M8 3v10M3 8h10'),

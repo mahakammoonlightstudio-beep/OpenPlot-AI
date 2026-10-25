@@ -139,7 +139,7 @@ export default function App() {
   // navigate from native menu
   useEffect(() => {
     const off = window.inkwell.onUi('ui:navigate', (routeName: string) => {
-      useData.setState({ route: routeName });
+      useData.getState().navigate(routeName);
     });
     return off;
   }, []);

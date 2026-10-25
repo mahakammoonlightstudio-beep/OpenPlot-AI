@@ -140,7 +140,7 @@ export function Sidebar() {
         </div>
         <div className="new-buttons">
           <button className="primary" onClick={newChat}><Icon name="plus" size={14} /> {t('app.newChat')}</button>
-          <button onClick={newProject} title={t('app.newProject')}><Icon name="folderPlus" size={15} /></button>
+          <button onClick={newProject} title={t('app.newProject')}><Icon name="project" size={15} /></button>
           <button onClick={newFolder} title={t('app.newFolder')}><Icon name="folderPlus" size={15} /></button>
         </div>
       </div>
@@ -219,7 +219,7 @@ export function Sidebar() {
             <div key={p.id}
               className={`nav-item ${activeProjectId === p.id ? 'active' : ''}`}
               onClick={() => { setActiveProject(p.id); navigate('projects'); }}>
-              <span className="icon"><Icon name="folder" size={14} /></span>
+              <span className="icon"><Icon name="project" size={14} /></span>
               <span className="title">{p.name}</span>
               <span className="actions">
                 <button title={t('projects.newChatHere')} onClick={(e) => { e.stopPropagation(); createChatUi('New chat', p.id); }}><Icon name="plus" size={13} /></button>
