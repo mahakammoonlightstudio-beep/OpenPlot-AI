@@ -148,6 +148,18 @@ node scripts/run-all-tests.mjs --include=e2e-attach   # + tests for a RUNNING ap
 
 Groups: `headless` (DB/tools/engine/parsers plus the Story Bible import parser, the Plot Smith engine, the story-vault data layer and a server-render smoke test for every main view), `e2e-local` (boots its own Vite + Electron in an isolated profile), `e2e-attach` (drives an already-running dev app over CDP; skipped with a notice when the app isn't running), and `manual` (touches the real installed app / profile / API keys — never run automatically, only via an explicit `--include=manual`).
 
+## Releasing
+
+Releases are built by GitHub Actions from a version tag. The helper verifies the version and changelog at `origin/main`, creates the annotated tag and pushes it:
+
+```bash
+npm run release -- --dry-run      # preview: no tag, no push
+npm run release                  # tag + push v<package.json version>
+npm run release -- --verify      # inspect the draft release (requires gh)
+```
+
+It never force-pushes, never moves an existing tag and never publishes a release. The tag push triggers `.github/workflows/release.yml`; review the draft assets on GitHub, add the changelog notes and publish manually. Use `--commit <sha>` to tag a specific tested commit instead of the latest `origin/main`.
+
 ## Connecting a provider
 
 1. Open **Settings → AI Providers → Add provider**.

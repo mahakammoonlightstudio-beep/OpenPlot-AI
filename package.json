@@ -22,6 +22,7 @@
     "test": "node scripts/run-all-tests.mjs",
     "test:e2e": "node scripts/run-all-tests.mjs --all",
     "start": "electron .",
+    "release": "node scripts/release.mjs",
     "dist": "vite build && tsc -p tsconfig.electron.json && electron-builder",
     "dist:win": "vite build && tsc -p tsconfig.electron.json && electron-builder --win",
     "dist:linux": "vite build && tsc -p tsconfig.electron.json && electron-builder --linux",
