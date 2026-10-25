@@ -17,6 +17,8 @@ A free, open-source, local-first AI writing studio for Windows, macOS and Linux.
 
 ## Screenshots
 
+_Captured from a demo workspace using a local mock provider._
+
 <table>
   <tr>
     <td width="50%">
@@ -90,7 +92,7 @@ A free, open-source, local-first AI writing studio for Windows, macOS and Linux.
 - Projects bind chats, Story Bible, chapters and statistics together; collapsible chat folders, full-text chat search and a command palette (`Ctrl/Cmd+K`).
 
 **Extensibility**
-- `agent.md` instructions injected into every chat, reply styles, skill packs, sandboxed JavaScript plugins with lifecycle hooks, when/then automations, and an MCP server registry. See [docs/PLUGIN_API.md](docs/PLUGIN_API.md).
+- `agent.md` instructions injected into every chat, reply styles, skill packs, JavaScript plugins with lifecycle hooks (they run with full Node access — install only plugins you trust), when/then automations, and an MCP server registry. See [docs/PLUGIN_API.md](docs/PLUGIN_API.md).
 
 **Performance and privacy**
 - Database persistence is dirty-checked, atomic, and debounced; imports and Plot Smith project creation are single validated operations with one persistence pass.
