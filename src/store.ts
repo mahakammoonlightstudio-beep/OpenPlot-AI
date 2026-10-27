@@ -441,27 +441,77 @@ export const useData = create<DataState>((set, get) => ({
 }));
 
 // Run automations helper (renderer side).
-// Actions: toast | log | clearMemory | addMemory | navigate | newChat | openExternal
+// Triggers: app:ready | chat:new | chat:send | message:new | chapter:saved |
+//           project:created | skill:enabled
+// Actions: toast | notify | log | clearMemory | addMemory | navigate | newChat |
+//          openExternal | runSkill
 // `param` meaning per action:
-//   toast         -> (unused; the automation name is shown)
+//   toast         -> optional text (defaults to the automation name)
+//   notify        -> text shown with the window flash
 //   log           -> (unused)
 //   clearMemory   -> (unused; wipes ALL long-term memories)
 //   addMemory     -> memory text to save
-//   navigate      -> route name: chat | story | flow | chapters | projects | stats | settings | about
+//   navigate      -> route name from NAVIGABLE_ROUTES
 //   newChat       -> optional chat title (empty = 'New chat')
-//   openExternal  -> URL to open in the OS browser
+//   openExternal  -> http(s) URL to open in the OS browser
+//   runSkill      -> skill id (or name) to apply to the next message
 
 /** Routes a navigate automation may switch to (kept in sync with SettingsView). */
-const NAVIGABLE_ROUTES = ['chat', 'story', 'flow', 'chapters', 'projects', 'stats', 'settings', 'about'];
+export const NAVIGABLE_ROUTES = ['chat', 'story', 'flow', 'chapters', 'projects', 'stats', 'settings', 'about'];
 
+// ---------- automations v2 (Task 14) ----------
+
+/** Per-automation run history for this session (status + timestamp + message). */
+const AUTOMATION_LOG_MAX = 20;
+const automationRuns = new Map<string, { at: number; ok: boolean; message: string }[]>();
+/** Guard against runaway chains: a trigger may not nest deeper than this. */
+const MAX_AUTOMATION_DEPTH = 2;
+let automationDepth = 0;
+
+/** Most recent first. The UI shows these; they are not persisted (a session log). */
+export function automationLog(id: string): { at: number; ok: boolean; message: string }[] {
+  return automationRuns.get(id) || [];
+}
+export function automationLastRun(id: string): { at: number; ok: boolean; message: string } | null {
+  return automationRuns.get(id)?.[0] || null;
+}
+function recordAutomationRun(id: string, ok: boolean, message: string): void {
+  const list = automationRuns.get(id) || [];
+  list.unshift({ at: Date.now(), ok, message });
+  automationRuns.set(id, list.slice(0, AUTOMATION_LOG_MAX));
+}
+
+/** Flash the window and badge it — the OS-level half of `notify`. */
+function osNotify(text: string): void {
+  try { window.inkwell.flashWindow?.(); } catch { /* preload missing */ }
+  useUi.getState().toast(text, 'ok');
+}
+
+/**
+ * Run every enabled automation for a trigger.
+ *
+ * Guards: a chain may not nest deeper than two levels, and an automation whose
+ * action re-fires its own trigger is skipped (the classic way to build an
+ * infinite loop by accident). Every run is recorded for the Settings view.
+ */
 export async function runAutomations(trigger: string, payload: any): Promise<void> {
+  if (automationDepth >= MAX_AUTOMATION_DEPTH) {
+    console.warn(`[automation] ${trigger} ignored — chain depth ${automationDepth} reached`);
+    return;
+  }
+  automationDepth++;
   try {
     const autos = useData.getState().automations.filter((a) => a.trigger === trigger && Number(a.enabled) !== 0);
     for (const a of autos) {
       const param = (a.param || '').trim();
+      try {
+      if (automationRecurses(a)) {
+        recordAutomationRun(a.id, false, 'skipped: would re-trigger itself');
+        continue;
+      }
       switch (a.action) {
         case 'toast':
-          useUi.getState().toast(a.name, 'ok');
+          useUi.getState().toast(param || a.name, 'ok');
           break;
         case 'log':
           console.log(`[automation:${a.name}]`, payload);
@@ -495,13 +545,76 @@ export async function runAutomations(trigger: string, payload: any): Promise<voi
           if (/^https?:\/\//i.test(param)) window.inkwell.openExternal(param);
           break;
         }
+        case 'notify': {
+          // OS-level attention: the taskbar/dock flashes and the title badges.
+          osNotify(param || a.name);
+          break;
+        }
+        case 'runSkill': {
+          // The skill rides into the next send as the session goal. ChatView
+          // owns the goal, so hand it over as an event instead of reaching into
+          // another component's state.
+          const skill = useData.getState().skills.find((s) => s.id === param || s.name === param);
+          if (!skill) throw new Error(`skill not found: ${param}`);
+          window.dispatchEvent(new CustomEvent('inkwell:apply-skill', { detail: skill.id }));
+          useUi.getState().toast(`${a.name}: ${skill.name}`, 'ok');
+          break;
+        }
         default:
-          console.warn(`[automation:${a.name}] unknown action: ${a.action}`);
+          throw new Error(`unknown action: ${a.action}`);
+      }
+        recordAutomationRun(a.id, true, summaryOf(a, param));
+      } catch (e: any) {
+        const message = e?.message || String(e);
+        recordAutomationRun(a.id, false, message);
+        useUi.getState().toast(`${a.name}: ${message}`, 'error');
       }
     }
   } catch (e) {
     console.error('automation error', e);
+  } finally {
+    automationDepth--;
   }
+}
+
+/** Actions that can start a trigger of their own — used by the loop guard. */
+const ACTION_TRIGGERS: Record<string, string[]> = {
+  newChat: ['chat:new'],
+  addMemory: [],
+  runSkill: []
+};
+
+function automationRecurses(a: { trigger: string; action: string }): boolean {
+  return (ACTION_TRIGGERS[a.action] || []).includes(a.trigger);
+}
+
+function summaryOf(a: { action: string }, param: string): string {
+  switch (a.action) {
+    case 'toast': return 'toast shown';
+    case 'notify': return 'notified';
+    case 'log': return 'logged to console';
+    case 'navigate': return `went to ${param}`;
+    case 'newChat': return 'chat created';
+    case 'addMemory': return 'memory saved';
+    case 'clearMemory': return 'memory cleared';
+    case 'openExternal': return `opened ${param}`;
+    case 'runSkill': return 'skill applied to the next send';
+    default: return 'done';
+  }
+}
+
+/**
+ * Centralized project creation: every path (sidebar, palette, Chapters,
+ * Story Bible, Story Agent) goes through here so `project:created` fires once
+ * with the same side effects. Callers navigate themselves — a helper that
+ * navigated would fight the Story Bible staying on its own view.
+ */
+export async function createProjectUi(name: string): Promise<any> {
+  const p = await dbCall<any>('createProject', { name });
+  await useData.getState().load();
+  useData.getState().setActiveProject(p.id);
+  runAutomations('project:created', { projectId: p.id });
+  return p;
 }
 
 // Centralized "create a chat from the UI" — every creation path (sidebar,

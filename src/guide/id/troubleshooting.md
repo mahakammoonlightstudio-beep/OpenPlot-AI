@@ -1,7 +1,7 @@
 ---
 title: Pemecahan masalah
 summary: Kegagalan yang benar-benar akan kamu temui dan solusi tercepatnya.
-order: 17
+order: 18
 ---
 
 # Pemecahan masalah

@@ -6,26 +6,36 @@ order: 14
 
 # Plugins
 
-A plugin is a local JavaScript file with hooks. Plugins run in the main process with the same access as the app: install only code you wrote or read.
+A plugin is a local JavaScript snippet stored in the app and executed in the main process. Plugins run with the same access as the app: install only code you wrote or read.
 
 ## Shape
 ```js
-module.exports = {
-  name: 'word-count-logger',
-  hooks: {
-    'message:new': (payload, api) => api.log('message ' + payload.role)
-  }
-}
+context.registerHook('message:new', (payload) => {
+  context.log('New message in chat ' + payload.chatId);
+});
+context.registerCommand('hello', () => {
+  context.toast('Hello from my plugin!');
+});
 ```
 
 ## Hooks
-Fired by the app today: `chat:new` (a chat row is created) and `message:new` (a message is saved).
+Fired by the app: `app:ready` (window ready), `chat:new` (a chat row is created), `message:new` (a message is saved — user, assistant or error).
 
-`app:ready`, `chat:send`, `chapter:saved`, `project:created` and `skill:enabled` belong to the plugin API but are not wired yet — treat them as planned, and fire your own hook names if you need them now.
+Errors thrown by one handler are caught and written to that plugin's log; a broken plugin never breaks chat or the database.
 
-## Behaviour
-- Disabled plugins are never loaded, not loaded and then blocked.
-- Errors are caught per hook and written to the plugin's log; a broken plugin does not break chat.
-- A plugin registers commands with `context.registerCommand`; the row list in Settings → Plugins shows its log.
+## Commands
+`context.registerCommand(name, fn)` adds a command that runs on demand:
 
-See `docs/PLUGIN_API.md` in the repository for the full surface.
+- listed on the plugin's row in Settings → Plugins, with a button per command;
+- searchable in the command palette (`Ctrl/Cmd+K`) as *plugin name: command*.
+
+**Reload all plugins** re-reads every enabled plugin from the database after you edit code, so there is no restart. Save from the editor does the same automatically.
+
+## Safety
+- A disabled plugin is never loaded — not loaded and then blocked.
+- Plugin code can read files, reach the network and write the database. `new Function` is a convenience boundary, not a security boundary.
+- Keep hooks fast: they run synchronously on the main process.
+
+See `docs/PLUGIN_API.md` in the repository for the full `context` surface.
+
+If you only need "on this event, do that" without writing code, use **automations** instead — same triggers, ready-made actions.

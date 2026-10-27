@@ -51,6 +51,8 @@ export interface BuildSystemPromptOptions {
   style?: PromptStyle | null;
   goal?: string | null;
   toolsEnabled?: boolean;
+  /** Tool names from connected MCP servers (Task 13); listed only when present. */
+  mcpTools?: string[];
   attachments?: AttachmentLike[];
 }
 
@@ -153,6 +155,12 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
       ? `You have native story tools (${TOOL_NAMES}). When a tool result comes back, write the surrounding reply in the user's "${styleName}" style — but tool calls themselves stay plain and functional. Use tools proactively when the user discusses story worldbuilding, characters, items, lore or chapters.`
       : `You have native tools (${TOOL_NAMES}). Use them proactively when the user discusses story worldbuilding, characters, items, lore or chapters.`;
     parts.push('# Story tools\n' + hint);
+    const mcp = (opts.mcpTools || []).map((n) => String(n || '').trim()).filter(Boolean);
+    if (mcp.length) {
+      parts.push('# Connected MCP tools\nThe user connected MCP servers; their tools are callable like the story tools above:\n' +
+        mcp.map((n) => '- ' + n).join('\n') +
+        '\nCall them when they are the right tool for the request. If a call fails, say what the server reported instead of inventing a result.');
+    }
   }
 
   const attachments = buildAttachmentPrompt(opts.attachments || []);

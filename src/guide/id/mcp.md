@@ -1,29 +1,34 @@
 ---
 title: Server MCP
-summary: Apa yang dilakukan definisi server hari ini, dan apa yang menyusul.
-order: 15
+summary: Jalankan server MCP lokal dan biarkan model memanggil tool-nya.
+order: 16
 ---
 
 # Server MCP
 
 MCP (Model Context Protocol) adalah cara model memanggil tools di luar aplikasi: helper filesystem, indeks pencarian, database.
 
-## Status di versi ini
+## Yang sudah ada
 
-[[settings:mcp]] menyimpan definisi server secara lokal — nama, perintah, argumen, variabel lingkungan, dan tanda aktif. **Bridge yang menjalankan prosesnya, mendaftar tool-nya, dan mengeksposnya ke model belum ada di versi ini.** Definisi yang tersimpan tidak pernah menjalankan apa pun; mengaktifkannya adalah persiapan untuk rilis yang membawa bridge-nya.
+[[settings:mcp]] menyimpan definisi server secara lokal — nama, perintah, argumen, variabel lingkungan, dan tanda aktif. Bridge hanya menjalankan server yang **aktif**, setelah jendela siap, berbicara JSON-RPC 2.0 newline-delimited lewat stdio (`initialize`, `tools/list`, `tools/call`), dan mematikan semua proses anak saat keluar.
 
-Rencananya dan detail protokolnya ada di `docs/PLUGIN_API.md` dan rencana rilis di `docs/superpowers/plans/`.
+- Tool ditampilkan sebagai `mcp__{server}__{tool}` dan hanya ditawarkan bila agent tools aktif di chat itu. Prompt memuat nama persis yang dilaporkan server, bukan tebakan.
+- Satu panggilan tool diberi **30 detik**, start **10 detik**; satu baris respons dibatasi **1 MB**, dan teks yang sampai ke model dipotong di **20.000 karakter** dengan catatan pemotongan.
+- Tiap server menampilkan status (starting, connected, error), jumlah tool, error terakhir, dan log yang bisa difilter (300 baris).
 
-## Yang bisa dilakukan sekarang
+## Menambah server
 
-- Siapkan registry: tambahkan server yang kamu inginkan, dengan perintah dan argumen yang persis, agar nanti cukup satu saklar.
-- Baca perintahnya sebelum menyimpan. Server MCP berjalan sebagai proses lokal dengan izinmu; perlakukan definisinya seperti skrip yang akan kamu jalankan.
+1. Pengaturan → Server MCP → **Tambah**, atau pilih salah satu definisi yang direkomendasikan.
+2. Isi perintah dan argumen persis seperti di terminal, misalnya `npx` dengan `["-y", "@modelcontextprotocol/server-filesystem", "D:\\Catatan"]`.
+3. Variabel lingkungan berupa objek JSON: `{"API_KEY": "…"}`.
+4. Aktifkan. **Restart** menjalankan ulang prosesnya; **Log** menunjukkan apa yang dicetaknya.
 
-## Yang akan dilakukan bridge-nya
+## Keamanan
 
-- Menjalankan hanya server yang aktif, setelah jendela siap, dan mematikannya saat keluar.
-- Berbicara JSON-RPC 2.0 newline-delimited lewat stdio: `initialize`, `tools/list`, `tools/call`.
-- Menampilkan tool-nya sebagai `mcp__{server}__{tool}` saat tools aktif, dengan timeout panggilan dan batas ukuran hasil.
-- Menampilkan titik status per server (starting, connected, error), jumlah tool, error terakhir, dan log yang bisa difilter.
+Server MCP adalah perintah lokal sembarang yang berjalan dengan izinmu — tingkat kepercayaannya sama dengan plugin. Definisi tersimpan tidak pernah berjalan sendiri; mengaktifkannya adalah tindakan eksplisit, dan menonaktifkannya (atau keluar) menghentikan prosesnya. Baca perintahnya sebelum mengaktifkan, dan utamakan server yang kamu tulis atau audit sendiri. Pakai path absolut: prosesnya mulai di folder data aplikasi, bukan di folder proyekmu.
 
-Sementara itu, tools cerita milik aplikasi adalah yang benar-benar bisa dipanggil model — lihat artikel skill dan story bible.
+## Pemecahan masalah
+
+- **Error saat start** — jalankan perintah yang sama di terminal dulu. Di Windows `npx`/`npm` otomatis dijalankan lewat `cmd.exe`; shell lain tidak.
+- **Tidak ada tool** — server menjawab `initialize` tetapi tidak melaporkan tool. Log-nya memperlihatkan baris mentah yang dicetak.
+- **Tool gagal** — pesan error dikembalikan ke model sebagai hasil tool, jadi model bisa bereaksi alih-alih menggantung.

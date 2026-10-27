@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS skills (
   source TEXT DEFAULT 'user', updated_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS automations (id TEXT PRIMARY KEY, name TEXT, trigger TEXT, action TEXT, param TEXT DEFAULT '', enabled INTEGER DEFAULT 1);
-CREATE TABLE IF NOT EXISTS mcp_servers (id TEXT PRIMARY KEY, name TEXT, command TEXT, args TEXT, enabled INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS mcp_servers (id TEXT PRIMARY KEY, name TEXT, command TEXT, args TEXT, env TEXT DEFAULT '{}', enabled INTEGER DEFAULT 1);
 CREATE TABLE IF NOT EXISTS scenes (
   id TEXT PRIMARY KEY, chapter_id TEXT NOT NULL, title TEXT DEFAULT 'New scene',
   summary TEXT DEFAULT '', position INTEGER DEFAULT 0, created_at INTEGER, updated_at INTEGER
@@ -224,7 +224,7 @@ CREATE INDEX IF NOT EXISTS idx_message_files_chat ON message_files(chat_id);
  * A column/table that already exists is skipped, so partially-migrated and
  * pre-1.2 databases (user_version = 0 with a modern shape) both upgrade safely.
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 function readUserVersion(): number {
   try {
@@ -323,6 +323,15 @@ const MIGRATIONS: { version: number; run: () => void }[] = [
       addColumn('messages', 'tokens_cached', 'INTEGER');
       // Rows seeded by older builds are builtins; user skills keep builtin = 0.
       execRaw("UPDATE skills SET builtin = 1, source = 'builtin' WHERE id IN ('skill-continuity','skill-prose','skill-dialogue','skill-pacing') AND builtin = 0");
+    }
+  },
+  {
+    version: 5,
+    run() {
+      // MCP server environment variables (Task 13). Most real servers need at
+      // least one (an API key, a root folder), and storing them per server is
+      // what makes the bridge usable without shell wrappers.
+      addColumn('mcp_servers', 'env', "TEXT DEFAULT '{}'");
     }
   }
 ];
@@ -1497,7 +1506,10 @@ export function handleDb(op: string, payload: any): any {
     case 'listMcpServers':
       return all('SELECT * FROM mcp_servers');
     case 'saveMcpServer': {
-      run('INSERT INTO mcp_servers (id, name, command, args, enabled) VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, command=excluded.command, args=excluded.args, enabled=excluded.enabled', [payload.id || uid(), payload.name, payload.command, payload.args || '[]', payload.enabled === false ? 0 : 1]);
+      // `env` stays as the caller sent it: invalid JSON is stored raw and the
+      // bridge falls back to an empty map, rather than silently dropping it.
+      const env = typeof payload.env === 'string' ? payload.env : JSON.stringify(payload.env || {});
+      run('INSERT INTO mcp_servers (id, name, command, args, env, enabled) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, command=excluded.command, args=excluded.args, env=excluded.env, enabled=excluded.enabled', [payload.id || uid(), payload.name, payload.command, payload.args || '[]', env, payload.enabled === false ? 0 : 1]);
       return true;
     }
     case 'deleteMcpServer':

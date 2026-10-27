@@ -49,6 +49,25 @@ export function StylesSection() {
     }
   }
 
+  /** Fork any style (builtin included) into an editable custom copy. This is
+   *  the only way to customise a builtin without flattening the original. */
+  async function duplicate() {
+    if (!selected || !draft || busy) return;
+    setBusy(true);
+    try {
+      const row = await dbCall<any>('saveStyle', {
+        id: null,
+        name: `${draft.name.trim() || selected.name} (copy)`,
+        content: draft.content
+      });
+      await useData.getState().load();
+      pick(row.id);
+      ui.toast(t('style.duplicated'), 'ok');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function create() {
     if (busy) return;
     setBusy(true);
@@ -77,7 +96,12 @@ export function StylesSection() {
         <div className="styles-list">
           {styles.map((s) => (
             <button key={s.id} className={`style-row ${s.id === sel ? 'active' : ''}`} onClick={() => pick(s.id)}>
-              <span className="t">{s.name}</span>
+              <span className="t">
+                {s.name}
+                {/* Fragment preview: the first line of the instruction tells
+                    two similarly named styles apart at a glance. */}
+                <small className="style-snippet">{(s.content || '').replace(/\s+/g, ' ').trim().slice(0, 90) || '—'}</small>
+              </span>
               {s.builtin ? <span className="v-src builtin">builtin</span> : <span className="v-src custom">custom</span>}
             </button>
           ))}
@@ -94,6 +118,7 @@ export function StylesSection() {
               <div className="head">
                 <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={t('style.namePh')} />
                 {selected.builtin ? <span className="v-src builtin">builtin</span> : null}
+                <button onClick={duplicate} disabled={busy} title={t('style.duplicate')}><Icon name="copy" size={14} /> {t('style.duplicate')}</button>
                 <button className="primary" onClick={save} disabled={busy || !draft.name.trim()}><Icon name="check" size={14} /> {t('story.save')}</button>
                 {!selected.builtin && <button className="danger" onClick={remove} aria-label={t('confirm.delete')}><Icon name="trash" size={14} /></button>}
               </div>

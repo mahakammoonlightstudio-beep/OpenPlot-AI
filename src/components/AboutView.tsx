@@ -16,10 +16,21 @@ function FeatureRow({ icon, title, desc }: { icon: Parameters<typeof Icon>[0]['n
   );
 }
 
+// Dismissal is stored per version, so a new release shows its note once more.
+const VERSION_NOTE_KEY = 'openplot.about.versionNote';
+
 export function AboutView() {
   const t = useT();
   const [info, setInfo] = useState<AppInfo | null>(null);
+  const [noteDismissed, setNoteDismissed] = useState<string | null>(() => {
+    try { return localStorage.getItem(VERSION_NOTE_KEY); } catch { return null; }
+  });
   useEffect(() => { window.inkwell.appInfo().then(setInfo).catch(() => {}); }, []);
+
+  function dismissNote(version: string) {
+    setNoteDismissed(version);
+    try { localStorage.setItem(VERSION_NOTE_KEY, version); } catch { /* storage disabled */ }
+  }
 
   const socials: Array<{ icon: Parameters<typeof Icon>[0]['name']; label: string; handle: string; url: string }> = [
     { icon: 'github', label: 'GitHub', handle: 'mahakammoonlightstudio-beep', url: GITHUB_URL },
@@ -59,6 +70,21 @@ export function AboutView() {
             <Icon name="check" size={13} /> MIT License · <Icon name="memory" size={13} /> {t('about.localFirst')}
           </div>
         </div>
+
+        {info?.version && noteDismissed !== info.version && (
+          <div className="card version-note">
+            <div className="vn-head">
+              <span className="version-pill">v{info.version}</span>
+              <b>{t('about.whatsNewTitle')}</b>
+              <span className="spacer" />
+              <button className="small ghost" title={t('about.whatsNewHide')} aria-label={t('about.whatsNewHide')}
+                onClick={() => dismissNote(info.version)}>
+                <Icon name="x" size={13} />
+              </button>
+            </div>
+            <p>{t('about.whatsNewBody').replace('{version}', info.version)}</p>
+          </div>
+        )}
 
         <div className={`enc-badge ${info?.encryption ? 'on' : 'off'}`}>
           <span className="enc-dot" />

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useData, dbCall, useUi } from '../store';
+import { useData, dbCall, useUi, createProjectUi, runAutomations } from '../store';
 import { useWriteStats } from '../writeStats';
 import { Chapter } from '../types';
 import { useT } from '../i18nReact';
@@ -152,9 +152,7 @@ export function ChaptersView() {
   async function create() {
     let projectId = activeProjectId;
     if (!projectId) {
-      const p = await dbCall<any>('createProject', { name: 'Untitled project' });
-      await useData.getState().load();
-      useData.getState().setActiveProject(p.id);
+      const p = await createProjectUi('Untitled project');
       projectId = p.id;
     }
     const row = await dbCall<Chapter>('createChapter', { projectId, title: 'Chapter ' + (scoped.length + 1), content: '', status: 'draft' });
@@ -174,6 +172,8 @@ export function ChaptersView() {
       } catch { /* versioning is best-effort — never block a save */ }
     }
     await dbCall('updateChapter', { id: selected.id, title: draft.title, content: draft.content, status: draft.status });
+    // `chapter:saved` fires after the row is written, with the real word count.
+    runAutomations('chapter:saved', { chapterId: selected.id, words: after });
     // Record writing stats delta for this project (local, no AI involved).
     // Reload FIRST so the total reflects the row just saved (the stale
     // snapshot used to under/overwrite the stored project total).

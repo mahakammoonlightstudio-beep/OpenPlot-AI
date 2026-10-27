@@ -72,7 +72,9 @@ The “studio UX” release: a patch number on the tin, a rebuilt studio inside.
 - **Lighter under load.** Versioned migrations with a pre-upgrade backup, paged transcripts (at most 200 messages in memory, with load-earlier that keeps your place), code-split views, narrow store subscriptions, byte-capped highlight cache, and teardown for every timer and listener.
 - **Motion you can switch off.** Route fade, modal and toast entry, and a message-in animation for the newest bubble only — reduced-motion aware, and off in one setting.
 
-> Not in 1.2.3: the MCP bridge and the extended automation triggers. MCP server definitions are already stored, but nothing is spawned yet; see the MCP article in the in-app guide.
+- **Extensions that reach outside the app.** The MCP bridge now spawns the servers you enable, handshakes with them, lists their tools and lets the model call them as `mcp__{server}__{tool}` — with a live status dot, tool count, restart and a per-server log. Automations gained four triggers (message sent, chapter saved, project created, skill enabled) and new actions (flash the window, apply a skill, create a chat), plus per-row **Test**, a run history and loop guards.
+- **A prompt library you can carry.** Export your prompts as JSON and import bundles from elsewhere: each entry is validated, categories normalised, duplicates skipped by title+category, and the batch capped. Any prompt can be duplicated, the insertion preview expands its first `{placeholder}` live, and each row counts how often it was used in the open chat.
+- **A palette that reaches more.** `Ctrl/Cmd+K` also switches models (grouped by provider with a thinking hint), toggles skills, and runs plugin commands registered by your plugins.
 
 ## New in 1.2
 
@@ -107,7 +109,7 @@ The “studio UX” release: a patch number on the tin, a rebuilt studio inside.
 - Projects bind chats, Story Bible, chapters and statistics together; collapsible chat folders, full-text chat search and a command palette (`Ctrl/Cmd+K`).
 
 **Extensibility**
-- `agent.md` instructions injected into every chat, reply styles, skill packs, JavaScript plugins with lifecycle hooks (they run with full Node access — install only plugins you trust), when/then automations, and an MCP server registry. See [docs/PLUGIN_API.md](docs/PLUGIN_API.md).
+- `agent.md` instructions injected into every chat, reply styles, skill packs, JavaScript plugins with lifecycle hooks and palette commands (they run with full Node access — install only plugins you trust), when/then automations with run history and loop guards, and an MCP bridge that runs the servers you enable. See [docs/PLUGIN_API.md](docs/PLUGIN_API.md).
 
 **Performance and privacy**
 - Database persistence is dirty-checked, atomic, and debounced; imports and Plot Smith project creation are single validated operations with one persistence pass.

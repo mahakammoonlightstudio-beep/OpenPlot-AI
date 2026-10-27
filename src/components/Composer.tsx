@@ -6,6 +6,7 @@ import { Popover, MenuItem } from './Ui';
 import { Provider, StyleRow, ThinkingSupport } from '../types';
 import {
   PROMPT_LIBRARY, PROMPT_CATEGORIES, applyPromptTemplate, mergePrompts,
+  buildPromptBundle, parsePromptImport, notePromptUse, promptUsage,
   LibraryPrompt, PromptCategory
 } from '../promptLibrary';
 import { PromptEditorModal } from './PromptEditorModal';
@@ -32,7 +33,7 @@ export function Composer({
   wordCount,
   styles, activeStyleId, onPickStyle,
   attachments, onRemoveAttachment, onAttachClick,
-  chatSkillsOff, onToggleSkill,
+  chatSkillsOff, onToggleSkill, chatId,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -73,6 +74,8 @@ export function Composer({
   /** Skill ids this chat muted in the composer popover. */
   chatSkillsOff?: string[];
   onToggleSkill?: (id: string) => void;
+  /** Active chat, used only to count prompt-library insertions per chat. */
+  chatId?: string | null;
 }) {
   const t = useT();
   const ui = useUi();
@@ -156,6 +159,10 @@ export function Composer({
   // a live filter AND as the seed for the template's first {placeholder}.
   const [promptOpen, setPromptOpen] = useState(false);
   const [promptCat, setPromptCat] = useState<PromptCategory | null>(null);
+  // Hovered/focused prompt → live preview under the list. `usageTick` forces a
+  // re-read of the session counters after an insertion.
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [usageTick, setUsageTick] = useState(0);
   const [editorState, setEditorState] = useState<
     | { mode: 'new'; seed?: string }
     | { mode: 'edit'; prompt: LibraryPrompt }
@@ -189,6 +196,8 @@ export function Composer({
 
   function insertPrompt(p: LibraryPrompt) {
     const text = applyPromptTemplate(p.template, promptSeed);
+    notePromptUse(chatId, p.id);
+    setUsageTick((n) => n + 1);
     setInput(text);
     setPromptOpen(false);
     // Focus + put the caret at the end once React has flushed the new value.
@@ -240,6 +249,48 @@ export function Composer({
     await useData.getState().load();
     setEditorState(null);
     ui.toast(t('prompt.deleted'), 'ok');
+  }
+
+  const promptUses = useMemo(() => promptUsage(chatId), [chatId, usageTick]);
+  const previewPrompt = allPrompts.find((p) => p.id === previewId) || null;
+
+  /** Copy any prompt (builtin or mine) into my own library as an editable row. */
+  async function duplicatePrompt(p: LibraryPrompt) {
+    const title = `${p.label} (copy)`;
+    await dbCall('createPrompt', { title, category: 'user', template: p.template });
+    await useData.getState().load();
+    ui.toast(t('prompt.duplicated').replace('{name}', title), 'ok');
+  }
+
+  async function exportPrompts() {
+    if (!userPrompts.length) { ui.toast(t('prompt.exportEmpty'), 'info'); return; }
+    const res = await window.inkwell.exportFile('openplot-prompt-library.json', buildPromptBundle(userPrompts), 'json');
+    if (res.ok) ui.toast(t('prompt.exported').replace('{n}', String(userPrompts.length)), 'ok');
+    else if (res.error !== 'cancelled') ui.toast(t('prompt.exportFailed'), 'error');
+  }
+
+  /** Pick one or more .json bundles; each file is parsed and deduped on its own
+   *  so a single bad file cannot swallow the rest. */
+  async function importPrompts() {
+    const paths = await window.inkwell.pickFiles();
+    if (!paths.length) return;
+    const files = await window.inkwell.readFiles(paths, 2_000_000);
+    if (!files.length) { ui.toast(t('prompt.importUnreadable'), 'error'); return; }
+    let added = 0;
+    let dupes = 0;
+    const problems: string[] = [];
+    for (const f of files) {
+      const res = parsePromptImport(f.content, useData.getState().userPrompts);
+      for (const p of res.accepted) await dbCall('createPrompt', p);
+      added += res.accepted.length;
+      dupes += res.duplicates;
+      problems.push(...res.errors);
+      await useData.getState().load();
+    }
+    if (added) ui.toast(t('prompt.imported').replace('{n}', String(added)), 'ok');
+    else if (!problems.length) ui.toast(t('prompt.importNothing'), 'info');
+    if (dupes) ui.toast(t('prompt.importSkipped').replace('{n}', String(dupes)), 'info');
+    if (problems.length) ui.toast(problems[0], 'error');
   }
 
   const autoGrow = (el: HTMLTextAreaElement | null) => {
@@ -357,7 +408,15 @@ export function Composer({
             <Icon name="sparkle" size={13} />
             <span>{t('prompt.menuTitle')}</span>
             <span className="spacer" />
-            <button className="small ghost" title={t('prompt.newTitle')} aria-label={t('prompt.newTitle')}
+            <button className="small ghost" data-testid="prompt-import" title={t('prompt.importTitle')} aria-label={t('prompt.importTitle')}
+              onClick={() => { setPromptOpen(false); void importPrompts(); }}>
+              <Icon name="folderOpen" size={13} />
+            </button>
+            <button className="small ghost" data-testid="prompt-export" title={t('prompt.exportTitle')} aria-label={t('prompt.exportTitle')}
+              onClick={exportPrompts}>
+              <Icon name="download" size={13} />
+            </button>
+            <button className="small ghost" data-testid="prompt-new" title={t('prompt.newTitle')} aria-label={t('prompt.newTitle')}
               onClick={() => setEditorState({ mode: 'new' })}>
               <Icon name="plus" size={13} />
             </button>
@@ -386,10 +445,12 @@ export function Composer({
                 <div className="prompt-cat-label">{t('prompt.mine')}</div>
                 {userOnly.map((p) => (
                   <div key={p.id} className="prompt-item-row">
-                    <button className="prompt-item" role="menuitem" onClick={() => insertPrompt(p)}>
+                    <button className="prompt-item" role="menuitem" onClick={() => insertPrompt(p)}
+                      onMouseEnter={() => setPreviewId(p.id)} onFocus={() => setPreviewId(p.id)}>
                       <span className="pi-text">
                         <span className="pi-label">{p.label}</span>
                       </span>
+                      {promptUses[p.id] ? <span className="pi-used">{promptUses[p.id]}×</span> : null}
                       <span className="pi-insert">{t('prompt.insert')}</span>
                     </button>
                     <button className="small ghost prompt-edit-btn" title={t('prompt.edit')}
@@ -407,11 +468,13 @@ export function Composer({
                 <div key={cat} className="prompt-cat">
                   <div className="prompt-cat-label">{cat === 'user' ? t('prompt.mine') : t('prompt.category.' + cat)}</div>
                   {list.map((p) => (
-                    <button key={p.id} className="prompt-item" role="menuitem" onClick={() => insertPrompt(p)}>
+                    <button key={p.id} className="prompt-item" role="menuitem" onClick={() => insertPrompt(p)}
+                      onMouseEnter={() => setPreviewId(p.id)} onFocus={() => setPreviewId(p.id)}>
                       <span className="pi-text">
                         <span className="pi-label">{p.label}</span>
                         <span className="pi-desc">{p.desc}</span>
                       </span>
+                      {promptUses[p.id] ? <span className="pi-used">{promptUses[p.id]}×</span> : null}
                       <span className="pi-insert">{t('prompt.insert')}</span>
                     </button>
                   ))}
@@ -419,6 +482,19 @@ export function Composer({
               );
             })}
             {promptItems.length === 0 && <div className="prompt-empty">{t('palette.noResults')}</div>}
+            {previewPrompt && (
+              <div className="prompt-preview">
+                <div className="pp-head">
+                  <span className="pp-label">{previewPrompt.label}</span>
+                  <span className="spacer" />
+                  <button className="small ghost" onClick={() => duplicatePrompt(previewPrompt)}
+                    title={t('prompt.duplicate')}>
+                    <Icon name="copy" size={12} /> {t('prompt.duplicate')}
+                  </button>
+                </div>
+                <pre>{applyPromptTemplate(previewPrompt.template, promptSeed)}</pre>
+              </div>
+            )}
             <div className="prompt-foot">
               <span>{t('prompt.templateHint')}</span>
               <button className="link" onClick={() => setEditorState({ mode: 'new' })}>{t('prompt.newTitle')}</button>

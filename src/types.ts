@@ -95,7 +95,7 @@ export interface SkillRow {
   builtin?: number;
 }
 export interface AutomationRow { id: string; name: string; trigger: string; action: string; param?: string; enabled?: number }
-export interface McpRow { id: string; name: string; command: string; args: string; enabled: number }
+export interface McpRow { id: string; name: string; command: string; args: string; env: string; enabled: number }
 
 export interface GenChunk {
   type: 'text' | 'thinking' | 'replaceText' | 'tool' | 'info' | 'error';
@@ -170,6 +170,18 @@ export interface PresetRefreshResult {
   error?: string;
 }
 
+/** Runtime state of one MCP server, as reported by the bridge. */
+export interface McpServerStatus {
+  id: string;
+  name: string;
+  status: 'stopped' | 'starting' | 'connected' | 'error';
+  tools: number;
+  /** Tool names actually advertised to the model. */
+  toolNames?: string[];
+  lastError: string | null;
+  command: string;
+}
+
 export interface AppInfo {
   version: string;
   platform: string;
@@ -198,12 +210,20 @@ export interface InkwellApi {
   listLoadedPlugins(): Promise<{ ok: boolean; data?: any[] }>;
   reloadPlugins(): Promise<{ ok: boolean; data?: any[]; error?: string }>;
   pluginLogs(): Promise<{ ok: boolean; data?: string[] }>;
+  /** MCP bridge (v1.2.3 Task 13). */
+  mcpList(): Promise<{ ok: boolean; data?: McpServerStatus[] }>;
+  mcpSync(): Promise<{ ok: boolean; data?: McpServerStatus[]; error?: string }>;
+  mcpRestart(id: string): Promise<{ ok: boolean; data?: McpServerStatus | null; error?: string }>;
+  mcpLogs(id: string): Promise<{ ok: boolean; data?: string[] }>;
   appInfo(): Promise<AppInfo>;
-  setUnreadCount(count: number): Promise<boolean>;
+  /** Unread badge for the window title; `chatTitle` is used when nothing is unread. */
+  setUnreadCount(count: number, chatTitle?: string): Promise<boolean>;
+  /** Window flash for the `notify` automation action (optional: browser dev). */
+  flashWindow(): Promise<boolean>;
   openExternal(url: string): Promise<void>;
   exportMarkdown(name: string, content: string): Promise<{ ok: boolean; data?: string; error?: string }>;
-  /** Save plain text as .txt/.md via the native save dialog. */
-  exportFile(name: string, content: string, kind: 'txt' | 'md'): Promise<{ ok: boolean; data?: string; error?: string }>;
+  /** Save plain text as .txt/.md/.json via the native save dialog. */
+  exportFile(name: string, content: string, kind: 'txt' | 'md' | 'json'): Promise<{ ok: boolean; data?: string; error?: string }>;
   /** Save an assembled EPUB (byte array) via the native save dialog. */
   exportEpub(name: string, author: string, chapters: { title: string; content: string }[], lang?: string): Promise<{ ok: boolean; data?: string; error?: string }>;
   /** Native open-file dialog → picked files' absolute paths (empty if cancelled). */

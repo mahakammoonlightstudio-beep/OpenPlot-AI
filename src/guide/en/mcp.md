@@ -1,29 +1,34 @@
 ---
 title: MCP servers
-summary: What the stored server definitions do today, and what they will do next.
-order: 15
+summary: Run local MCP servers and let the model call their tools.
+order: 16
 ---
 
 # MCP servers
 
 MCP (Model Context Protocol) is how a model calls tools that live outside the app: a filesystem helper, a search index, a database.
 
-## Status in this version
+## What ships
 
-[[settings:mcp]] stores server definitions locally — name, command, arguments, environment variables and an enable flag. **The bridge that starts those processes, lists their tools and exposes them to the model is not part of this version.** A stored definition never runs anything; enabling one is configuration for the release that ships the bridge.
+[[settings:mcp]] stores server definitions locally — name, command, arguments, environment variables and an enable flag. The bridge starts **only enabled** servers after the window is ready, speaks newline-delimited JSON-RPC 2.0 over stdio (`initialize`, `tools/list`, `tools/call`), and kills every child process on quit.
 
-The plan, and the protocol details, live in `docs/PLUGIN_API.md` and the release plan under `docs/superpowers/plans/`.
+- Tools are advertised as `mcp__{server}__{tool}` and are offered only when agent tools are on for that chat. The prompt lists the exact names the server reported, never a guess.
+- A tool call gets **30 seconds**, a start **10**; one response line is capped at **1 MB**, and the text handed to the model is cut at **20,000 characters** with a visible truncation note.
+- Each server shows a status (starting, connected, error), its tool count, the last error and a filtered log (300 lines).
 
-## What you can do today
+## Adding a server
 
-- Keep the registry ready: add the servers you want, with the exact command and arguments, so enabling them later is one switch.
-- Read the command before saving it. An MCP server runs as a local process with your permissions; treat a definition like a script you are about to run.
+1. Settings → MCP servers → **Add**, or pick one of the recommended definitions.
+2. Fill the command and arguments exactly as you would type them in a terminal, for example `npx` with `["-y", "@modelcontextprotocol/server-filesystem", "D:\\Notes"]`.
+3. Environment variables are a JSON object: `{"API_KEY": "…"}`.
+4. Enable it. **Restart** re-runs the process; **Logs** shows what it printed.
 
-## What the bridge will do
+## Safety
 
-- Spawn only enabled servers, after the window is ready, and kill them on quit.
-- Speak newline-delimited JSON-RPC 2.0 over stdio: `initialize`, `tools/list`, `tools/call`.
-- Advertise their tools as `mcp__{server}__{tool}` when tools are enabled, with a call timeout and a capped response size.
-- Show a status dot per server (starting, connected, error), the tool count, the last error and a filtered log.
+An MCP server is an arbitrary local command running with your permissions — the same trust level as a plugin. A stored definition never starts anything by itself; enabling it is the explicit action, and disabling it (or quitting) stops the process. Read the command before enabling, and prefer servers you wrote or audited. Use absolute paths: the process starts in the app's data directory, not in your project folder.
 
-Until then, the app's own story tools are the ones the model can actually call — see the skills and story bible articles.
+## Troubleshooting
+
+- **Error on start** — run the same command in a terminal first. On Windows `npx`/`npm` are launched through `cmd.exe` automatically; other shells are not.
+- **No tools** — the server answered `initialize` but listed none. Its log shows the raw lines it printed.
+- **Tool fails** — the error text is returned to the model as the tool result, so it can recover instead of hanging.

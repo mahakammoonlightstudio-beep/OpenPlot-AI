@@ -42,7 +42,9 @@ const GROUPS = {
     'thinking-test.mjs',     // thinking parameter gating + reject-and-retry (mock Anthropic)
     'skills-test.mjs',       // skills v2: idempotent seeding, enable gate, builtin reset
     'prompt-test.mjs',       // system-prompt order, skill gating, budgets
+    'prompt-bundle-test.mjs', // prompt-library import/export: shape, dedupe, caps
     'guide-test.mjs',        // guide articles: parsing, tokens, search, EN/ID coverage
+    'mcp-test.mjs',          // MCP bridge: handshake, tool calls, timeout, lifecycle (mock server)
     'perf-test.mjs',         // transcript paging + DB write/persist budgets (5,000-row fixture)
     'bundle-budget.mjs',     // built asset sizes: chunk/total JS + CSS caps (skips without dist/)
     'ai-parser-test.mjs', // baseUrlCandidates, SseParser, dataLines, extractError, statusHint

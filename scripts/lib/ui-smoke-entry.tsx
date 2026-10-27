@@ -58,6 +58,11 @@ export function smoke(): Record<string, string> {
   useData.setState({ guideSlug: 'getting-started' });
   render('shortcutsSheet', <ShortcutsSheet />);
   render('whatsNew', <WhatsNewModal />);
+  // The command palette and a populated automations list read their content
+  // from the stores, and zustand's server snapshot is the INITIAL state — a
+  // setState in this function would be invisible to `useSyncExternalStore`.
+  // Both are therefore covered by the Electron GUI suites; their pure helpers
+  // (settings index, prompt bundles) are tested headlessly.
   // The active-chat surfaces (header capabilities, context meter, empty-chat
   // starters, transcript cards) cannot be server-rendered: the chat lives in
   // the DB and messages load in an effect. They are covered by the Electron GUI

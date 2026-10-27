@@ -81,6 +81,7 @@ CREATE TABLE prompt_styles (id TEXT PRIMARY KEY, name TEXT NOT NULL, content TEX
 CREATE TABLE story_files (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, story_id TEXT, name TEXT NOT NULL, content TEXT DEFAULT '', bytes INTEGER DEFAULT 0, created_at INTEGER);
 CREATE TABLE story_plans (id TEXT PRIMARY KEY, project_id TEXT, title TEXT NOT NULL, brief TEXT DEFAULT '{}', plan TEXT DEFAULT '{}', created_at INTEGER, updated_at INTEGER);
 CREATE TABLE message_files (id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, message_id TEXT NOT NULL, name TEXT NOT NULL, kind TEXT DEFAULT 'file', bytes INTEGER DEFAULT 0, content TEXT DEFAULT '', created_at INTEGER);
+CREATE TABLE mcp_servers (id TEXT PRIMARY KEY, name TEXT, command TEXT, args TEXT, enabled INTEGER DEFAULT 1);
 `;
 
 /**
@@ -103,6 +104,8 @@ function writeFixture(file, { upgraded = false, version = 0, files = false, agen
   raw.run('INSERT INTO skills (id, name, content, enabled) VALUES (?,?,?,1)', ['skill-continuity', 'Continuity Guardian', 'Check canon.']);
   raw.run('INSERT INTO skills (id, name, content, enabled) VALUES (?,?,?,1)', ['custom-skill', 'My skill', 'Mine.']);
   if (upgraded) {
+    // MCP server defined before the `env` column existed (migration v5).
+    raw.run('INSERT INTO mcp_servers (id, name, command, args, enabled) VALUES (?,?,?,?,1)', ['mcp-old', 'Old server', 'npx', '["-y","server-filesystem"]']);
     raw.run("INSERT INTO projects (id, name, description, context, format, rating, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)", ['p-1', 'Legacy project', '', '', 'novel', 'teen', now, now]);
     raw.run("INSERT INTO story (id, project_id, kind, title, content, tags, links, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)", ['s-1', 'p-1', 'character', 'Kael', 'Duelist', '[]', '[]', now, now]);
   } else {
@@ -146,14 +149,15 @@ const backups = (dir) => fs.readdirSync(dir).filter((f) => f.endsWith('.bak'));
   const dir = dirFor('fresh');
   const file = path.join(dir, 'fresh.db');
   await initDb(dir, 'fresh.db');
-  check('fresh: schema version stamped', getSchemaVersion() === SCHEMA_VERSION && SCHEMA_VERSION === 4, `got ${getSchemaVersion()}`);
+  check('fresh: schema version stamped', getSchemaVersion() === SCHEMA_VERSION && SCHEMA_VERSION === 5, `got ${getSchemaVersion()}`);
   check('fresh: no backup is created', !fs.existsSync(`${file}.v0.bak`));
   check('fresh: chat file table and stats exist', db('dbStats').chatFiles === 0 && db('dbStats').chatFileBytes === 0);
   closeDb();
   const shape = inspect(file);
-  check('fresh: v4 columns present', shape.columns.skills?.includes('description')
+  check('fresh: v4/v5 columns present', shape.columns.skills?.includes('description')
     && shape.columns.chats?.includes('skills_off')
-    && shape.columns.messages?.includes('tokens_cached'));
+    && shape.columns.messages?.includes('tokens_cached')
+    && shape.columns.mcp_servers?.includes('env'));
   check('fresh: message_files table + indexes exist', shape.tables.includes('message_files'));
 }
 
@@ -220,6 +224,11 @@ const backups = (dir) => fs.readdirSync(dir).filter((f) => f.endsWith('.bak'));
   check('partial v3: data survives', db('getMessages', { chatId: 'chat-2' })[0]?.content === 'second chat message');
   check('partial v3: builtin backfill still runs', db('listSkills').find((s) => s.id === 'skill-continuity')?.builtin === 1);
   check('partial v3: backup is named for the source version', backups(dir).includes('partial.db.v3.bak'), backups(dir).join(','));
+  // v5 added `env` to mcp_servers. An existing definition must survive the
+  // migration and default to an empty environment, not disappear.
+  const servers = db('listMcpServers');
+  check('partial v3: an MCP server definition survives', servers.length === 1 && servers[0].command === 'npx', JSON.stringify(servers));
+  check('partial v3: its environment defaults to an empty object', JSON.parse(servers[0].env || '{}') && servers[0].env === '{}', String(servers[0].env));
   closeDb();
 }
 

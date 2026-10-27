@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useData, useSettings, useUi, dbCall, uid } from '../store';
+import { useData, useSettings, useUi, dbCall, uid, runAutomations } from '../store';
 import { Provider, StoryPlanRow } from '../types';
 import { useT } from '../i18nReact';
 import { Icon } from './Icons';
@@ -355,6 +355,9 @@ export function StoryAgentView() {
       });
       await useData.getState().load();
       setActiveProject(res.project.id);
+      // Plot Smith creates a whole project in one call — the automation trigger
+      // fires here too, so `project:created` has exactly one meaning.
+      runAutomations('project:created', { projectId: res.project.id });
       setCreated({
         id: res.project.id,
         name: res.project.name,

@@ -1,6 +1,6 @@
 # OpenPlot AI Plugin API
 
-_Applies to OpenPlot AI 1.2.x — reviewed for 1.2.3 (2026-10-26)._
+_Applies to OpenPlot AI 1.2.x — reviewed for 1.2.3 (2026-10-27)._
 
 Plugins are plain JavaScript files that receive a `context` object. They run inside a
 function sandbox in the Electron main process.
@@ -26,7 +26,7 @@ context.registerCommand('hello', () => {
 | `context.toast` | `(msg) => void` | Show a toast in the UI |
 | `context.log` | `(msg) => void` | Write to the plugin log (visible in Settings → Plugins) |
 | `context.registerHook` | `(name, fn) => void` | Subscribe to a hook |
-| `context.registerCommand` | `(name, fn) => void` | Register a runnable command (appears in Settings → Plugins) |
+| `context.registerCommand` | `(name, fn) => void` | Register a runnable command (appears in Settings → Plugins **and** the command palette) |
 
 ## Hooks
 
@@ -38,6 +38,18 @@ context.registerCommand('hello', () => {
 
 Hooks run synchronously and in registration order. Errors thrown by one plugin are logged
 and never break the other plugins, the chat or the database.
+
+Those three are the complete hook list: events such as “message sent”, “chapter saved”,
+“project created” and “skill enabled” are automation triggers, not plugin hooks — see
+[Automations](#automations). A plugin that needs one can register a command and let an
+automation toast, or poll with `context.db.call`.
+
+## Commands
+
+Registered commands are listed per plugin in Settings → Plugins (one button each) and are
+searchable in the command palette (`Ctrl/Cmd+K`) as *plugin name: command*. **Reload all
+plugins** — a button in Settings and an IPC call (`reloadPlugins`) — re-reads every enabled
+plugin from the database, so editing code needs no app restart.
 
 ## Example: auto-log every AI reply
 
@@ -96,13 +108,32 @@ agent, so a plugin cannot tell an AI-created chat from a user-created one.
 
 ## MCP servers
 
-Settings → MCP Servers stores stdio JSON-RPC server definitions (`name`, `command`, `args`,
-`enabled`). The bridge spawns **only enabled** servers, lists their tools and exposes them to
-the model as `mcp__{server}__{tool}`, with a 30 s call timeout and a capped response size.
-A stored definition alone never starts a process; enabling it is an explicit action because
-MCP servers are arbitrary local commands. The bridge is implemented per
-[`docs/superpowers/plans/2026-10-26-v1.2.3-studio-ux.md`](superpowers/plans/2026-10-26-v1.2.3-studio-ux.md)
-(Task 13); until that lands, the registry is configuration only.
+Settings → MCP servers stores stdio JSON-RPC server definitions (`name`, `command`, `args`,
+`env`, `enabled`). The bridge spawns **only enabled** servers after the window is ready,
+performs `initialize` + `tools/list`, and exposes their tools to the model as
+`mcp__{server}__{tool}`. Limits: 10 s to start, 30 s per call, 1 MB per response line and
+20,000 characters per result handed to the model (with a truncation note). Every child is
+killed on quit, on restart and on a failed start; each server keeps a 300-line log.
+
+A stored definition alone never starts a process — enabling it is an explicit action,
+because an MCP server is an arbitrary local command with your permissions (same trust
+level as a plugin). MCP tools are advertised only when agent tools are enabled for the
+chat, and the prompt lists the exact tool names the server reported.
+
+## Automations
+
+Automations are the declarative sibling of plugins: a row stores `trigger`, `action`,
+`param` and `enabled` in the `automations` table.
+
+Triggers: `app:ready`, `chat:new`, `chat:send`, `message:new`, `chapter:saved`,
+`project:created`, `skill:enabled`.
+Actions: `toast`, `notify`, `log`, `addMemory`, `clearMemory`, `navigate`, `newChat`,
+`openExternal`, `runSkill`.
+
+Guards, in the renderer (`runAutomations`): a chain may not nest deeper than two levels, and
+an action that would re-fire its own trigger is skipped and recorded as such. Each run is
+recorded in a session-only log (20 entries per automation) surfaced in Settings →
+Automations, where **Test** runs exactly one rule.
 
 ## Notes & limitations
 
@@ -111,7 +142,7 @@ MCP servers are arbitrary local commands. The bridge is implemented per
   access as the app.
 - Hooks run synchronously; long work will block. Keep handlers fast and do not await inside
   a hook.
-- The plugins table also stores `enabled`; toggling it reloads the plugin registry.
+- The plugins table also stores `enabled`; toggling it (or **Reload all plugins**) reloads the plugin registry.
 - Logs are kept in a 300-line ring buffer (Settings → Plugins).
 - `context.settings` values are JSON strings; parse them yourself.
 

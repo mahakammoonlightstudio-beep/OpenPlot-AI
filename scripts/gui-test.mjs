@@ -270,7 +270,13 @@ const setReactSelect = `(function(el,val){var p=Object.getOwnPropertyDescriptor(
   await run('settings: add provider via UI', async () => {
     // The presets card ALSO has a primary "Add" button (disabled until a
     // preset is picked) — target the enabled "Add provider" button only.
-    const added = await cdp.evalJS("(function(){var bs=[...document.querySelectorAll('.settings-content button.primary')].filter(b=>!b.disabled);var b=bs.find(x=>/add provider/i.test(x.textContent))||bs.find(x=>/^add/i.test(x.textContent.trim()));if(!b)return false;b.click();return true;})()");
+    // The section mounts before its async data (presets, provider list) settles;
+    // poll briefly instead of reading a half-painted panel once.
+    let added = false;
+    for (let i = 0; i < 24 && !added; i++) {
+      added = await cdp.evalJS("(function(){var bs=[...document.querySelectorAll('.settings-content button.primary')].filter(b=>!b.disabled);var b=bs.find(x=>/add provider/i.test(x.textContent))||bs.find(x=>/^add/i.test(x.textContent.trim()));if(!b)return false;b.click();return true;})()");
+      if (!added) await sleep(250);
+    }
     if (!added) {
       const all = await cdp.evalJS("[...document.querySelectorAll('.settings-content button')].map(b=>b.textContent+'('+(b.disabled?'off':'on')+')').join('|')");
       throw new Error('Add button not found; buttons: ' + all);
@@ -589,8 +595,9 @@ const setReactSelect = `(function(el,val){var p=Object.getOwnPropertyDescriptor(
   await run('prompt library: create custom prompt', async () => {
     await cdp.evalJS(`(function(){var ta=document.querySelector('.comp-box textarea');${setReactArea}(ta,'/');})()`);
     await waitUntil(() => cdp.evalJS("!!document.querySelector('.prompt-menu')"), 5000, 'prompt menu open');
-    // open the editor via the + button in the menu head
-    await cdp.evalJS("document.querySelector('.prompt-menu-head button').click()");
+    // open the editor via the + button in the menu head (targeted by test id:
+    // import/export sit next to it now, so "first button" is no longer it)
+    await cdp.evalJS("document.querySelector('[data-testid=\"prompt-new\"]').click()");
     await waitUntil(() => cdp.evalJS("!!document.querySelector('.ui-modal-card')"), 5000, 'prompt editor modal');
     // fill: name, template (category defaults to craft)
     const modal = await cdp.evalJS(`(function(){

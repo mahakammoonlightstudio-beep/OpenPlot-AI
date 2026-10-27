@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react';
-import { useData, useSettings, useUi, runAutomations, dbCall, createChatUi, clearToastTimers } from './store';
+import { useData, useSettings, useUi, runAutomations, dbCall, createChatUi, clearToastTimers, createProjectUi } from './store';
 import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
 // Route-level code splitting (Task 11): Chat and the sidebar are on the startup
@@ -130,15 +130,30 @@ export default function App() {
     };
   }, []);
 
-  // Mirror total unread count into the native window title, messenger-style
+  // Mirror total unread count into the native window title, messenger-style.
+  // With nothing unread the active chat's title is shown instead (useful in the
+  // taskbar and the window switcher); any other route falls back to the app name.
   useEffect(() => {
-    const unsub = useUnreadStore.subscribe((s) => {
-      const total = Object.values(s.unread).reduce((a, b) => a + b, 0);
+    // The data store changes on every streamed token bookkeeping and provider
+    // keystroke; only a changed title is worth an IPC round-trip, so compare a
+    // cheap signature first instead of calling into main for every write.
+    let last = '';
+    const apply = () => {
+      const total = Object.values(useUnreadStore.getState().unread).reduce((a, b) => a + b, 0);
+      const d = useData.getState();
+      const active = d.route === 'chat' ? d.chats.find((c) => c.id === d.activeChatId) : null;
+      const title = active?.title || '';
+      const sig = `${total}|${title}`;
+      if (sig === last) return;
+      last = sig;
       // Optional chaining: this effect also runs when the renderer is opened
       // in a plain browser (no preload bridge) during development.
-      window.inkwell?.setUnreadCount(total)?.catch(() => {});
-    });
-    return unsub;
+      window.inkwell?.setUnreadCount?.(total, title || undefined)?.catch(() => {});
+    };
+    const un1 = useUnreadStore.subscribe(apply);
+    const un2 = useData.subscribe(apply);
+    apply();
+    return () => { un1(); un2(); };
   }, []);
 
   // native menu actions (new chat / new project) — handled globally so they
@@ -151,9 +166,7 @@ export default function App() {
     const newProject = async () => {
       const name = await textPrompt({ title: 'Project name', confirmLabel: 'Create' });
       if (!name) return;
-      const p = await dbCall<any>('createProject', { name });
-      await useData.getState().load();
-      useData.getState().setActiveProject(p.id);
+      await createProjectUi(name);
       useData.getState().navigate('projects');
     };
     const offAction = window.inkwell.onUi('ui:action', (action: string) => {

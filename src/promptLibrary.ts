@@ -168,3 +168,98 @@ export function mergePrompts(user: UserPrompt[] | undefined | null): LibraryProm
   const mine = (user || []).map(userPromptToLibrary);
   return [...mine, ...PROMPT_LIBRARY];
 }
+
+// ---- portable bundles (import / export) ----
+
+/** Prompts a bundle may carry. Keeps a malformed 10 MB file from flooding the DB. */
+export const PROMPT_IMPORT_MAX = 500;
+
+const KNOWN_CATEGORIES: string[] = [...PROMPT_CATEGORIES, 'user'];
+
+/** Stable identity for de-duplication: title + category, case/space-insensitive. */
+export function promptKey(title: string, category: string): string {
+  return `${String(title).trim().toLowerCase()}|${String(category || 'user').trim().toLowerCase()}`;
+}
+
+/** The file a user can share or back up. Only their own prompts travel — the
+ *  built-ins ship with the app, so exporting them would freeze them in time. */
+export function buildPromptBundle(user: UserPrompt[]): string {
+  return JSON.stringify({
+    app: 'OpenPlot AI',
+    kind: 'prompt-library',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    prompts: (user || []).map((p) => ({ title: p.title, category: p.category || 'user', template: p.template }))
+  }, null, 2);
+}
+
+export interface PromptImportResult {
+  accepted: { title: string; category: string; template: string }[];
+  /** Entries dropped because an identical title+category is already present. */
+  duplicates: number;
+  /** Entries dropped because they were not shaped like a prompt, plus why. */
+  errors: string[];
+}
+
+/**
+ * Parse an exported (or hand-written) library file.
+ *
+ * Accepts `{ prompts: [...] }` or a bare array, tolerates extra keys, and
+ * refuses anything without a usable title AND template. Duplicates are matched
+ * against the existing library and within the file itself, so importing the
+ * same bundle twice is a no-op rather than a wall of copies.
+ */
+export function parsePromptImport(raw: string, existing: UserPrompt[]): PromptImportResult {
+  const out: PromptImportResult = { accepted: [], duplicates: 0, errors: [] };
+  let data: any;
+  try {
+    data = JSON.parse(String(raw || ''));
+  } catch {
+    out.errors.push('Not valid JSON');
+    return out;
+  }
+  const list = Array.isArray(data) ? data : Array.isArray(data?.prompts) ? data.prompts : null;
+  if (!list) {
+    out.errors.push('Expected an array of prompts or { prompts: [...] }');
+    return out;
+  }
+  const seen = new Set((existing || []).map((p) => promptKey(p.title, p.category)));
+  for (const [i, item] of list.entries()) {
+    if (out.accepted.length >= PROMPT_IMPORT_MAX) {
+      out.errors.push(`Stopped after ${PROMPT_IMPORT_MAX} prompts`);
+      break;
+    }
+    const title = typeof item?.title === 'string' ? item.title.trim() : typeof item?.label === 'string' ? item.label.trim() : '';
+    const template = typeof item?.template === 'string' ? item.template.trim() : '';
+    if (!title || !template) {
+      out.errors.push(`Entry ${i + 1}: needs a title and a template`);
+      continue;
+    }
+    const rawCat = typeof item?.category === 'string' ? item.category.trim().toLowerCase() : '';
+    const category = KNOWN_CATEGORIES.includes(rawCat) ? rawCat : 'user';
+    const key = promptKey(title, category);
+    if (seen.has(key)) { out.duplicates++; continue; }
+    seen.add(key);
+    out.accepted.push({ title, category, template });
+  }
+  return out;
+}
+
+// ---- "used in this chat" counts ----
+// Session-scoped on purpose: a durable per-message provenance column would be
+// the only way to survive a restart, and the count is a nudge, not a record.
+const usage = new Map<string, Map<string, number>>();
+
+/** Count one insertion of `promptId` into `chatId`. */
+export function notePromptUse(chatId: string | null | undefined, promptId: string): void {
+  if (!chatId) return;
+  const forChat = usage.get(chatId) || new Map<string, number>();
+  forChat.set(promptId, (forChat.get(promptId) || 0) + 1);
+  usage.set(chatId, forChat);
+}
+
+/** promptId -> times inserted in this chat during the session. */
+export function promptUsage(chatId: string | null | undefined): Record<string, number> {
+  if (!chatId) return {};
+  return Object.fromEntries(usage.get(chatId) || []);
+}

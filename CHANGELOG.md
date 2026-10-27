@@ -19,12 +19,19 @@ All notable changes to OpenPlot AI are documented here. The format follows [Keep
 - **Settings that explain themselves.** 14 sections grouped into six areas with a global settings search, a Simple/Advanced switch (advanced reveals top-p, thinking budget, probe details and the Extend group), capability-aware model table, per-section reset, and a guided Smart setup flow (preset → key → fetch models → verify → default).
 - **A motion system.** GPU-only micro-interactions built on shared tokens — route fade, modal and popover entry, toast slide-up, the newest message bubble only, disabled-toggle and nav transitions, file-card hover lift — with a Motion setting (follow the system / always / reduced) and a `prefers-reduced-motion` kill switch. Only opacity and transform animate.
 - **A chat that shows its state.** Model chip with capability dots and a context meter, message actions (copy, edit, regenerate any turn, save to chapter), cached/token chips, localized empty and error states, and a welcome screen with quick starts and recent chats.
+- **The MCP bridge.** Enabled stdio servers are spawned after the window is ready, handshaken (`initialize` + `tools/list`) and exposed to the model as `mcp__{server}__{tool}` when agent tools are on. Startup gets 10 s, a call 30 s, a response line 1 MB and a result 20,000 characters; every child is killed on quit, restart or a failed start. Settings → MCP shows a live status dot, tool count, last error, restart and a 300-line log, and warns that a definition is an arbitrary local command.
+- **Automations v2.** Seven triggers (`app:ready`, `chat:new`, `chat:send`, `message:new`, `chapter:saved`, `project:created`, `skill:enabled`) and nine actions (toast, window flash, log, save/clear memory, open page, new chat, open URL, apply skill). Each row shows its last run and a session history, **Test** runs only that row, and guards stop self-triggering chains and chains deeper than two levels.
+- **A palette that reaches more.** Models (grouped by provider, with a thinking hint) can be switched from `Ctrl/Cmd+K`, skills toggled, and every registered plugin command run — alongside guide articles, settings sections, exports and theme cycling.
+- **A prompt library you can carry.** Export your prompts to a JSON bundle and import someone else's: entries are validated (title + template required), categories normalised, duplicates skipped by title+category, and the batch capped at 500. Any prompt can be duplicated, the insert preview expands the first `{placeholder}` live, and each row counts how often it was used in the open chat.
+- **Styles you can fork.** A builtin style can be duplicated into an editable custom copy, and the styles list shows each style's first line so similarly named ones are distinguishable.
+- **Small review wins.** About shows a dismissible “new in this version” card (per version), and the window title shows the active chat when nothing is unread — unread count still wins.
 
 ### Changed
 - **Versioned database migrations.** `PRAGMA user_version` with an ordered migration list, a one-time `.bak` before the first change, an in-memory rollback snapshot and a refusal to open a database written by a newer app. The new tables and columns (`message_files`, skills v2, `chats.skills_off`, `messages.tokens_cached`) ride on it.
 - **Long chats stay small.** Transcripts load one page at a time from the main process and the renderer keeps at most 200 messages in memory; “load earlier” keeps the scroll position. Views are code-split, hot components subscribe to narrow store slices, and the highlight cache has a byte budget instead of only an entry count.
 - **Docs are versioned with the app.** README, changelog, landing pages, plugin API and the new in-app guide all describe 1.2.3, and the plugin/MCP pages state what is actually shipped: MCP server definitions are stored, the bridge that runs them is not in this release, and only the `chat:new` and `message:new` plugin hooks fire today.
 - The story prompt builder moved into a testable module, and reply-style/skill/attachment/agent.md blocks are labelled with their priority and truncation state.
+- Plugin commands can be reloaded without restarting (**Reload all plugins**) and are runnable from the palette; the guide grew an automations article and its MCP page now describes the shipped bridge instead of a placeholder.
 
 ### Fixed
 - Adding a skill used to save it **enabled** — a new skill could change every reply before the user ever read it. New skills now start disabled and must be enabled explicitly.
@@ -34,7 +41,8 @@ All notable changes to OpenPlot AI are documented here. The format follows [Keep
 
 ### Tests
 - New suites: migrations (fresh, legacy, interrupted, newer-than-app, backup-once, agent.md v1→v2 and custom-text preservation), model capability inference and cache profiles, chat files (limits, lazy read, cascade delete), prompt building (order, gating, truncation, agent.md labelling), guide parsing/parity/search/tokens, a paging + performance suite on a real 5,000-message database (page size, walk-back integrity, write/persist budgets) and bundle-size budgets on the built assets.
-- Not covered yet: the MCP bridge (Task 13) and automations v2 (Task 14) are not part of this release, so there is no suite for them.
+- Added suites for the MCP bridge (handshake, tool listing, call timeout, response cap, restart/quit lifecycle against a mock stdio server) and for prompt-library bundles (shape tolerance, required fields, category normalisation, de-duplication inside a file and against the library, size cap).
+- Not covered yet: the automation guards and per-run log live in the renderer store, so they are exercised only by the UI smoke render; there is no headless suite for them.
 
 ## [1.2.1] — 2026-10-25
 

@@ -22,14 +22,21 @@ const api = {
   listLoadedPlugins: () => ipcRenderer.invoke('plugins:list'),
   reloadPlugins: () => ipcRenderer.invoke('plugins:reload'),
   pluginLogs: () => ipcRenderer.invoke('plugins:logs'),
+  // MCP bridge: statuses, (re)start from the stored definitions, per-server log.
+  mcpList: () => ipcRenderer.invoke('mcp:list'),
+  mcpSync: () => ipcRenderer.invoke('mcp:sync'),
+  mcpRestart: (id: string) => ipcRenderer.invoke('mcp:restart', id),
+  mcpLogs: (id: string) => ipcRenderer.invoke('mcp:logs', id),
   // Unwrap the {ok, data} envelope: every consumer (About, Settings, tests)
   // expects the AppInfo object itself — the wrapper used to leak through and
   // made info.version / info.dataPath silently undefined.
   appInfo: () => ipcRenderer.invoke('app:info').then((r: any) => (r && r.data) ? r.data : r),
-  setUnreadCount: (count: number) => ipcRenderer.invoke('ui:unreadCount', count),
+  setUnreadCount: (count: number, chatTitle?: string) => ipcRenderer.invoke('ui:unreadCount', count, chatTitle),
+  /** Flash the window (taskbar/dock) — used by the `notify` automation action. */
+  flashWindow: () => ipcRenderer.invoke('ui:flashWindow'),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   exportMarkdown: (name: string, content: string) => ipcRenderer.invoke('export:markdown', name, content),
-  exportFile: (name: string, content: string, kind: 'txt' | 'md') => ipcRenderer.invoke('export:file', name, content, kind),
+  exportFile: (name: string, content: string, kind: 'txt' | 'md' | 'json') => ipcRenderer.invoke('export:file', name, content, kind),
   // EPUB is assembled in the main process (zlib); the renderer sends chapter data.
   exportEpub: (name: string, author: string, chapters: { title: string; content: string }[], lang?: string) =>
     ipcRenderer.invoke('export:epub', name, author, chapters, lang),

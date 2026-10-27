@@ -49,8 +49,8 @@ const idDocs = sortDocs(Object.values(ID));
 const sets = { en: enDocs, id: idDocs };
 
 // ---------------------------------------------------------------- structure ---
-check('articles: 18 English articles', enDocs.length === 18, String(enDocs.length));
-check('articles: 18 Indonesian articles', idDocs.length === 18, String(idDocs.length));
+check('articles: 19 English articles', enDocs.length === 19, String(enDocs.length));
+check('articles: 19 Indonesian articles', idDocs.length === 19, String(idDocs.length));
 check('articles: slugs match across languages',
   enDocs.map((d) => d.slug).join(',') === idDocs.map((d) => d.slug).join(','));
 check('articles: no article is empty', enDocs.every((d) => d.body.length > 300 && d.headings.length >= 2),
@@ -58,7 +58,7 @@ check('articles: no article is empty', enDocs.every((d) => d.body.length > 300 &
 check('articles: every article has title + summary + order',
   [...enDocs, ...idDocs].every((d) => d.title && d.title !== d.slug && d.summary && d.order < 999));
 check('articles: order is unique and starts at 1',
-  new Set(enDocs.map((d) => d.order)).size === 18 && enDocs[0].order === 1 && enDocs.at(-1).order === 18);
+  new Set(enDocs.map((d) => d.order)).size === 19 && enDocs[0].order === 1 && enDocs.at(-1).order === 19);
 check('articles: headings get stable ids', headingId('Same Title') === 'same-title'
   && headingId('Cache & Tokens') === 'cache-tokens');
 const seen = new Set();

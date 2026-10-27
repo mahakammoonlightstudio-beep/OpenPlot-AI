@@ -351,11 +351,23 @@ button.small.ghost.active { color: var(--accent); background: var(--accent-soft)
 }
 .style-row:hover { background: var(--bg-hover); color: var(--text); }
 .style-row.active { background: var(--accent-soft); color: var(--text); }
-.style-row .t { flex: 1; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.style-row .t {
+  flex: 1; min-width: 0; font-size: 13px; font-weight: 500; overflow: hidden;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.style-row .style-snippet {
+  font-size: 11px; font-weight: 400; color: var(--text-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .styles-editor { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .styles-editor .head { display: flex; gap: 8px; align-items: center; }
 .styles-editor .head input { flex: 1; }
 @media (max-width: 1000px) { .styles-grid { grid-template-columns: 1fr; } }
+
+/* Dismissible "new in this version" note on the About page */
+.version-note .vn-head { display: flex; align-items: center; gap: 8px; }
+.version-note .vn-head .spacer { flex: 1; }
+.version-note p { margin: 8px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--text-dim); }
 
 /* Builtin / custom tags (reuses version-row styling language) */
 .v-src.builtin { color: var(--accent); }
@@ -769,3 +781,17 @@ button { transition: background 0.12s ease, border-color 0.12s ease, color 0.12s
 .whatsnew-card p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-dim); flex: 1; }
 .whatsnew-card button { align-self: flex-start; }
 @media (max-width: 720px) { .whatsnew-grid { grid-template-columns: 1fr; } }
+
+/* ---------- MCP servers (Task 13) ---------- */
+.mcp-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: var(--text-faint); }
+.mcp-dot.connected { background: var(--ok); }
+.mcp-dot.starting { background: var(--warn); animation: pulse 1s infinite; }
+.mcp-dot.error { background: var(--danger); }
+.mcp-status { font-size: 11px; color: var(--text-faint); white-space: nowrap; }
+.mcp-error { display: flex; gap: 6px; align-items: flex-start; font-size: 11.5px; color: var(--danger); margin-top: 8px; }
+.mcp-logs {
+  max-height: 380px; overflow: auto; margin: 0; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg-panel-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+}

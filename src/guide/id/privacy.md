@@ -1,7 +1,7 @@
 ---
 title: Privasi dan data
 summary: Apa yang tetap lokal, apa yang dikirim, dan di mana filenya.
-order: 16
+order: 17
 ---
 
 # Privasi dan data

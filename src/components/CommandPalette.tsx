@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useData, useSettings, useUi, dbCall, createChatUi } from '../store';
+import { useData, useSettings, useUi, dbCall, createChatUi, createProjectUi, runAutomations, providerList } from '../store';
 import { useT } from '../i18nReact';
 import { textPrompt } from './TextPrompt';
 import { Icon, IconName } from './Icons';
@@ -7,8 +7,10 @@ import { openPromptLibraryUi } from '../App';
 import { visibleSections } from '../lib/settingsIndex';
 import { GUIDE_DOCS } from '../guide';
 import { articleList as guideArticles } from '../guide/content';
+import { thinkingSupport } from '../lib/modelCaps';
 
-interface Cmd { id: string; label: string; icon: IconName; hint?: string; group: 'actions' | 'chats' | 'projects'; run: () => void }
+type CmdGroup = 'actions' | 'models' | 'skills' | 'plugins' | 'chats' | 'projects';
+interface Cmd { id: string; label: string; icon: IconName; hint?: string; group: CmdGroup; run: () => void }
 
 // Subsequence fuzzy match with a small score so "ebd" still finds "Export chat
 // as Markdown" but contiguous hits rank first.
@@ -33,9 +35,18 @@ export function CommandPalette() {
   const t = useT();
   const ui = useUi();
   const settings = useSettings();
-  const { chats, setActiveChat, navigate, setActiveProject, projects } = useData();
+  const { chats, providers, skills, projects, navigate } = useData();
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
+  // Loaded plugin commands are fetched when the palette opens — the bridge
+  // lives in the main process, so they cannot be built synchronously.
+  const [pluginCmds, setPluginCmds] = useState<Array<{ id: string; name: string; commands: string[] }>>([]);
+  useEffect(() => {
+    if (!ui.paletteOpen) return;
+    window.inkwell.listLoadedPlugins()
+      .then((r) => setPluginCmds((r.data || []).filter((p: any) => p.enabled !== false)))
+      .catch(() => setPluginCmds([]));
+  }, [ui.paletteOpen]);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -54,9 +65,7 @@ export function CommandPalette() {
       { id: 'new-project', group: 'actions', label: t('app.newProject'), icon: 'folder', hint: 'Ctrl+Shift+N', run: async () => {
         const name = await textPrompt({ title: t('projects.name'), confirmLabel: t('projects.create') });
         if (!name) return;
-        const p = await dbCall<any>('createProject', { name });
-        await useData.getState().load();
-        useData.getState().setActiveProject(p.id);
+        await createProjectUi(name);
         navigate('projects');
       } },
       { id: 'search', group: 'actions', label: t('palette.search'), icon: 'chat', hint: 'Ctrl+F', run: () => window.dispatchEvent(new CustomEvent('inkwell:focus-search')) },
@@ -110,6 +119,66 @@ export function CommandPalette() {
       useSettings.getState().set('theme', next);
       ui.toast(`${t('palette.cycleTheme')}: ${next}`, 'ok');
     } });
+    // ---- models (grouped by provider, with a thinking hint) ----
+    // Picking one sets the app default AND the active chat's model, so the
+    // choice sticks where the user is looking instead of only for new chats.
+    const modelCmds: Cmd[] = [];
+    for (const p of providers.filter((x) => Number(x.enabled) !== 0)) {
+      for (const m of providerList(p.models)) {
+        const support = thinkingSupport(m, { kind: (p as any).kind || 'auto', record: settings.modelCaps[`${p.id}::${m}`] });
+        modelCmds.push({
+          id: 'model-' + p.id + '-' + m,
+          group: 'models',
+          label: m,
+          icon: 'cpu',
+          hint: support === 'no' ? p.name : `${p.name} · ${t('palette.thinkHint')}`,
+          run: () => {
+            useSettings.getState().set('defaultModel', m);
+            useSettings.getState().set('defaultModelRef', { providerId: p.id, model: m });
+            const chatId = useData.getState().activeChatId;
+            if (chatId) void dbCall('updateChat', { id: chatId, model: m }).then(() => useData.getState().reloadChatRelated());
+            ui.toast(m, 'ok');
+          }
+        });
+      }
+    }
+
+    // ---- skills: on/off straight from the palette ----
+    const skillCmds: Cmd[] = (skills || []).map((s) => {
+      const on = Number(s.enabled) === 1;
+      return {
+        id: 'skill-' + s.id,
+        group: 'skills' as const,
+        label: s.name,
+        icon: 'sparkle' as const,
+        hint: on ? t('palette.skillOn') : t('palette.skillOff'),
+        run: async () => {
+          await dbCall('saveSkill', { id: s.id, name: s.name, description: s.description || '', content: s.content, enabled: !on });
+          await useData.getState().load();
+          if (!on) runAutomations('skill:enabled', { skillId: s.id });
+          ui.toast(`${s.name}: ${on ? t('palette.skillOff') : t('palette.skillOn')}`, 'ok');
+        }
+      };
+    });
+
+    // ---- plugin commands (one entry per registered command) ----
+    const pluginEntries: Cmd[] = [];
+    for (const p of pluginCmds) {
+      for (const c of p.commands || []) {
+        pluginEntries.push({
+          id: `plug-${p.id}-${c}`,
+          group: 'plugins',
+          label: `${p.name}: ${c}`,
+          icon: 'plug',
+          hint: t('palette.groupPlugins'),
+          run: async () => {
+            const r = await window.inkwell.runPlugin(p.id, c);
+            ui.toast(r.ok ? `${p.name}: ${c}` : (r.error || 'failed'), r.ok ? 'ok' : 'error');
+          }
+        });
+      }
+    }
+
     // Most recently updated chats first
     const recent = [...chats].sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0)).slice(0, 30);
     const chatCmds: Cmd[] = recent.map((c) => ({
@@ -120,12 +189,25 @@ export function CommandPalette() {
       id: 'proj-' + p.id, group: 'projects', label: p.name, icon: 'folder', hint: t('palette.groupProjects'),
       run: () => { useData.getState().setActiveProject(p.id); navigate('projects'); }
     }));
-    return [...base, ...chatCmds, ...projCmds];
-  }, [chats, projects, t, settings.theme, settings.settingsMode, navigate, ui]);
+    return [...base, ...modelCmds, ...skillCmds, ...pluginEntries, ...chatCmds, ...projCmds];
+  }, [chats, projects, providers, skills, pluginCmds, t, settings.theme, settings.settingsMode, settings.modelCaps, navigate, ui]);
 
   const results = useMemo(() => {
+    const query = q.trim();
+    if (!query) {
+      // With no query every command scores the same, so a flat cap used to show
+      // only the first handful of actions — chats, models, skills and plugin
+      // commands were unreachable until you typed something. Show a few per
+      // group instead, keeping the curated order.
+      const perGroup = 5;
+      const seen: Record<string, number> = {};
+      return cmds.filter((c) => {
+        seen[c.group] = (seen[c.group] || 0) + 1;
+        return seen[c.group] <= perGroup;
+      });
+    }
     const scored = cmds
-      .map((c) => ({ c, s: fuzzyScore(q.trim(), c.label + ' ' + (c.hint || '')) }))
+      .map((c) => ({ c, s: fuzzyScore(query, c.label + ' ' + (c.hint || '')) }))
       .filter((x) => x.s > 0)
       .sort((a, b) => b.s - a.s);
     return scored.slice(0, 14).map((x) => x.c);
@@ -160,8 +242,11 @@ export function CommandPalette() {
 
   if (!ui.paletteOpen) return null;
 
-  const groups: Array<{ key: Cmd['group']; label: string }> = [
+  const groups: Array<{ key: CmdGroup; label: string }> = [
     { key: 'actions', label: t('palette.groupActions') },
+    { key: 'models', label: t('palette.groupModels') },
+    { key: 'skills', label: t('palette.groupSkills') },
+    { key: 'plugins', label: t('palette.groupPlugins') },
     { key: 'chats', label: t('palette.groupChats') },
     { key: 'projects', label: t('palette.groupProjects') }
   ];

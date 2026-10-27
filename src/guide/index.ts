@@ -10,6 +10,7 @@
  */
 import { parseArticle, sortDocs, type GuideDoc, type GuideLang } from './content';
 import en_agent_md from './en/agent-md.md?raw';
+import en_automations from './en/automations.md?raw';
 import en_chapters from './en/chapters.md?raw';
 import en_chat from './en/chat.md?raw';
 import en_export from './en/export.md?raw';
@@ -28,6 +29,7 @@ import en_story_bible from './en/story-bible.md?raw';
 import en_thinking from './en/thinking.md?raw';
 import en_troubleshooting from './en/troubleshooting.md?raw';
 import id_agent_md from './id/agent-md.md?raw';
+import id_automations from './id/automations.md?raw';
 import id_chapters from './id/chapters.md?raw';
 import id_chat from './id/chat.md?raw';
 import id_export from './id/export.md?raw';
@@ -56,6 +58,7 @@ function toDocs(mods: Record<string, string>): GuideDoc[] {
 export const GUIDE_RAW: Record<GuideLang, Record<string, string>> = {
   en: {
     'agent-md': en_agent_md,
+    'automations': en_automations,
     'chapters': en_chapters,
     'chat': en_chat,
     'export': en_export,
@@ -76,6 +79,7 @@ export const GUIDE_RAW: Record<GuideLang, Record<string, string>> = {
   },
   id: {
     'agent-md': id_agent_md,
+    'automations': id_automations,
     'chapters': id_chapters,
     'chat': id_chat,
     'export': id_export,

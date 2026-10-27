@@ -1,4 +1,5 @@
 import { handleDb, uid } from './db';
+import { isMcpToolName, mcpToolDefs, callMcpTool } from './mcp';
 
 export interface ToolCall { name: string; input: any; id?: string }
 
@@ -21,8 +22,23 @@ const TOOL_DEFS = [
   { name: 'read_project', description: 'Read one project\'s metadata (name, description, context, format, rating) plus a compact overview of its chapters and story bible entry titles. Use to orient yourself before diving into a specific chapter or bible entry.', input_schema: { type: 'object', properties: { projectId: { type: 'string', description: 'Optional project id; omit to use the active project' } } } }
 ];
 
+/**
+ * What the provider is told it can call: the built-in tools plus every tool of
+ * a connected MCP server (empty when none is configured, so nothing changes for
+ * users who never enable one).
+ */
 export function toolDefsForApi(): any[] {
-  return TOOL_DEFS;
+  return [...TOOL_DEFS, ...mcpToolDefs()];
+}
+
+/**
+ * Dispatch a tool call, async because MCP tools go over a pipe to another
+ * process. Local tools keep the synchronous path, so the headless tool suite
+ * and every existing caller are unaffected.
+ */
+export async function executeToolCall(call: ToolCall, ctx: { projectId?: string | null } = {}): Promise<string> {
+  if (isMcpToolName(call.name)) return callMcpTool(call.name, call.input);
+  return executeTool(call, ctx);
 }
 
 function resolveProject(payload: any, defaultProjectId?: string | null): string | null {

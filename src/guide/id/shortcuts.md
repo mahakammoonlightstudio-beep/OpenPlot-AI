@@ -1,7 +1,7 @@
 ---
 title: Pintasan keyboard
 summary: Semua pintasan, dikelompokkan berdasarkan fungsinya.
-order: 18
+order: 19
 ---
 
 # Pintasan keyboard

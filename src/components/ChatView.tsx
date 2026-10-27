@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { useData, useSettings, useUi, dbCall, uid, runAutomations, createChatUi, DONATE_URL, SAWERIA_URL, getModelOverride } from '../store';
+import { useData, useSettings, useUi, dbCall, uid, runAutomations, createChatUi, DONATE_URL, SAWERIA_URL, getModelOverride, createProjectUi } from '../store';
 import { Chat, Message, Provider, GenerateRequest, GenChunk, MessageFileMeta } from '../types';
 import { useMarkdown, useThrottledMarkdown, extractFirstTitle, hardenLinks } from '../markdown';
 import { useT } from '../i18nReact';
@@ -684,6 +684,38 @@ export function ChatView() {
     return c as Chat;
   }
 
+  // MCP tools of currently connected servers. Refreshed when the tools toggle
+  // flips and when the chat changes; failures leave an empty list, which simply
+  // omits the block from the prompt.
+  const [mcpToolNames, setMcpToolNames] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!(toolsOn ?? settings.toolsEnabled)) { setMcpToolNames([]); return; }
+    (async () => {
+      try {
+        const statuses = (await window.inkwell.mcpList())?.data || [];
+        const names = statuses
+          .filter((s) => s.status === 'connected')
+          .flatMap((s) => s.toolNames || []);
+        if (!cancelled) setMcpToolNames(names);
+      } catch { if (!cancelled) setMcpToolNames([]); }
+    })();
+    return () => { cancelled = true; };
+  }, [toolsOn, settings.toolsEnabled, activeChatId]);
+
+  // `runSkill` automation action: the chosen skill rides into the next send as
+  // the session goal, so the user can see (and edit) what was injected.
+  useEffect(() => {
+    const onApplySkill = (e: Event) => {
+      const id = (e as CustomEvent).detail as string;
+      const skill = useData.getState().skills.find((s) => s.id === id);
+      if (!skill) return;
+      setGoal(`${skill.name}\n${skill.content}`);
+    };
+    window.addEventListener('inkwell:apply-skill', onApplySkill);
+    return () => window.removeEventListener('inkwell:apply-skill', onApplySkill);
+  }, []);
+
   const effModel = ovModel ?? settings.defaultModel ?? null;
   // Resolve the provider that OWNS the selected model — never fall back to a
   // random enabled provider, or the request 404s against the wrong endpoint.
@@ -736,6 +768,9 @@ export function ChatView() {
       style: state.styles.find((s) => s.id === settings.defaultStyleId) || null,
       goal,
       toolsEnabled: toolsOn ?? settings.toolsEnabled,
+      // Only connected MCP servers are named, so the model is never told about
+      // a tool it cannot call (Task 13).
+      mcpTools: mcpToolNames,
       attachments: promptAttachments
     });
   }
@@ -783,6 +818,8 @@ export function ChatView() {
       attachmentsRef.current = [];
       setAttachments([]);
     }
+    // `chat:send` fires once per send, after the user turn is safely stored.
+    runAutomations('chat:send', { chatId, chars: text.length });
 
     // auto title from first user message (or the first attached file name)
     if (chatRow.title === 'New chat' && userMsg) {
@@ -1250,9 +1287,7 @@ export function ChatView() {
   async function confirmSaveToChapter(msg: Message, targetId: string) {
     let projectId = chat?.project_id || activeProjectId || null;
     if (!projectId) {
-      const p = await dbCall<any>('createProject', { name: 'Untitled project' });
-      await useData.getState().load();
-      useData.getState().setActiveProject(p.id);
+      const p = await createProjectUi('Untitled project');
       projectId = p.id;
     }
     const project = useData.getState().projects.find((p) => p.id === projectId);
@@ -1775,6 +1810,7 @@ export function ChatView() {
         onPickStyle={(id) => settings.set('defaultStyleId', id)}
         chatSkillsOff={parseSkillsOff(chat?.skills_off)}
         onToggleSkill={toggleChatSkill}
+        chatId={chat?.id || null}
         attachments={attachments}
         onRemoveAttachment={removeAttachment}
         onAttachClick={async () => {

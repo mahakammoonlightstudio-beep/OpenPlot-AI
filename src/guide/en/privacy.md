@@ -1,7 +1,7 @@
 ---
 title: Privacy and data
 summary: What stays local, what is sent, and where the files are.
-order: 16
+order: 17
 ---
 
 # Privacy and data

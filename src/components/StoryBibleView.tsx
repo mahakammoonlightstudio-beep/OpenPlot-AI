@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useData, useUi, dbCall } from '../store';
+import { useData, useUi, dbCall, createProjectUi } from '../store';
 import { StoryEntry, StoryFile, StoryKind } from '../types';
 import { useT } from '../i18nReact';
 import { STORY_TEMPLATES, renderTemplate } from '../storyTemplates';
@@ -138,9 +138,7 @@ export function StoryBibleView() {
 
   async function ensureProject(): Promise<string> {
     if (activeProjectId) return activeProjectId;
-    const p = await dbCall<any>('createProject', { name: 'Untitled project' });
-    await useData.getState().load();
-    useData.getState().setActiveProject(p.id);
+    const p = await createProjectUi('Untitled project');
     return p.id as string;
   }
 

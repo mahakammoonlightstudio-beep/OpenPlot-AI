@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useData, dbCall, createChatUi, useUi } from '../store';
+import { useData, dbCall, createChatUi, useUi, createProjectUi } from '../store';
 import { Project } from '../types';
 import { useT } from '../i18nReact';
 import { textPrompt, confirmDialog } from './TextPrompt';
@@ -28,9 +28,7 @@ export function ProjectsView() {
   async function create() {
     const name = await textPrompt({ title: t('projects.name'), confirmLabel: t('projects.create') });
     if (!name) return;
-    const p = await dbCall<Project>('createProject', { name });
-    await useData.getState().load();
-    setActiveProject(p.id);
+    await createProjectUi(name);
   }
 
   async function save() {

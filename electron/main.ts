@@ -7,6 +7,7 @@ import { runGeneration, fetchModels, verifyModel, validateApiKey, probeCapabilit
 import { PROVIDER_PRESETS, refreshPresets } from './presets';
 import { markThinkingRejected, recordCacheObservation, recordModelCaps } from './caps';
 import { loadPlugins, runPluginCommand, setNotify, listLoadedPlugins, runHook, wireDbHooks, log, getLogs } from './plugins';
+import { startMcpServers, stopAllMcp, restartMcpServer, stopMcpServer, mcpStatuses, mcpLogs } from './mcp';
 
 const DONATE_URL = 'https://sociabuzz.com/mahakam_moonlight_studio/tribe';
 const SAWERIA_URL = 'https://saweria.co/MahakamMoonStudio';
@@ -287,6 +288,48 @@ ipcMain.handle('ai:refreshPresets', async (_e, providers: ProviderConfig[]) => {
   }
 });
 
+// ---------- MCP bridge (v1.2.3 Task 13) ----------
+
+/** Start the registry from what the database says is enabled. */
+function syncMcpServers(): Promise<unknown> {
+  let rows: any[] = [];
+  try {
+    rows = (handleDb('listMcpServers', {}) as any[]) || [];
+  } catch { /* database not ready yet */ }
+  return startMcpServers(rows.map((r) => ({
+    id: r.id, name: r.name, command: r.command, args: r.args, env: r.env, enabled: r.enabled
+  })));
+}
+
+ipcMain.handle('mcp:list', () => ({ ok: true, data: mcpStatuses() }));
+
+ipcMain.handle('mcp:sync', async () => {
+  try {
+    return { ok: true, data: await syncMcpServers() };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('mcp:restart', async (_e, id: string) => {
+  try {
+    const rows = (handleDb('listMcpServers', {}) as any[]) || [];
+    const row = rows.find((r) => r.id === id);
+    if (!row) {
+      stopMcpServer(id);
+      return { ok: true, data: null };
+    }
+    const status = await restartMcpServer({
+      id: row.id, name: row.name, command: row.command, args: row.args, env: row.env, enabled: 1
+    });
+    return { ok: true, data: status };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('mcp:logs', (_e, id: string) => ({ ok: true, data: mcpLogs(id) }));
+
 ipcMain.handle('plugins:run', (_e, pluginId: string, command: string, payload?: any) => {
   try {
     return { ok: true, data: runPluginCommand(pluginId, command, payload) };
@@ -308,10 +351,21 @@ ipcMain.handle('plugins:reload', () => {
   }
 });
 
-ipcMain.handle('ui:unreadCount', (_e, count: number) => {
+// OS-level attention for the `notify` automation action: flash the taskbar/
+// dock icon. Deliberately no sound and no native notification — a flash is
+// visible without stealing focus or interrupting a writing session.
+ipcMain.handle('ui:flashWindow', () => {
+  if (win && !win.isDestroyed()) win.flashFrame(true);
+  return true;
+});
+
+// Unread wins the title (messenger convention). With nothing unread the active
+// chat's name is shown instead, so taskbar/task-switcher previews are useful.
+ipcMain.handle('ui:unreadCount', (_e, count: number, chatTitle?: string) => {
   const n = Math.max(0, Math.min(999, Number(count) || 0));
   if (win && !win.isDestroyed()) {
-    win.setTitle(n > 0 ? `(${n}) OpenPlot AI` : 'OpenPlot AI');
+    const name = String(chatTitle || '').replace(/[\x00-\x1f]/g, ' ').trim().slice(0, 80);
+    win.setTitle(n > 0 ? `(${n}) OpenPlot AI` : name ? `${name} — OpenPlot AI` : 'OpenPlot AI');
   }
   return true;
 });
@@ -574,9 +628,9 @@ ipcMain.handle('export:epub', async (_e, defaultName: string, author: string, ch
 });
 
 // Generic save dialog for plain-text formats (TXT/MD) — one handler, many formats.
-ipcMain.handle('export:file', async (_e, defaultName: string, content: string, kind: 'txt' | 'md') => {
+ipcMain.handle('export:file', async (_e, defaultName: string, content: string, kind: 'txt' | 'md' | 'json') => {
   if (!win) return { ok: false, error: 'no window' };
-  const ext = kind === 'txt' ? 'txt' : 'md';
+  const ext = kind === 'txt' ? 'txt' : kind === 'json' ? 'json' : 'md';
   const safeName = String(defaultName || `openplot-export.${ext}`)
     .replace(/[\\/:*?"<>|\x00-\x1f]/g, '_')
     .replace(/\s+/g, ' ')
@@ -667,6 +721,9 @@ if (!gotLock) {
     setNotify((msg) => send('ui:toast', msg));
     wireDbHooks(); // plugin hooks fire on chat:create / message:add DB events
     loadPlugins();
+    // MCP servers start only here, after the window exists, and only if the
+    // user enabled them — a stored definition alone never spawns a process.
+    syncMcpServers().catch((e) => console.error('MCP startup failed:', e));
     runHook('app:ready', {});
     buildMenu();
     rendererCrashGuard();
@@ -683,6 +740,9 @@ if (!gotLock) {
   });
 
   app.on('will-quit', () => {
+    // Children must not outlive the app: a stray MCP server would keep holding
+    // ports, files and folders the user gave it access to.
+    stopAllMcp();
     closeDb();
   });
 }

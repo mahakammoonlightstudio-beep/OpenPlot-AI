@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useData, useUi, dbCall } from '../../store';
+import { useData, useUi, dbCall, runAutomations } from '../../store';
 import { useT } from '../../i18nReact';
 import { Icon } from '../Icons';
 import { Modal, Switch } from '../Ui';
@@ -66,6 +66,9 @@ export function SkillsSection() {
     await dbCall('saveSkill', { id: s.id, name: s.name, description: s.description || '', content: s.content, enabled: on });
     await useData.getState().load();
     if (on && savedDisabled === s.id) setSavedDisabled(null);
+    // `skill:enabled` fires only on the off→on edge: an automation that runs
+    // "whenever a skill is on" should not fire again when it is toggled off.
+    if (on) runAutomations('skill:enabled', { skillId: s.id });
   }
 
   async function saveDraft() {

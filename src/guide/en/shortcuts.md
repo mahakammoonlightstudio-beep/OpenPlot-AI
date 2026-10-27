@@ -1,7 +1,7 @@
 ---
 title: Keyboard shortcuts
 summary: Every shortcut, grouped by what it does.
-order: 18
+order: 19
 ---
 
 # Keyboard shortcuts
