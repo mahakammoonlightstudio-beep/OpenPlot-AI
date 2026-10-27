@@ -2,12 +2,13 @@
 
 All notable changes to OpenPlot AI are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.2.3] — 2026-10-26
+## [1.2.3] — 2026-10-27
 
-> **Status: scope locked.** This is the “Studio UX” release: the version number says
-> patch, the payload is a rebuild of the studio’s ergonomics. Implementation plan:
+> This is the “Studio UX” release: the version number says patch, the payload is a
+> rebuild of the studio’s ergonomics — plus the two extension features that were
+> originally deferred (the MCP bridge and automations v2), which shipped in the same
+> release. Implementation plan:
 > [`docs/superpowers/plans/2026-10-26-v1.2.3-studio-ux.md`](docs/superpowers/plans/2026-10-26-v1.2.3-studio-ux.md).
-> Verify each line against the build before tagging.
 
 ### Added
 - **Files that live in the chat.** Attaching a file now puts a card with its name and size above the composer; click it to read the content before sending. After send, the cards stay in the transcript, click one for a popup with the full text, copy and download. Files are stored with the message (8 per message, 256 KB each, 1 MB per message), survive restarts, and are deleted with their message or chat.
@@ -29,7 +30,7 @@ All notable changes to OpenPlot AI are documented here. The format follows [Keep
 ### Changed
 - **Versioned database migrations.** `PRAGMA user_version` with an ordered migration list, a one-time `.bak` before the first change, an in-memory rollback snapshot and a refusal to open a database written by a newer app. The new tables and columns (`message_files`, skills v2, `chats.skills_off`, `messages.tokens_cached`) ride on it.
 - **Long chats stay small.** Transcripts load one page at a time from the main process and the renderer keeps at most 200 messages in memory; “load earlier” keeps the scroll position. Views are code-split, hot components subscribe to narrow store slices, and the highlight cache has a byte budget instead of only an entry count.
-- **Docs are versioned with the app.** README, changelog, landing pages, plugin API and the new in-app guide all describe 1.2.3, and the plugin/MCP pages state what is actually shipped: MCP server definitions are stored, the bridge that runs them is not in this release, and only the `chat:new` and `message:new` plugin hooks fire today.
+- **Docs describe what actually ships.** README, changelog, landing pages, `PLUGIN_API.md` and the in-app guide all describe 1.2.3: the MCP bridge runs the servers you enable (status, tool list, restart, logs), plugins fire `app:ready`, `chat:new` and `message:new`, and their commands are runnable from Settings and the palette.
 - The story prompt builder moved into a testable module, and reply-style/skill/attachment/agent.md blocks are labelled with their priority and truncation state.
 - Plugin commands can be reloaded without restarting (**Reload all plugins**) and are runnable from the palette; the guide grew an automations article and its MCP page now describes the shipped bridge instead of a placeholder.
 
