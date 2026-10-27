@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 let db: Database | null = null;
+let sqlStatic: SqlJsStatic | null = null;
 let dbFile = '';
 let saveTimer: NodeJS.Timeout | null = null;
 // PERF: only rewrite the whole database file when a write actually happened.
@@ -122,12 +123,14 @@ CREATE TABLE IF NOT EXISTS chats (
   id TEXT PRIMARY KEY, title TEXT DEFAULT 'New chat', folder_id TEXT DEFAULT NULL,
   project_id TEXT DEFAULT NULL, model TEXT DEFAULT NULL,
   system_prompt TEXT DEFAULT NULL, pinned INTEGER DEFAULT 0,
+  skills_off TEXT DEFAULT '[]',
   created_at INTEGER, updated_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, role TEXT NOT NULL,
   content TEXT DEFAULT '', thinking TEXT DEFAULT NULL,
-  model TEXT DEFAULT NULL, created_at INTEGER
+  model TEXT DEFAULT NULL, tokens_in INTEGER, tokens_out INTEGER,
+  tokens_cached INTEGER, created_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS memories (
   id TEXT PRIMARY KEY, content TEXT NOT NULL, source TEXT DEFAULT 'manual',
@@ -150,8 +153,12 @@ CREATE TABLE IF NOT EXISTS providers (
   models TEXT DEFAULT '[]', kind TEXT DEFAULT 'auto', created_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS plugins (id TEXT PRIMARY KEY, name TEXT, code TEXT, enabled INTEGER DEFAULT 1);
-CREATE TABLE IF NOT EXISTS skills (id TEXT PRIMARY KEY, name TEXT, content TEXT, enabled INTEGER DEFAULT 1);
-CREATE TABLE IF NOT EXISTS automations (id TEXT PRIMARY KEY, name TEXT, trigger TEXT, action TEXT, enabled INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS skills (
+  id TEXT PRIMARY KEY, name TEXT, content TEXT, enabled INTEGER DEFAULT 1,
+  description TEXT DEFAULT '', builtin INTEGER DEFAULT 0,
+  source TEXT DEFAULT 'user', updated_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS automations (id TEXT PRIMARY KEY, name TEXT, trigger TEXT, action TEXT, param TEXT DEFAULT '', enabled INTEGER DEFAULT 1);
 CREATE TABLE IF NOT EXISTS mcp_servers (id TEXT PRIMARY KEY, name TEXT, command TEXT, args TEXT, enabled INTEGER DEFAULT 1);
 CREATE TABLE IF NOT EXISTS scenes (
   id TEXT PRIMARY KEY, chapter_id TEXT NOT NULL, title TEXT DEFAULT 'New scene',
@@ -180,6 +187,11 @@ CREATE TABLE IF NOT EXISTS story_files (
   name TEXT NOT NULL, content TEXT DEFAULT '', bytes INTEGER DEFAULT 0,
   created_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS message_files (
+  id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, message_id TEXT NOT NULL,
+  name TEXT NOT NULL, kind TEXT DEFAULT 'file', bytes INTEGER DEFAULT 0,
+  content TEXT DEFAULT '', created_at INTEGER
+);
 CREATE TABLE IF NOT EXISTS story_plans (
   id TEXT PRIMARY KEY, project_id TEXT, title TEXT NOT NULL,
   brief TEXT DEFAULT '{}', plan TEXT DEFAULT '{}',
@@ -192,7 +204,139 @@ CREATE INDEX IF NOT EXISTS idx_flow_project ON flow_beats(project_id);
 CREATE INDEX IF NOT EXISTS idx_versions_chapter ON chapter_versions(chapter_id);
 CREATE INDEX IF NOT EXISTS idx_story_files_project ON story_files(project_id);
 CREATE INDEX IF NOT EXISTS idx_story_files_entry ON story_files(story_id);
+CREATE INDEX IF NOT EXISTS idx_message_files_message ON message_files(message_id);
+CREATE INDEX IF NOT EXISTS idx_message_files_chat ON message_files(chat_id);
 `;
+
+/**
+ * Schema versioning (v1.2.3).
+ *
+ * Older builds patched the schema with a pile of `try { ALTER TABLE … }`
+ * statements executed on every boot. That is unobservable (nothing records how
+ * far a database got), unrecoverable (a half-applied patch has no backup) and
+ * makes future changes guesswork. This runner:
+ *   1. reads `PRAGMA user_version` before touching anything,
+ *   2. refuses a database written by a newer app version,
+ *   3. copies the file once to `<db>.v<from>.bak` before the first change,
+ *   4. applies ordered, idempotent steps inside BEGIN/COMMIT, restoring an
+ *      in-memory snapshot if one fails,
+ *   5. stamps the new version.
+ * A column/table that already exists is skipped, so partially-migrated and
+ * pre-1.2 databases (user_version = 0 with a modern shape) both upgrade safely.
+ */
+export const SCHEMA_VERSION = 4;
+
+function readUserVersion(): number {
+  try {
+    const row = get('PRAGMA user_version');
+    return Number(row?.user_version ?? 0) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function getSchemaVersion(): number {
+  return readUserVersion();
+}
+
+function hasTable(name: string): boolean {
+  try {
+    return all("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [name]).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function hasColumn(table: string, column: string): boolean {
+  try {
+    return all(`PRAGMA table_info(${table})`).some((row: any) => row.name === column);
+  } catch {
+    return false;
+  }
+}
+
+/** Add a column only when missing (SQLite has no `ADD COLUMN IF NOT EXISTS`). */
+function addColumn(table: string, column: string, ddl: string): void {
+  if (hasColumn(table, column)) return;
+  if (!db) throw new Error('DB not ready');
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+}
+
+function execRaw(sql: string): void {
+  if (!db) throw new Error('DB not ready');
+  db.exec(sql);
+}
+
+/** Ordered migrations. Append only: `version` is the state the step produces. */
+const MIGRATIONS: { version: number; run: () => void }[] = [
+  {
+    version: 2,
+    run() {
+      addColumn('story', 'links', "TEXT DEFAULT '[]'");
+      addColumn('providers', 'kind', "TEXT DEFAULT 'auto'");
+      addColumn('automations', 'param', "TEXT DEFAULT ''");
+      addColumn('projects', 'format', "TEXT DEFAULT 'novel'");
+      addColumn('projects', 'rating', "TEXT DEFAULT 'teen'");
+    }
+  },
+  {
+    version: 3,
+    run() {
+      addColumn('chats', 'pinned', 'INTEGER DEFAULT 0');
+      addColumn('messages', 'tokens_in', 'INTEGER');
+      addColumn('messages', 'tokens_out', 'INTEGER');
+      if (!hasTable('prompt_styles')) {
+        execRaw("CREATE TABLE prompt_styles (id TEXT PRIMARY KEY, name TEXT NOT NULL, content TEXT NOT NULL, builtin INTEGER DEFAULT 0, created_at INTEGER, updated_at INTEGER)");
+      }
+      if (!hasTable('story_files')) {
+        execRaw("CREATE TABLE story_files (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, story_id TEXT, name TEXT NOT NULL, content TEXT DEFAULT '', bytes INTEGER DEFAULT 0, created_at INTEGER)");
+      }
+      if (!hasTable('story_plans')) {
+        execRaw("CREATE TABLE story_plans (id TEXT PRIMARY KEY, project_id TEXT, title TEXT NOT NULL, brief TEXT DEFAULT '{}', plan TEXT DEFAULT '{}', created_at INTEGER, updated_at INTEGER)");
+      }
+      execRaw('CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id)');
+      execRaw('CREATE INDEX IF NOT EXISTS idx_story_project ON story(project_id)');
+      execRaw('CREATE INDEX IF NOT EXISTS idx_chapters_project ON chapters(project_id)');
+      execRaw('CREATE INDEX IF NOT EXISTS idx_flow_project ON flow_beats(project_id)');
+      execRaw('CREATE INDEX IF NOT EXISTS idx_versions_chapter ON chapter_versions(chapter_id)');
+      execRaw('CREATE INDEX IF NOT EXISTS idx_story_files_project ON story_files(project_id)');
+      execRaw('CREATE INDEX IF NOT EXISTS idx_story_files_entry ON story_files(story_id)');
+    }
+  },
+  {
+    version: 4,
+    run() {
+      // Chat attachments (v1.2.3): files belong to a sent message, not just to
+      // the composer, so they can be reopened from the transcript.
+      if (!hasTable('message_files')) {
+        execRaw("CREATE TABLE message_files (id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, message_id TEXT NOT NULL, name TEXT NOT NULL, kind TEXT DEFAULT 'file', bytes INTEGER DEFAULT 0, content TEXT DEFAULT '', created_at INTEGER)");
+      }
+      execRaw('CREATE INDEX IF NOT EXISTS idx_message_files_message ON message_files(message_id)');
+      execRaw('CREATE INDEX IF NOT EXISTS idx_message_files_chat ON message_files(chat_id)');
+      // Skills v2 metadata (enable-gated skills ship in the same release).
+      addColumn('skills', 'description', "TEXT DEFAULT ''");
+      addColumn('skills', 'builtin', 'INTEGER DEFAULT 0');
+      addColumn('skills', 'source', "TEXT DEFAULT 'user'");
+      addColumn('skills', 'updated_at', 'INTEGER');
+      addColumn('chats', 'skills_off', "TEXT DEFAULT '[]'");
+      // Prompt-cache accounting.
+      addColumn('messages', 'tokens_cached', 'INTEGER');
+      // Rows seeded by older builds are builtins; user skills keep builtin = 0.
+      execRaw("UPDATE skills SET builtin = 1, source = 'builtin' WHERE id IN ('skill-continuity','skill-prose','skill-dialogue','skill-pacing') AND builtin = 0");
+    }
+  }
+];
+
+/** Apply every migration newer than `from`; returns the versions applied. */
+function applyMigrations(from: number): number[] {
+  const applied: number[] = [];
+  for (const step of MIGRATIONS) {
+    if (step.version <= from || step.version > SCHEMA_VERSION) continue;
+    step.run();
+    applied.push(step.version);
+  }
+  return applied;
+}
 
 export function uid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -216,29 +360,59 @@ export async function initDb(dir: string, fileName = 'openplot.db'): Promise<str
   });
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   dbFile = path.join(dir, fileName);
-  if (fs.existsSync(dbFile)) {
-    db = new SQL.Database(fs.readFileSync(dbFile));
-  } else {
-    db = new SQL.Database();
+  sqlStatic = SQL;
+  const existed = fs.existsSync(dbFile);
+  db = existed ? new SQL.Database(fs.readFileSync(dbFile)) : new SQL.Database();
+
+  // Version check happens BEFORE any write: a database from a newer build must
+  // be left untouched instead of silently "migrated" (which corrupts columns).
+  const from = existed ? readUserVersion() : 0;
+  if (from > SCHEMA_VERSION) {
+    try { db.close(); } catch { /* ignore */ }
+    db = null;
+    throw new Error(
+      `This database was created by a newer version of OpenPlot AI (schema ${from} > ${SCHEMA_VERSION}). ` +
+      'Update the app, or restore a backup of the database file.'
+    );
   }
-  db.exec(SCHEMA);
-  // lightweight migrations for pre-existing DBs
-  try { db.exec("ALTER TABLE story ADD COLUMN links TEXT DEFAULT '[]'"); } catch { /* column exists */ }
-  try { db.exec("ALTER TABLE providers ADD COLUMN kind TEXT DEFAULT 'auto'"); } catch { /* column exists */ }
-  try { db.exec("ALTER TABLE automations ADD COLUMN param TEXT DEFAULT ''"); } catch { /* column exists */ }
-  try { db.exec("ALTER TABLE projects ADD COLUMN format TEXT DEFAULT 'novel'"); } catch { /* column exists */ }
-  try { db.exec("ALTER TABLE projects ADD COLUMN rating TEXT DEFAULT 'teen'"); } catch { /* column exists */ }
-  // v1.1: pinned chats (pinned conversations float to the top of the sidebar)
-  try { db.exec('ALTER TABLE chats ADD COLUMN pinned INTEGER DEFAULT 0'); } catch { /* column exists */ }
-  // v1.1: per-message token accounting (NULL for rows written by older versions)
-  try { db.exec('ALTER TABLE messages ADD COLUMN tokens_in INTEGER'); } catch { /* column exists */ }
-  try { db.exec('ALTER TABLE messages ADD COLUMN tokens_out INTEGER'); } catch { /* column exists */ }
-  try { db.exec('CREATE TABLE IF NOT EXISTS prompt_styles (id TEXT PRIMARY KEY, name TEXT NOT NULL, content TEXT NOT NULL, builtin INTEGER DEFAULT 0, created_at INTEGER, updated_at INTEGER)'); } catch { /* table exists */ }
-  // v1.2: file attachments for story-bible entries and story-agent plans.
-  try { db.exec(`CREATE TABLE IF NOT EXISTS story_files (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, story_id TEXT, name TEXT NOT NULL, content TEXT DEFAULT '', bytes INTEGER DEFAULT 0, created_at INTEGER)`); } catch { /* table exists */ }
-  try { db.exec(`CREATE TABLE IF NOT EXISTS story_plans (id TEXT PRIMARY KEY, project_id TEXT, title TEXT NOT NULL, brief TEXT DEFAULT '{}', plan TEXT DEFAULT '{}', created_at INTEGER, updated_at INTEGER)`); } catch { /* table exists */ }
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id)'); } catch { /* index exists */ }
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_story_files_entry ON story_files(story_id)'); } catch { /* index exists */ }
+  if (!db) throw new Error('Database could not be opened.');
+
+  // Pre-migration backup: one pristine copy per source version, never
+  // overwritten. If it cannot be written, refuse to migrate — the whole point
+  // of the backup is that a failed upgrade is recoverable.
+  if (existed && from < SCHEMA_VERSION) {
+    const bak = `${dbFile}.v${from}.bak`;
+    try {
+      if (!fs.existsSync(bak)) fs.copyFileSync(dbFile, bak);
+    } catch (err: any) {
+      try { db.close(); } catch { /* ignore */ }
+      db = null;
+      throw new Error(`Could not create a pre-upgrade backup (${bak}): ${err?.message || err}. Migration cancelled.`);
+    }
+  }
+
+  const snapshot = existed ? db.export() : null;
+  const applied: number[] = [];
+  try {
+    db.exec('BEGIN');
+    db.exec(SCHEMA);
+    applied.push(...applyMigrations(from));
+    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    db.exec('COMMIT');
+  } catch (err: any) {
+    try { db.exec('ROLLBACK'); } catch { /* transaction already closed */ }
+    if (snapshot && sqlStatic && db) {
+      // Keep this instance usable and the on-disk file untouched: swap the
+      // half-migrated in-memory database for the pre-migration snapshot.
+      try { db.close(); } catch { /* already closed */ }
+      db = new sqlStatic.Database(snapshot);
+    }
+    throw new Error(
+      `Database migration failed (schema ${from} → ${SCHEMA_VERSION}); the file on disk was not changed. ` +
+      `${err?.message || err}`
+    );
+  }
+  if (applied.length) console.log(`DB migrated v${from} → v${SCHEMA_VERSION} (steps: ${applied.join(', ')})`);
   seedDefaults();
   dirty = true;
   persistNow();
@@ -247,15 +421,41 @@ export async function initDb(dir: string, fileName = 'openplot.db'): Promise<str
 
 // First-run seeding: ships a sensible default agent persona and two starter
 // automations so the automation engine is discoverable out of the box.
+function readSettingsValue(key: string): string | null {
+  const row = get('SELECT value FROM settings WHERE key=?', [key]);
+  if (!row || row.value == null) return null;
+  try {
+    const parsed = JSON.parse(String(row.value));
+    return typeof parsed === 'string' ? parsed : null;
+  } catch {
+    // A hand-edited row that is not JSON is still the user's text — compare it
+    // raw rather than treating it as "no value" (which would overwrite it).
+    return String(row.value);
+  }
+}
+
 function seedDefaults(): void {
   if (!db) return;
   try {
     const hasAgent = all("SELECT value FROM settings WHERE key='agentMd'");
+    let upgradedAgent = false;
     if (!hasAgent.length) {
       const stmt = db.prepare("INSERT INTO settings (key, value) VALUES ('agentMd', ?)");
       stmt.bind([JSON.stringify(DEFAULT_AGENT_MD)]);
       stmt.step();
       stmt.free();
+      run("INSERT INTO settings (key, value) VALUES ('agentMdVersion', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [JSON.stringify(AGENT_MD_VERSION)]);
+    } else if (readSettingsValue('agentMd') === DEFAULT_AGENT_MD_V1) {
+      // Untouched shipped default from 1.2.2 → upgrade it. Anything the user
+      // typed, however small, is left exactly as-is; the version stamp below
+      // stops the upgrade from running again.
+      run("UPDATE settings SET value = ? WHERE key = 'agentMd'", [JSON.stringify(DEFAULT_AGENT_MD)]);
+      run("INSERT INTO settings (key, value) VALUES ('agentMdVersion', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [JSON.stringify(AGENT_MD_VERSION)]);
+      upgradedAgent = true;
+    }
+    if (upgradedAgent) {
+      // One-shot flag the renderer reads once to toast "agent.md was updated".
+      run("INSERT INTO settings (key, value) VALUES ('agentMdUpgraded', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [JSON.stringify(Date.now())]);
     }
     const autoCount = get('SELECT COUNT(*) AS n FROM automations');
     if (!autoCount?.n) {
@@ -281,22 +481,35 @@ function seedDefaults(): void {
         stmt.free();
       }
     }
-    // Starter skills (agent abilities) — same deal: seeded once, deletable.
-    const skillCount = get('SELECT COUNT(*) AS n FROM skills');
-    if (!skillCount?.n) {
-      for (const s of DEFAULT_SKILLS) {
-        const stmt = db.prepare('INSERT INTO skills (id, name, content, enabled) VALUES (?,?,?,1)');
-        stmt.bind([s.id, s.name, s.content]);
-        stmt.step();
-        stmt.free();
+    // Builtin skills (agent abilities). Seeding is IDEMPOTENT BY ID: an upgrade
+    // that ships a new builtin adds just that one, and a skill the user edited
+    // is never overwritten (INSERT OR IGNORE). Deleting a builtin from the UI is
+    // refused; Reset restores its shipped text instead.
+    for (const s of DEFAULT_SKILLS) {
+      const exists = get('SELECT id FROM skills WHERE id=?', [s.id]);
+      if (exists) {
+        // Rows created before builtins were flagged get the flag, once.
+        if (!get('SELECT builtin FROM skills WHERE id=?', [s.id])?.builtin) {
+          run('UPDATE skills SET builtin=1 WHERE id=?', [s.id]);
+        }
+        continue;
       }
+      run('INSERT INTO skills (id, name, description, content, enabled, builtin) VALUES (?,?,?,?,1,1)', [s.id, s.name, s.description, s.content]);
     }
   } catch (e) {
     console.error('seedDefaults failed:', e);
   }
 }
 
-export const DEFAULT_AGENT_MD = `You are OpenPlot, a focused AI writing and chat assistant living inside a local-first story studio.
+/** Shipped agent.md version. Bumped when the default text changes. */
+export const AGENT_MD_VERSION = 2;
+
+/**
+ * The 1.2.2 default, kept verbatim for comparison only. An `agentMd` row that
+ * still equals this string was never edited, so upgrading it is safe; every
+ * other value belongs to the user and is never touched.
+ */
+export const DEFAULT_AGENT_MD_V1 = `You are OpenPlot, a focused AI writing and chat assistant living inside a local-first story studio.
 
 ## Style
 - Match the user's language (English or Indonesian) and their tone.
@@ -307,6 +520,66 @@ export const DEFAULT_AGENT_MD = `You are OpenPlot, a focused AI writing and chat
 - Use save_memory for durable user preferences, create/update_story_entry for worldbuilding, and chapter tools for drafts.
 - Ask at most one clarifying question when a request is ambiguous; otherwise make a reasonable creative choice and say so.
 - Keep chat replies tight; put long-form output in chapters when asked.`;
+
+/**
+ * agent.md v2 (1.2.3). Model-facing, English, ~70 lines.
+ *
+ * Rewritten because v1 taught tools but not priorities, and a model that does
+ * not know what outranks what will happily let a reply style override a canon
+ * fact. Every rule here maps to something the app actually enforces, so the
+ * text stays honest when features change.
+ */
+export const DEFAULT_AGENT_MD = `You are OpenPlot, a focused AI writing and chat assistant inside a local-first story studio. The user owns this machine and this file: their edits to agent.md always win over this shipped text.
+
+## Who you are
+- A working collaborator, not a chatbot: help the user write, plan, edit and keep their world consistent.
+- Local-first and private. Never claim to have sent anything anywhere; nothing leaves this machine except the model request itself.
+
+## Instruction priority
+When instructions conflict, the higher item wins — silently, unless the conflict is worth one sentence:
+1. The system prompt and the provider's own safety rules.
+2. This agent.md.
+3. Project context (format, rating, description, project files).
+4. Active skills.
+5. The reply style.
+6. Long-term memory.
+7. The current message.
+If a user instruction contradicts canon or a higher rule, say what you are keeping and why in one line, then continue with the closest useful version.
+
+## Tool protocol
+- Read before you write. Use search_story / read_story_bible before creating or changing canon; use read_chapter before appending to a chapter.
+- Never invent a tool result. If a tool fails or is unavailable, say so plainly and offer the answer without it.
+- Prefer the specific tool over prose: worldbuilding facts go to story entries, drafts go to chapters, durable preferences go to memory.
+- After a write, summarize what changed in one or two lines (name and kind of each row).
+- Ask before anything destructive or wide-reaching: deleting entries, rewriting a whole chapter, mass edits. Small additive edits do not need permission.
+- Do not call the same tool twice with identical arguments to "check".
+
+## Memory policy
+- Save only durable, reusable preferences about how the user wants to work (tone, language, formatting, pet peeves).
+- Never save story facts, character traits or plot points as memory — they belong in the story bible, where the user can see and edit them.
+- Do not save secrets, keys or personal data even if asked in passing; ask the user to store them in Settings instead.
+
+## Writing standards
+- Keep point of view and tense consistent with the project and the previous chapter; if the user switches, follow the switch.
+- Every scene needs a goal, an obstacle and a turn. Cut scenes that have none.
+- Concrete detail beats adjectives. Prefer verbs. No purple prose, no throat-clearing, no repeated summary of what was just said.
+- Dialogue carries character: subtext over exposition, distinct voices, no two characters explaining the plot to each other.
+- Match the user's language (English or Indonesian) unless the story itself is written in another language.
+
+## Response format
+- Lead with the answer or the prose. No preamble, no restating the question, no "Here is".
+- Chat replies stay tight; long-form output belongs in a chapter when the user is drafting.
+- Use Markdown for structure: short paragraphs, headings only when the reply is genuinely long, lists only when items are parallel.
+- When you propose an edit, show the changed lines rather than the whole document.
+
+## Ratings and safety
+- Respect the project rating: family / teen / mature. It bounds language, violence and sexual content; a mature rating still means non-explicit sex.
+- If a request pushes past the rating, offer the closest version that fits instead of refusing flatly.
+
+## Honesty
+- If you are unsure about canon, say so and check with a tool before asserting.
+- Never claim work you did not do, and never describe a file, chapter or entry that does not exist.
+- If a tool is unavailable, say so instead of pretending.`;
 
 // Builtin reply styles — seeded into prompt_styles on first run. `content`
 // is a system-prompt fragment injected verbatim under "# Reply style".
@@ -345,26 +618,42 @@ export const DEFAULT_STYLES: Array<{ id: string; name: string; content: string }
 
 // Starter skills — shown in Settings → Skills; the user can edit or delete
 // them like any other skill. They ride along in the system prompt.
-export const DEFAULT_SKILLS: Array<{ id: string; name: string; content: string }> = [
+export const DEFAULT_SKILLS: Array<{ id: string; name: string; description: string; content: string }> = [
   {
     id: 'skill-continuity',
     name: 'Continuity Guardian',
+    description: 'Checks new facts against canon before writing them down.',
     content: 'Before adding any story fact (name, place, date, ability, relationship), search the story bible and read the relevant chapter. If the new fact conflicts with established canon, say so and propose the smallest change that preserves both.'
   },
   {
     id: 'skill-prose',
     name: 'Prose Polisher',
+    description: 'Tightens prose and explains every change.',
     content: 'When asked to improve prose: cut filler words, vary sentence length, replace weak verbs + adverbs with strong verbs, and prefer concrete sensory detail. Show the revised passage first, then a short bullet list of what changed and why.'
   },
   {
     id: 'skill-dialogue',
     name: 'Dialogue Coach',
+    description: 'Gives every character a distinct, testable voice.',
     content: 'Give each character a distinct voice: vocabulary, rhythm, and what they leave unsaid. When writing dialogue, read it back per character; if two voices could swap lines unnoticed, differentiate them. Use subtext — characters rarely state feelings directly.'
   },
   {
     id: 'skill-pacing',
     name: 'Pacing Analyst',
+    description: 'Finds scenes that run long without a turn.',
     content: 'When reviewing chapters, track scene-level pacing: goal, conflict, disaster/turn per scene. Flag scenes that run long without a turn, summarize slow middle stretches, and suggest where to cut or add a beat. Reference the story flow board when it exists.'
+  },
+  {
+    id: 'skill-beta-reader',
+    name: 'Beta Reader',
+    description: 'Reads a draft the way a first-time reader would.',
+    content: 'Read the passage once as a first-time reader, then report: where you got confused, where you got bored, where you got hooked, and the one thing you would change first. Quote the exact lines you reacted to, and separate "this is broken" from "this is not to my taste".'
+  },
+  {
+    id: 'skill-architect',
+    name: 'Worldbuilding Architect',
+    description: 'Builds settings from consequences, not decoration.',
+    content: 'When inventing a place, culture or system, start from one constraint (geography, scarcity, magic cost, power structure) and derive the consequences people would actually live with: work, food, etiquette, taboos, slang. Store durable facts as story bible entries; keep flavour text out of canon.'
   }
 ];
 
@@ -434,6 +723,63 @@ function get(sql: string, params: any[] = []): any | undefined {
   return all(sql, params)[0];
 }
 
+// ---------- chat attachment guards ----------
+// Keep in sync with src/lib/chatFiles.ts (renderer shows the same numbers).
+// Enforced here as well because the renderer is not a trust boundary: a
+// plugin, the palette or a future MCP bridge can call dbCall directly.
+export const MAX_CHAT_FILES = 8;
+export const MAX_CHAT_FILE_BYTES = 256 * 1024;
+export const MAX_CHAT_TOTAL_BYTES = 1024 * 1024;
+
+interface ChatFileRow {
+  id: string;
+  name: string;
+  kind: string;
+  bytes: number;
+  content: string;
+}
+
+// Round up: a 256 KB + 1 byte file must not claim to be 256 KB.
+const kbLabel = (bytes: number) => `${Math.ceil(bytes / 1024)} KB`;
+
+/**
+ * Validate the files that ride along with a sent message. Returns normalized
+ * rows ready to insert, or throws one readable error naming the offending
+ * file. Runs BEFORE the message row is written, so a rejected attachment never
+ * leaves a half-saved turn behind.
+ */
+function validateChatFiles(files: any[]): ChatFileRow[] {
+  if (files.length > MAX_CHAT_FILES) {
+    throw new Error(`A message can carry at most ${MAX_CHAT_FILES} files (got ${files.length}).`);
+  }
+  const out: ChatFileRow[] = [];
+  let total = 0;
+  for (const f of files) {
+    const name = String(f?.name ?? '').trim() || 'Untitled file';
+    const kindRaw = String(f?.kind ?? 'file');
+    const kind = kindRaw === 'story' || kindRaw === 'chapter' ? kindRaw : 'file';
+    if (typeof f?.content !== 'string') {
+      throw new Error(`“${name}” has no readable text content — only text files can be attached.`);
+    }
+    const content = f.content;
+    if (content.includes('\u0000')) {
+      throw new Error(`“${name}” looks like a binary file — chat attachments must be plain text.`);
+    }
+    const bytes = Buffer.byteLength(content, 'utf8');
+    if (bytes > MAX_CHAT_FILE_BYTES) {
+      throw new Error(`“${name}” is ${kbLabel(bytes)}; the per-file limit is ${kbLabel(MAX_CHAT_FILE_BYTES)}.`);
+    }
+    total += bytes;
+    out.push({ id: uid(), name, kind, bytes, content });
+  }
+  if (total > MAX_CHAT_TOTAL_BYTES) {
+    throw new Error(`Attachments total ${kbLabel(total)}; the limit is ${kbLabel(MAX_CHAT_TOTAL_BYTES)} per message.`);
+  }
+  return out;
+}
+
+const fileMeta = (row: any) => ({ id: row.id, name: row.name, kind: row.kind, bytes: row.bytes });
+
 // ---------- generic handlers ----------
 
 export function handleDb(op: string, payload: any): any {
@@ -444,6 +790,17 @@ export function handleDb(op: string, payload: any): any {
       return Object.fromEntries(all('SELECT key, value FROM settings').map((r: any) => [r.key, r.value]));
     case 'setSetting': {
       run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [payload.key, payload.value]);
+      return true;
+    }
+    // The shipped agent.md text, so "Restore default" restores exactly what
+    // this build ships instead of a copy that drifts in the renderer.
+    case 'agentMdDefault':
+      return { version: AGENT_MD_VERSION, content: DEFAULT_AGENT_MD };
+    // Consume the one-shot "your agent.md was upgraded" note.
+    case 'takeAgentMdUpgrade': {
+      const row = get("SELECT value FROM settings WHERE key='agentMdUpgraded'");
+      if (!row) return false;
+      run("DELETE FROM settings WHERE key='agentMdUpgraded'");
       return true;
     }
     // projects
@@ -477,6 +834,7 @@ export function handleDb(op: string, payload: any): any {
       run('DELETE FROM story_plans WHERE project_id=?', [payload.id]);
       // Messages live on the deleted chats — remove them first or they stay
       // orphaned in the DB forever (they were never cleaned up before).
+      run('DELETE FROM message_files WHERE chat_id IN (SELECT id FROM chats WHERE project_id=?)', [payload.id]);
       run('DELETE FROM messages WHERE chat_id IN (SELECT id FROM chats WHERE project_id=?)', [payload.id]);
       run('DELETE FROM chats WHERE project_id=?', [payload.id]);
       run('DELETE FROM story WHERE project_id=?', [payload.id]);
@@ -528,6 +886,10 @@ export function handleDb(op: string, payload: any): any {
         ['project_id', payload.project_id],
         ['model', payload.model],
         ['system_prompt', payload.system_prompt],
+        // Per-chat skill opt-outs, stored as a JSON array of skill ids.
+        ['skills_off', payload.skills_off === undefined
+          ? undefined
+          : JSON.stringify(Array.isArray(payload.skills_off) ? payload.skills_off : [])],
         // Booleans are normalized to 0/1 so SQLite keeps them comparable.
         ['pinned', payload.pinned === undefined ? undefined : (payload.pinned ? 1 : 0)]
       ];
@@ -543,21 +905,101 @@ export function handleDb(op: string, payload: any): any {
       return get('SELECT * FROM chats WHERE id = ?', [payload.id]);
     }
     case 'deleteChat':
+      run('DELETE FROM message_files WHERE chat_id=?', [payload.id]);
       run('DELETE FROM messages WHERE chat_id=?', [payload.id]);
       run('DELETE FROM chats WHERE id=?', [payload.id]);
       return true;
     // messages
-    case 'getMessages':
-      return all('SELECT * FROM messages WHERE chat_id=? ORDER BY created_at', [payload.chatId]);
+    case 'getMessages': {
+      const rows = all('SELECT * FROM messages WHERE chat_id=? ORDER BY created_at', [payload.chatId]);
+      // Metadata only — the file bodies can be megabytes and are read lazily
+      // by `readMessageFile` when a card is opened. One query per chat keeps
+      // long transcripts cheap.
+      const byMessage = new Map<string, any[]>();
+      for (const f of all('SELECT id, message_id, name, kind, bytes FROM message_files WHERE chat_id=? ORDER BY created_at', [payload.chatId])) {
+        const list = byMessage.get(f.message_id) || [];
+        list.push(fileMeta(f));
+        byMessage.set(f.message_id, list);
+      }
+      for (const r of rows) r.files = byMessage.get(r.id) || [];
+      return rows;
+    }
+    // Paged transcript (v1.2.3 Task 11). `getMessages` still loads a whole chat
+    // for export and tests, but the view only ever needs the newest slice: a
+    // 5,000-message chat used to put every row in the renderer's memory.
+    case 'getMessagePage': {
+      const limit = Math.max(1, Math.min(Number(payload.limit) || 80, 500));
+      const before = payload.before != null ? Number(payload.before) : null;
+      // `rowid` breaks ties: two messages can share a millisecond (a fast paste
+      // of a batch, an import), and paging on created_at alone would then skip
+      // or repeat rows. rowid is insertion order, which is what "older" means.
+      const beforeRow = payload.beforeRow != null ? Number(payload.beforeRow) : null;
+      // One extra row tells us whether an older page exists without a COUNT
+      // over the whole chat.
+      const rows = all(
+        before != null && beforeRow != null
+          ? 'SELECT *, rowid AS _row FROM messages WHERE chat_id=? AND (created_at < ? OR (created_at = ? AND rowid < ?)) ORDER BY created_at DESC, rowid DESC LIMIT ?'
+          : before != null
+            ? 'SELECT *, rowid AS _row FROM messages WHERE chat_id=? AND created_at < ? ORDER BY created_at DESC, rowid DESC LIMIT ?'
+            : 'SELECT *, rowid AS _row FROM messages WHERE chat_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?',
+        before != null && beforeRow != null
+          ? [payload.chatId, before, before, beforeRow, limit + 1]
+          : before != null
+            ? [payload.chatId, before, limit + 1]
+            : [payload.chatId, limit + 1]
+      );
+      const hasMore = rows.length > limit;
+      const page = (hasMore ? rows.slice(0, limit) : rows).reverse();
+      const byMessage = new Map<string, any[]>();
+      const ids = page.map((r: any) => r.id);
+      if (ids.length) {
+        const placeholders = ids.map(() => '?').join(',');
+        for (const f of all(`SELECT id, message_id, name, kind, bytes FROM message_files WHERE message_id IN (${placeholders}) ORDER BY created_at`, ids)) {
+          const list = byMessage.get(f.message_id) || [];
+          list.push(fileMeta(f));
+          byMessage.set(f.message_id, list);
+        }
+      }
+      for (const r of page) r.files = byMessage.get(r.id) || [];
+      return { rows: page, hasMore };
+    }
+    case 'listMessageFiles':
+      return all('SELECT id, message_id, name, kind, bytes, created_at FROM message_files WHERE message_id=? ORDER BY created_at', [payload.messageId]);
+    case 'readMessageFile': {
+      const row = get('SELECT id, chat_id, message_id, name, kind, bytes, content, created_at FROM message_files WHERE id=?', [payload.id]);
+      if (!row) throw new Error('That file is no longer available — the message it belonged to was deleted.');
+      return row;
+    }
+    case 'clearChatFiles': {
+      const before = Number(get('SELECT COUNT(*) AS n FROM message_files')?.n || 0);
+      run('DELETE FROM message_files');
+      return { removed: before };
+    }
     case 'addMessage': {
+      // Attachments are validated first: a rejected file must not create an
+      // empty user turn that the composer can no longer see.
+      const files = Array.isArray(payload.files) ? validateChatFiles(payload.files) : [];
       const id = uid();
-      // tokens_in/out ride along when provided (assistant rows from a real
-      // generation). NULL for older rows — Usage views treat NULL as unknown.
-      run('INSERT INTO messages (id, chat_id, role, content, thinking, model, tokens_in, tokens_out, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
-        [id, payload.chatId, payload.role, payload.content, payload.thinking ?? null, payload.model ?? null, payload.tokens_in ?? null, payload.tokens_out ?? null, now]);
-      run('UPDATE chats SET updated_at=? WHERE id=?', [now, payload.chatId]);
+      db!.exec('BEGIN');
+      try {
+        // tokens_in/out ride along when provided (assistant rows from a real
+        // generation). NULL for older rows — Usage views treat NULL as unknown.
+        run('INSERT INTO messages (id, chat_id, role, content, thinking, model, tokens_in, tokens_out, tokens_cached, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+          [id, payload.chatId, payload.role, payload.content, payload.thinking ?? null, payload.model ?? null, payload.tokens_in ?? null, payload.tokens_out ?? null, payload.tokens_cached ?? null, now]);
+        for (const f of files) {
+          run('INSERT INTO message_files (id, chat_id, message_id, name, kind, bytes, content, created_at) VALUES (?,?,?,?,?,?,?,?)',
+            [f.id, payload.chatId, id, f.name, f.kind, f.bytes, f.content, now]);
+        }
+        run('UPDATE chats SET updated_at=? WHERE id=?', [now, payload.chatId]);
+        db!.exec('COMMIT');
+      } catch (err) {
+        try { db!.exec('ROLLBACK'); } catch { /* transaction already closed */ }
+        throw err;
+      }
       (globalThis as any).__pluginHook?.('message:new', { chatId: payload.chatId, messageId: id, role: payload.role });
-      return get('SELECT * FROM messages WHERE id = ?', [id]);
+      const row = get('SELECT * FROM messages WHERE id = ?', [id]);
+      if (row) row.files = files.map((f) => fileMeta(f));
+      return row;
     }
     case 'updateMessage': {
       // Tri-state: undefined keeps the column, null clears it (COALESCE made
@@ -568,6 +1010,7 @@ export function handleDb(op: string, payload: any): any {
       if (payload.thinking !== undefined) { sets.push('thinking=?'); vals.push(payload.thinking); }
       if (payload.tokens_in !== undefined) { sets.push('tokens_in=?'); vals.push(payload.tokens_in); }
       if (payload.tokens_out !== undefined) { sets.push('tokens_out=?'); vals.push(payload.tokens_out); }
+      if (payload.tokens_cached !== undefined) { sets.push('tokens_cached=?'); vals.push(payload.tokens_cached); }
       if (!sets.length) return get('SELECT * FROM messages WHERE id = ?', [payload.id]);
       vals.push(payload.id);
       run(`UPDATE messages SET ${sets.join(', ')} WHERE id=?`, vals);
@@ -580,6 +1023,7 @@ export function handleDb(op: string, payload: any): any {
       if ((globalThis as any).__busyChats?.has(payload.chatId)) {
         throw new Error('A reply is being generated in this chat — stop it first.');
       }
+      run('DELETE FROM message_files WHERE message_id=?', [payload.id]);
       run('DELETE FROM messages WHERE id=?', [payload.id]);
       return true;
     case 'searchMessages': {
@@ -899,14 +1343,14 @@ export function handleDb(op: string, payload: any): any {
     case 'usageSummary': {
       // Only rows with actual token data are counted; old messages (NULL)
       // are simply absent rather than guessed twice.
-      const byModel = all(`SELECT model, COUNT(*) AS messages, SUM(tokens_in) AS tin, SUM(tokens_out) AS tout
+      const byModel = all(`SELECT model, COUNT(*) AS messages, SUM(tokens_in) AS tin, SUM(tokens_out) AS tout, SUM(tokens_cached) AS cached
         FROM messages WHERE model IS NOT NULL AND (tokens_in IS NOT NULL OR tokens_out IS NOT NULL)
         GROUP BY model ORDER BY tout DESC`);
-      const byChat = all(`SELECT c.id, c.title, COUNT(*) AS messages, SUM(m.tokens_in) AS tin, SUM(m.tokens_out) AS tout
+      const byChat = all(`SELECT c.id, c.title, COUNT(*) AS messages, SUM(m.tokens_in) AS tin, SUM(m.tokens_out) AS tout, SUM(m.tokens_cached) AS cached
         FROM messages m JOIN chats c ON c.id = m.chat_id
         WHERE m.model IS NOT NULL AND (m.tokens_in IS NOT NULL OR m.tokens_out IS NOT NULL)
         GROUP BY c.id ORDER BY tout DESC LIMIT 10`);
-      const total = get(`SELECT COUNT(*) AS messages, SUM(tokens_in) AS tin, SUM(tokens_out) AS tout
+      const total = get(`SELECT COUNT(*) AS messages, SUM(tokens_in) AS tin, SUM(tokens_out) AS tout, SUM(tokens_cached) AS cached
         FROM messages WHERE tokens_in IS NOT NULL OR tokens_out IS NOT NULL`);
       return { byModel, byChat, total };
     }
@@ -1002,14 +1446,42 @@ export function handleDb(op: string, payload: any): any {
       run('DELETE FROM plugins WHERE id=?', [payload.id]);
       return true;
     case 'listSkills':
-      return all('SELECT * FROM skills');
+      return all('SELECT * FROM skills ORDER BY builtin DESC, name');
     case 'saveSkill': {
-      run('INSERT INTO skills (id, name, content, enabled) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, content=excluded.content, enabled=excluded.enabled', [payload.id || uid(), payload.name, payload.content, payload.enabled === false ? 0 : 1]);
-      return true;
+      const id = payload.id || uid();
+      const existing = get('SELECT id, builtin FROM skills WHERE id=?', [id]);
+      // A brand-new skill starts DISABLED unless the caller explicitly enables
+      // it. An added skill silently changing every reply is the bug this
+      // release exists to kill.
+      const enabled = payload.enabled === undefined
+        ? 0
+        : (payload.enabled === true || payload.enabled === 1 ? 1 : 0);
+      const description = String(payload.description ?? '').slice(0, 500);
+      if (existing) {
+        run('UPDATE skills SET name=?, description=?, content=?, enabled=? WHERE id=?', [
+          payload.name, description, payload.content, enabled, id
+        ]);
+      } else {
+        run('INSERT INTO skills (id, name, description, content, enabled, builtin) VALUES (?,?,?,?,?,0)', [
+          id, payload.name, description, payload.content, enabled
+        ]);
+      }
+      return get('SELECT * FROM skills WHERE id=?', [id]);
     }
-    case 'deleteSkill':
+    case 'resetSkill': {
+      const shipped = DEFAULT_SKILLS.find((s) => s.id === payload.id);
+      if (!shipped) throw new Error('Only builtin skills can be reset');
+      run('UPDATE skills SET name=?, description=?, content=?, builtin=1 WHERE id=?', [
+        shipped.name, shipped.description, shipped.content, shipped.id
+      ]);
+      return get('SELECT * FROM skills WHERE id=?', [shipped.id]);
+    }
+    case 'deleteSkill': {
+      const row = get('SELECT builtin FROM skills WHERE id=?', [payload.id]);
+      if (row?.builtin) throw new Error('Builtin skills cannot be deleted — use Reset instead');
       run('DELETE FROM skills WHERE id=?', [payload.id]);
       return true;
+    }
     case 'listAutomations':
       return all('SELECT * FROM automations');
     case 'saveAutomation': {
@@ -1033,14 +1505,19 @@ export function handleDb(op: string, payload: any): any {
       return true;
     case 'resetAll':
       if (db) {
-        db.exec('DELETE FROM settings; DELETE FROM projects; DELETE FROM folders; DELETE FROM chats; DELETE FROM messages; DELETE FROM memories; DELETE FROM story; DELETE FROM chapters; DELETE FROM providers; DELETE FROM plugins; DELETE FROM skills; DELETE FROM automations; DELETE FROM mcp_servers; DELETE FROM scenes; DELETE FROM flow_beats; DELETE FROM prompts; DELETE FROM chapter_versions; DELETE FROM prompt_styles; DELETE FROM story_files; DELETE FROM story_plans;');
-        // Builtin styles are permanent furniture — re-seed immediately so the
-        // user never sees an empty style picker until the next app start.
+        db.exec('DELETE FROM settings; DELETE FROM projects; DELETE FROM folders; DELETE FROM chats; DELETE FROM messages; DELETE FROM message_files; DELETE FROM memories; DELETE FROM story; DELETE FROM chapters; DELETE FROM providers; DELETE FROM plugins; DELETE FROM skills; DELETE FROM automations; DELETE FROM mcp_servers; DELETE FROM scenes; DELETE FROM flow_beats; DELETE FROM prompts; DELETE FROM chapter_versions; DELETE FROM prompt_styles; DELETE FROM story_files; DELETE FROM story_plans;');
+        // Builtin styles and skills are permanent furniture — re-seed
+        // immediately so the user never sees an empty picker until the next
+        // app start. Both stay DISABLED-free by shipping enabled for skills
+        // (the shipped set is meant to be active) but a reset is a fresh start.
         for (const s of DEFAULT_STYLES) {
           const stmt = db.prepare('INSERT INTO prompt_styles (id, name, content, builtin, created_at, updated_at) VALUES (?,?,?,1,?,?)');
           stmt.bind([s.id, s.name, s.content, now, now]);
           stmt.step();
           stmt.free();
+        }
+        for (const s of DEFAULT_SKILLS) {
+          run('INSERT INTO skills (id, name, description, content, enabled, builtin) VALUES (?,?,?,?,1,1)', [s.id, s.name, s.description, s.content]);
         }
         dirty = true;
         persistNow();
@@ -1053,6 +1530,9 @@ export function handleDb(op: string, payload: any): any {
       const count = (t: string) => {
         try { return Number(get(`SELECT COUNT(*) AS n FROM ${t}`)?.n || 0); } catch { return 0; }
       };
+      const byteSum = (t: string, col: string) => {
+        try { return Number(get(`SELECT SUM(${col}) AS n FROM ${t}`)?.n || 0); } catch { return 0; }
+      };
       return {
         bytes,
         path: dbFile,
@@ -1061,6 +1541,8 @@ export function handleDb(op: string, payload: any): any {
         chapters: count('chapters'),
         story: count('story'),
         storyFiles: count('story_files'),
+        chatFiles: count('message_files'),
+        chatFileBytes: byteSum('message_files', 'bytes'),
         versions: count('chapter_versions')
       };
     }
@@ -1071,7 +1553,10 @@ export function handleDb(op: string, payload: any): any {
       run('DELETE FROM story_files WHERE project_id NOT IN (SELECT id FROM projects)');
       run('DELETE FROM story_files WHERE story_id IS NOT NULL AND story_id NOT IN (SELECT id FROM story)');
       run('DELETE FROM story_plans WHERE project_id IS NOT NULL AND project_id NOT IN (SELECT id FROM projects)');
+      // Order matters: drop orphan messages first, then their attachments
+      // (a file whose message was just removed must not survive the pass).
       run('DELETE FROM messages WHERE chat_id NOT IN (SELECT id FROM chats)');
+      run('DELETE FROM message_files WHERE chat_id NOT IN (SELECT id FROM chats) OR message_id NOT IN (SELECT id FROM messages)');
       try { db?.exec('VACUUM'); } catch (e) { console.warn('VACUUM skipped:', e); }
       dirty = true;
       persistNow(true);

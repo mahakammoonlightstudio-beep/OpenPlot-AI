@@ -26,8 +26,10 @@ export interface Project {
   updated_at?: number;
 }
 export interface Folder { id: string; name: string; project_id: string | null; expanded: number; position: number; created_at?: number }
-export interface Chat { id: string; title: string; folder_id: string | null; project_id: string | null; model: string | null; system_prompt: string | null; /** 1/0 (DB) or boolean after normalize — pinned chats float to the top. */ pinned?: number | boolean; created_at?: number; updated_at?: number }
-export interface Message { id: string; chat_id: string; role: 'user' | 'assistant' | 'system'; content: string; thinking: string | null; model: string | null; tokens_in?: number | null; tokens_out?: number | null; created_at?: number }
+export interface Chat { id: string; title: string; folder_id: string | null; project_id: string | null; model: string | null; system_prompt: string | null; /** 1/0 (DB) or boolean after normalize — pinned chats float to the top. */ pinned?: number | boolean; /** JSON string in the DB; parsed to skill ids this chat opted out of. */ skills_off?: string | string[]; created_at?: number; updated_at?: number }
+/** Metadata for one file stored with a sent message (no body — see readMessageFile). */
+export interface MessageFileMeta { id: string; name: string; kind: 'file' | 'story' | 'chapter'; bytes: number }
+export interface Message { id: string; chat_id: string; role: 'user' | 'assistant' | 'system'; content: string; thinking: string | null; model: string | null; tokens_in?: number | null; tokens_out?: number | null; /** Prompt tokens served from the provider's prompt cache (null = unknown). */ tokens_cached?: number | null; /** Files attached when this message was sent (metadata only). */ files?: MessageFileMeta[]; created_at?: number }
 /** One reply style (persona/tone injected as a system fragment). */
 export interface StyleRow { id: string; name: string; content: string; builtin: number; created_at?: number; updated_at?: number }
 export interface Memory { id: string; content: string; source: string; created_at?: number }
@@ -76,10 +78,22 @@ export interface DbStats {
   chapters: number;
   story: number;
   storyFiles: number;
+  /** Attachments stored with sent chat messages (v1.2.3). */
+  chatFiles: number;
+  chatFileBytes: number;
   versions: number;
 }
 export interface PluginRow { id: string; name: string; code: string; enabled: number }
-export interface SkillRow { id: string; name: string; content: string; enabled: number }
+export interface SkillRow {
+  id: string;
+  name: string;
+  /** One-line description shown on the card and injected above the content. */
+  description?: string;
+  content: string;
+  enabled: number;
+  /** 1 = shipped with the app: editable, resettable, never deletable. */
+  builtin?: number;
+}
 export interface AutomationRow { id: string; name: string; trigger: string; action: string; param?: string; enabled?: number }
 export interface McpRow { id: string; name: string; command: string; args: string; enabled: number }
 
@@ -111,6 +125,27 @@ export interface ModelCapabilities {
   ok: boolean;
   error?: string;
   probedAt: number;
+}
+
+/** Whether a model can expose reasoning, before/after a probe. */
+export type ThinkingSupport = 'yes' | 'no' | 'unknown';
+/** How a provider caches prompt tokens. */
+export type CacheMode = 'auto' | 'explicit' | 'none' | 'unknown';
+
+export interface ModelCacheProfile {
+  mode: CacheMode;
+  /** 0 = bounded by (and unknown until) the context window is known. */
+  maxTokens: number;
+  minTokens: number;
+  ttlSeconds: number;
+}
+
+/** One persisted capability entry, keyed `${providerId}::${model}`. */
+export interface ModelCapsRecord {
+  caps?: ModelCapabilities;
+  cacheObserved?: { cachedTokens: number; at: number };
+  /** Provider explicitly rejected a thinking request — real evidence, not a probe. */
+  thinkingRejectedAt?: number;
 }
 
 export interface PresetModel {
@@ -155,6 +190,8 @@ export interface InkwellApi {
   verifyModel(provider: Partial<Provider>, model: string, reqId?: string): Promise<{ ok: boolean; data?: ModelVerifyResult; error?: string }>;
   validateKey(provider: Partial<Provider>): Promise<{ ok: boolean; data?: KeyValidationResult; error?: string }>;
   probeCapabilities(provider: Partial<Provider>, model: string): Promise<{ ok: boolean; data?: ModelCapabilities; error?: string }>;
+  /** Persist "this provider refused thinking" so the next chat hides the control. */
+  markThinkingRejected(providerId: string, model: string): Promise<{ ok: boolean; error?: string }>;
   providerPresets(): Promise<{ ok: boolean; data?: ProviderPreset[] }>;
   refreshPresets(providers: Partial<Provider>[]): Promise<{ ok: boolean; data?: PresetRefreshResult[]; error?: string }>;
   runPlugin(pluginId: string, command: string, payload?: any): Promise<{ ok: boolean; data?: string; error?: string }>;
@@ -201,6 +238,10 @@ export interface GenResultData {
   /** Reported by the provider when available, otherwise estimated. */
   tokensIn?: number;
   tokensOut?: number;
+  /** Prompt tokens served from the provider cache (absent when unreported). */
+  tokensCached?: number;
+  /** The provider refused the thinking parameter (result came from the retry). */
+  thinkingRejected?: boolean;
 }
 
 declare global {

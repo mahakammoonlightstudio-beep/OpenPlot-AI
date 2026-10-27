@@ -5,6 +5,7 @@ import * as zlib from 'zlib';
 import { initDb, closeDb, handleDb, setSecretCrypto } from './db';
 import { runGeneration, fetchModels, verifyModel, validateApiKey, probeCapabilities, ProviderConfig, ChatMessage, GenChunk } from './ai';
 import { PROVIDER_PRESETS, refreshPresets } from './presets';
+import { markThinkingRejected, recordCacheObservation, recordModelCaps } from './caps';
 import { loadPlugins, runPluginCommand, setNotify, listLoadedPlugins, runHook, wireDbHooks, log, getLogs } from './plugins';
 
 const DONATE_URL = 'https://sociabuzz.com/mahakam_moonlight_studio/tribe';
@@ -153,6 +154,9 @@ function buildMenu(): void {
     {
       label: 'Help',
       submenu: [
+        { label: 'Open guide', accelerator: 'F1', click: () => send('ui:action', 'guide') },
+        { label: 'Keyboard shortcuts', accelerator: 'CmdOrCtrl+Shift+/', click: () => send('ui:action', 'shortcuts') },
+        { type: 'separator' },
         { label: 'Donate (SociaBuzz)', click: () => shell.openExternal(DONATE_URL) },
         { label: 'Donate (Saweria)', click: () => shell.openExternal(SAWERIA_URL) },
         { label: 'GitHub', click: () => shell.openExternal('https://github.com/mahakammoonlightstudio-beep') },
@@ -198,6 +202,11 @@ ipcMain.handle('ai:generate', async (_e, req: any) => {
       (chunk: GenChunk) => send('ai:chunk', { reqId, chunk }),
       isAborted
     );
+    // Cache reuse is only knowable from real traffic — fold it into the model
+    // registry so Settings can report what the provider actually cached.
+    if (result?.tokensCached != null) {
+      recordCacheObservation(req?.provider?.id || '', req?.model || '', result.tokensCached);
+    }
     return { ok: true, data: result };
   } catch (err: any) {
     if (err?.name === 'AbortedError' || /aborted/i.test(String(err?.message))) {
@@ -245,9 +254,24 @@ ipcMain.handle('ai:validateKey', async (_e, provider: ProviderConfig) => {
   }
 });
 
+// The renderer reports a refused thinking request; the merge happens here so a
+// cache observation the renderer has not loaded yet is never overwritten.
+ipcMain.handle('ai:markThinkingRejected', (_e, providerId: string, model: string) => {
+  try {
+    markThinkingRejected(providerId, model);
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
 ipcMain.handle('ai:probeCapabilities', async (_e, provider: ProviderConfig, model: string) => {
   try {
-    return { ok: true, data: await probeCapabilities(provider, model) };
+    const caps = await probeCapabilities(provider, model);
+    // Persist a *successful or failed* probe alike: "this relay cannot do
+    // tools" is exactly as useful tomorrow as "it can".
+    recordModelCaps(provider?.id || '', model, caps);
+    return { ok: true, data: caps };
   } catch (err: any) {
     return { ok: false, error: err?.message || String(err) };
   }

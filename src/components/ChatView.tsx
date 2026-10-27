@@ -1,18 +1,26 @@
-import { memo, useEffect, useRef, useState, useCallback } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useData, useSettings, useUi, dbCall, uid, runAutomations, createChatUi, DONATE_URL, SAWERIA_URL, getModelOverride } from '../store';
-import { Chat, Message, Provider, GenerateRequest, GenChunk } from '../types';
+import { Chat, Message, Provider, GenerateRequest, GenChunk, MessageFileMeta } from '../types';
 import { useMarkdown, useThrottledMarkdown, extractFirstTitle, hardenLinks } from '../markdown';
 import { useT } from '../i18nReact';
-import { Icon } from './Icons';
+import { Icon, IconName } from './Icons';
 import { useVerifyStore } from '../verifyStore';
 import { ModelStatusBar } from './ModelStatusBar';
 import { useUnreadStore } from '../unreadStore';
 import { Composer } from './Composer';
 import { ModelSettingsModal } from './ModelSettingsModal';
-import { Modal } from './Ui';
-import { confirmDialog } from './TextPrompt';
+import { MenuItem, Modal, Popover } from './Ui';
+import { confirmDialog, textPrompt } from './TextPrompt';
 import { expandMentions, buildCandidates, MentionCandidate, MentionKind } from '../mentions';
 import { useWriteStats } from '../writeStats';
+import { FilePreviewModal } from './FilePreviewModal';
+import {
+  buildAttachmentPrompt, attachmentBytes, formatBytes,
+  MAX_CHAT_FILES, MAX_CHAT_FILE_BYTES, MAX_CHAT_TOTAL_BYTES
+} from '../lib/chatFiles';
+import { inferCacheProfile, resolveThinking, thinkingSupport } from '../lib/modelCaps';
+import { shortcutById, matchesCombo } from '../lib/shortcuts';
+import { buildSystemPrompt as composeSystemPrompt, parseSkillsOff } from '../lib/prompt';
 
 const DEGRADED_MS = 6000;
 
@@ -26,12 +34,26 @@ function clampNum(v: number, min: number, max: number, fb: number): number {
 
 const contentWordCount = (s: string) => (s.trim().match(/\S+/g) || []).length;
 
-/** One file/story/chapter attached to the NEXT message (chip, not inline text). */
-interface Attachment { id: string; name: string; kind: 'file' | 'story' | 'chapter'; content: string }
+/** One file/story/chapter attached to the NEXT message (card, not inline text). */
+interface Attachment { id: string; name: string; kind: 'file' | 'story' | 'chapter'; content: string; bytes?: number }
 
 function fmtTokens(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '';
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n));
+}
+
+/** Compact relative timestamp for a message meta row ('' when unknown). */
+function relativeTime(ts: number | undefined, t: (k: string) => string): string {
+  if (!ts) return '';
+  const diff = Date.now() - ts;
+  if (diff < 45_000) return t('time.now');
+  const mins = Math.round(diff / 60_000);
+  if (mins < 60) return t('time.min').replace('{n}', String(mins));
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return t('time.hour').replace('{n}', String(hours));
+  const days = Math.round(hours / 24);
+  if (days < 7) return t('time.day').replace('{n}', String(days));
+  try { return new Date(ts).toLocaleDateString(); } catch { return ''; }
 }
 
 /** Compact "in→out" token label for a message meta row ('' when unknown). */
@@ -58,18 +80,33 @@ function estimateTokens(s: string): number {
   return Math.ceil((s || '').length / CHARS_PER_TOKEN);
 }
 
-function ThinkingBlock({ text, live }: { text: string; live?: boolean }) {
+function ThinkingBlock({ text, live, durationMs, display = 'auto' }: {
+  text: string; live?: boolean; durationMs?: number;
+  display?: 'auto' | 'expanded' | 'collapsed';
+}) {
   const t = useT();
-  // Auto-open while streaming so users see reasoning arrive live; when the
-  // reply completes (live=false) it collapses back to the compact header.
-  const [open, setOpen] = useState(!!live);
-  useEffect(() => { setOpen(!!live); }, [live]);
+  // Display preference (Task 4):
+  //   auto      — open while streaming, collapse when the reply lands
+  //   expanded  — keep the trace open (reading mode)
+  //   collapsed — never auto-open; the header still shows the duration
+  const [open, setOpen] = useState(display === 'expanded' || (!!live && display !== 'collapsed'));
+  useEffect(() => {
+    setOpen(live ? display !== 'collapsed' : display === 'expanded');
+  }, [live, display]);
+  const secs = durationMs && durationMs > 0 ? (durationMs / 1000).toFixed(1) : '';
+  const label = open
+    ? t('chat.hideThinking')
+    : live
+      ? t('chat.thinking')
+      : secs
+        ? t('think.thoughtFor').replace('{s}', secs)
+        : t('chat.thoughtProcess');
   return (
     <div className="thinking-block">
       <div className="tb-head" onClick={() => setOpen(!open)} role="button" tabIndex={0} aria-expanded={open}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(!open); } }}>
         <Icon name="brain" size={14} />
-        <span style={{ flex: 1 }}>{open ? t('chat.hideThinking') : live ? t('chat.thinking') : t('chat.thoughtProcess')}</span>
+        <span style={{ flex: 1 }}>{label}</span>
         <Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} />
       </div>
       {open && <div className="tb-body">{text}</div>}
@@ -148,6 +185,14 @@ function ModelBadge({ model, withBar }: { model: string | null | undefined; with
 // Messages above the visible window render as cheap skeletons until the user
 // scrolls up — keeps long chats fast without breaking autoscroll anchoring.
 const RENDER_WINDOW = 60;
+/** Rows loaded from the DB per page. Memory stays bounded; readers page back. */
+const MESSAGE_PAGE = 200;
+
+// A draft handed to the NEXT ChatView instance. App mounts the view with
+// `key={activeChatId}`, so creating a chat remounts it — calling setInput right
+// after createChatUi() writes to the unmounted instance and the prompt the
+// welcome card inserted disappears. The new instance takes it on mount.
+let pendingChatDraft: string | null = null;
 
 /**
  * Memoized so a streaming reply (which re-renders ChatView on every frame)
@@ -155,8 +200,16 @@ const RENDER_WINDOW = 60;
  * passed from ChatView are stable (they read the latest logic from a ref), so
  * only the message whose data actually changed re-renders.
  */
-const MessageBubble = memo(function MessageBubble({ msg, onDelete, onEdit, youLabel, editLabel, saveResendLabel, cancelLabel, deleteLabel, onSaveChapter, savedToChapter, tokensLabel }: {
+const MessageBubble = memo(function MessageBubble({ msg, fresh, onOpenFile, onDelete, onEdit, onRegen, regenLabel, streaming, youLabel, editLabel, saveResendLabel, cancelLabel, deleteLabel, onSaveChapter, savedToChapter, tokensLabel, thinkMs, thinkingDisplay }: {
+  fresh?: boolean;
   msg: Message;
+  onRegen?: (msg: Message) => void;
+  regenLabel?: string;
+  streaming?: boolean;
+  /** How long this reply's reasoning streamed (session-only; not persisted). */
+  thinkMs?: number;
+  thinkingDisplay?: 'auto' | 'expanded' | 'collapsed';
+  onOpenFile: (file: MessageFileMeta) => void;
   onDelete: (msg: Message) => void;
   onEdit: (msg: Message, newText: string) => void;
   youLabel: string;
@@ -179,14 +232,22 @@ const MessageBubble = memo(function MessageBubble({ msg, onDelete, onEdit, youLa
   const isUser = msg.role === 'user';
   const toolsUsed: string[] = (msg as any).toolsUsed || [];
   return (
-    <div className={`msg ${msg.role}`}>
+    <div className={`msg ${msg.role}`} data-fresh={fresh ? 'true' : undefined}>
       <div className="avatar"><Icon name={isUser ? 'user' : 'quill'} size={15} /></div>
       <div className="bubble">
         <div className="meta">
           <span className="who">{isUser ? youLabel : <ModelBadge model={msg.model} />}</span>
           {tokensLabel && <span className="tok-chip">{tokensLabel}</span>}
+          {!isUser && (msg.tokens_cached ?? 0) > 0 && (
+            <span className="tok-chip cached" title={t('chat.cachedHint')}>
+              {t('chat.cached').replace('{n}', fmtTokens(msg.tokens_cached))}
+            </span>
+          )}
+          <span className="msg-time">{relativeTime(msg.created_at, t)}</span>
         </div>
-        {!isUser && msg.thinking ? <ThinkingBlock text={msg.thinking} /> : null}
+        {!isUser && msg.thinking
+          ? <ThinkingBlock text={msg.thinking} durationMs={thinkMs} display={thinkingDisplay} />
+          : null}
         {!isUser && toolsUsed.length > 0 && (
           <div style={{ marginBottom: 6 }}>
             {toolsUsed.map((n, i) => (
@@ -214,9 +275,41 @@ const MessageBubble = memo(function MessageBubble({ msg, onDelete, onEdit, youLa
         ) : (
           <div className="content" ref={contentRef} dangerouslySetInnerHTML={{ __html: html }} />
         )}
+        {isUser && !!msg.files?.length && (
+          <div className="msg-files">
+            {msg.files.map((f) => (
+              <button
+                key={f.id}
+                className={`file-card kind-${f.kind}`}
+                title={t('chat.openFile').replace('{name}', f.name)}
+                aria-label={t('chat.openFile').replace('{name}', f.name)}
+                onClick={() => onOpenFile(f)}
+              >
+                <span className="fc-icon">
+                  <Icon name={f.kind === 'story' ? 'book' : f.kind === 'chapter' ? 'file' : 'paperclip'} size={14} />
+                </span>
+                <span className="fc-text">
+                  <span className="fc-name">{f.name}</span>
+                  <span className="fc-size">{formatBytes(f.bytes)}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="actions">
           {!editing && <CopyBtn text={msg.content} />}
           {isUser ? <button className="small ghost" title={editLabel} onClick={() => { setDraft(msg.content); setEditing(true); }}><Icon name="pencil" size={14} /></button> : null}
+          {!isUser && onRegen && (
+            <button
+              className="small ghost"
+              title={regenLabel}
+              aria-label={regenLabel}
+              disabled={streaming}
+              onClick={() => onRegen(msg)}
+            >
+              <Icon name="refresh" size={14} />
+            </button>
+          )}
           {!isUser && onSaveChapter && (
             <button
               className="small ghost"
@@ -243,6 +336,8 @@ export function ChatView() {
   const projects = useData((s) => s.projects);
   const providers = useData((s) => s.providers);
   const styles = useData((s) => s.styles);
+  const allChapters = useData((s) => s.chapters);
+  const allStory = useData((s) => s.story);
   const activeChatId = useData((s) => s.activeChatId);
   const activeProjectId = useData((s) => s.activeProjectId);
   const setActiveChat = useData((s) => s.setActiveChat);
@@ -252,7 +347,14 @@ export function ChatView() {
 
   const chat = chats.find((c) => c.id === activeChatId) || null;
   const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
+  // Paging state (Task 11): the view holds the newest MESSAGE_PAGE rows plus
+  // whatever the reader pulled in, and never the whole 5,000-message chat.
+  const [hasOlder, setHasOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  // Read without consuming: StrictMode double-invokes initializers in dev, so a
+  // take-and-clear here would hand the second call an empty draft.
+  const [input, setInput] = useState(pendingChatDraft ?? '');
+  useEffect(() => { pendingChatDraft = null; }, []);
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState('');
   const [streamThink, setStreamThink] = useState('');
@@ -295,6 +397,37 @@ export function ChatView() {
   }, [activeChatId]);
 
   const [loadingEarlier, setLoadingEarlier] = useState(false);
+  /**
+   * Pull one older page from the database and prepend it without moving the
+   * reader: the height added above the viewport is subtracted from scrollTop.
+   */
+  const loadOlder = useCallback(async () => {
+    const el = scrollRef.current;
+    if (!el || !activeChatIdRef.current || loadingOlder) return;
+    const firstRow = messages[0] as (Message & { _row?: number }) | undefined;
+    const before = firstRow?.created_at;
+    if (before == null) return;
+    setLoadingOlder(true);
+    const prevHeight = el.scrollHeight;
+    const prevTop = el.scrollTop;
+    try {
+      const page = await dbCall<{ rows: Message[]; hasMore: boolean }>('getMessagePage', {
+        chatId: activeChatIdRef.current, limit: MESSAGE_PAGE, before, beforeRow: firstRow?._row
+      });
+      const rows = Array.isArray(page) ? page : (page?.rows || []);
+      setHasOlder(Array.isArray(page) ? false : !!page?.hasMore);
+      if (rows.length) {
+        setMessages((m) => [...rows, ...m]);
+        // Compensate after React commits the new nodes.
+        requestAnimationFrame(() => {
+          const after = scrollRef.current;
+          if (after) after.scrollTop = prevTop + (after.scrollHeight - prevHeight);
+        });
+      }
+    } catch { /* chat deleted mid-load — keep what is on screen */ }
+    setLoadingOlder(false);
+  }, [loadingOlder, messages, activeChatIdRef]);
+
   function expandEarlier() {
     if (loadingEarlier) return;
     setLoadingEarlier(true);
@@ -305,7 +438,14 @@ export function ChatView() {
         try {
           const raw = localStorage.getItem('openplot.renderLimit.v1');
           const map = raw ? JSON.parse(raw) : {};
-          if (activeChatId) { map[activeChatId] = next; localStorage.setItem('openplot.renderLimit.v1', JSON.stringify(map)); }
+          if (activeChatId) {
+            map[activeChatId] = next;
+            // Cap the map: fifty chats is far more history than a session needs
+            // and the list used to grow with every chat ever opened.
+            const ids = Object.keys(map);
+            if (ids.length > 50) for (const old of ids.slice(0, ids.length - 50)) delete map[old];
+            localStorage.setItem('openplot.renderLimit.v1', JSON.stringify(map));
+          }
         } catch { /* storage full — expansion still works this session */ }
         return next;
       });
@@ -315,7 +455,25 @@ export function ChatView() {
 
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [modelModal, setModelModal] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const enabledProviders = providers.filter((p) => p.enabled);
+
+  // Transcript attachment preview: only metadata travels with getMessages, so
+  // the body is fetched on demand. A deleted message/file shows the error
+  // instead of a blank modal.
+  const [filePreview, setFilePreview] = useState<{
+    id: string; name: string; kind: MessageFileMeta['kind']; bytes: number;
+    content: string | null; loading: boolean; error?: string;
+  } | null>(null);
+  const openMessageFile = useCallback(async (f: MessageFileMeta) => {
+    setFilePreview({ id: f.id, name: f.name, kind: f.kind, bytes: f.bytes, content: null, loading: true });
+    try {
+      const row = await dbCall<{ content: string }>('readMessageFile', { id: f.id });
+      setFilePreview((cur) => (cur && cur.id === f.id ? { ...cur, content: row.content, loading: false } : cur));
+    } catch (e: any) {
+      setFilePreview((cur) => (cur && cur.id === f.id ? { ...cur, loading: false, error: e?.message || String(e) } : cur));
+    }
+  }, []);
 
   // Unread state: new background replies show a jump pill
   const unreadCount = useUnreadStore((s) => (activeChatId ? (s.unread[activeChatId] || 0) : 0));
@@ -340,15 +498,43 @@ export function ChatView() {
   // be dragged straight from their views. At send time they ride in the
   // system prompt as fenced blocks and the composer text stays clean.
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  // Mirror for the cap math: reading `attachments` inside addAttachments would
+  // use the value captured at render time, and two drops in one frame could
+  // then both pass the 1 MB check.
+  const attachmentsRef = useRef<Attachment[]>([]);
+  attachmentsRef.current = attachments;
   const [dragOver, setDragOver] = useState(false);
-  useEffect(() => { setAttachments([]); setDragOver(false); }, [activeChatId]);
+  useEffect(() => {
+    attachmentsRef.current = [];
+    setAttachments([]);
+    setDragOver(false);
+  }, [activeChatId]);
 
   function addAttachments(next: Attachment[]) {
-    setAttachments((cur) => {
-      const room = Math.max(0, 8 - cur.length);
-      if (next.length > room) ui.toast(t('chat.attachLimit'), 'error');
-      return [...cur, ...next.slice(0, room)];
-    });
+    const cur = attachmentsRef.current;
+    const room = Math.max(0, MAX_CHAT_FILES - cur.length);
+    if (next.length > room) ui.toast(t('chat.attachLimit'), 'error');
+    let total = cur.reduce((n, a) => n + attachmentBytes(a), 0);
+    const kept: Attachment[] = [];
+    for (const a of next.slice(0, room)) {
+      const bytes = attachmentBytes(a);
+      if (bytes > MAX_CHAT_FILE_BYTES) {
+        ui.toast(t('chat.fileTooBig')
+          .replace('{name}', a.name)
+          .replace('{max}', String(MAX_CHAT_FILE_BYTES / 1024)), 'error');
+        continue;
+      }
+      if (total + bytes > MAX_CHAT_TOTAL_BYTES) {
+        ui.toast(t('chat.filesTotalTooBig'), 'error');
+        break;
+      }
+      total += bytes;
+      kept.push({ ...a, bytes });
+    }
+    if (!kept.length) return;
+    const merged = [...cur, ...kept];
+    attachmentsRef.current = merged;
+    setAttachments(merged);
   }
   function removeAttachment(id: string) { setAttachments((a) => a.filter((x) => x.id !== id)); }
 
@@ -395,8 +581,14 @@ export function ChatView() {
     // reset overrides that aren't persisted per chat
     setOvTemp(null); setOvMaxTok(null); setOvTopP(null);
     setThinkOn(null); setThinkBudget(null); setToolsOn(null); setMemOn(null);
-    dbCall<Message[]>('getMessages', { chatId: chat.id }).then((rows) => {
-      if (!cancelled) setMessages(rows);
+    setHasOlder(false);
+    dbCall<{ rows: Message[]; hasMore: boolean }>('getMessagePage', { chatId: chat.id, limit: MESSAGE_PAGE }).then((page) => {
+      if (cancelled) return;
+      // Defensive: an older main process (or a stubbed bridge in tests) can
+      // still answer with a plain array — accept both shapes.
+      if (Array.isArray(page)) { setMessages(page); return; }
+      setMessages(page?.rows || []);
+      setHasOlder(!!page?.hasMore);
     }).catch(() => { /* chat deleted mid-load */ });
     useUnreadStore.getState().markRead(chat.id);
     setRenderLimit(RENDER_WINDOW);
@@ -417,7 +609,14 @@ export function ChatView() {
     setHeaderScrolled(st > 4);
 
     const chatId = activeChatIdRef.current;
-    if (chatId) scrollPosRef.current.set(chatId, st);
+    if (chatId) {
+      const pos = scrollPosRef.current;
+      // Keep the map bounded: scroll positions of long-closed chats are dead
+      // weight, and the reader only ever returns to a handful (Task 11).
+      if (pos.has(chatId)) pos.delete(chatId);
+      pos.set(chatId, st);
+      while (pos.size > 50) pos.delete(pos.keys().next().value as string);
+    }
 
     // Auto-hide: scrolling down well past the top hides the header;
     // any upward scroll or near-top position brings it back.
@@ -493,65 +692,52 @@ export function ChatView() {
   // Per-model tuning from the Edit-model modal (context/maxTokens/temp/topP/budget).
   const modelOv = getModelOverride(settings.modelOverrides, effProvider?.id, effModel);
 
-  function buildSystemPrompt(chatRow: Chat): string {
-    const parts: string[] = [];
-    if (ovSystem && ovSystem.trim()) parts.push(ovSystem.trim());
-    else if (settings.defaultSystem?.trim()) parts.push(settings.defaultSystem.trim());
-    if (settings.agentMd?.trim()) parts.push('# agent.md\n' + settings.agentMd.trim());
-    const project = projects.find((p) => p.id === (chatRow.project_id || activeProjectId));
-    if (project) {
-      // Work format + content rating steer length targets and tone. Values are
-      // whitelisted — old rows or bad data simply fall through to no injection.
-      const fmtLabel: Record<string, string> = {
-        'short-story': 'a short story (aim for a compact, single-arc piece)',
-        novel: 'a novel (long-form; keep chapters and pacing novel-scale)',
-        book: 'a full book / series (track long arcs and continuity)',
-        fanfic: 'fan fiction (respect the source material while adding new angles)',
-        script: 'a script / screenplay (use scene headings and dialogue-first prose)'
-      };
-      const ratingLabel: Record<string, string> = {
-        family: 'CONTENT RATING: family-friendly. Keep everything suitable for all ages; no graphic violence, no sexual content, mild peril only.',
-        teen: 'CONTENT RATING: teen. Mild profanity at most; violence and themes may be darker but non-graphic; no explicit sexual content.',
-        mature: 'CONTENT RATING: mature. Adult themes, strong language, and graphic violence are allowed when the story calls for it; keep sexual content non-explicit (fade to black).'
-      };
-      const fmt = fmtLabel[(project as any).format];
-      if (fmt) parts.push('# Work format\nThis project is ' + fmt + '.');
-      const rating = ratingLabel[(project as any).rating];
-      if (rating) parts.push('# ' + rating);
-    }
-    if (project?.context?.trim()) parts.push('# Project: ' + project.name + '\n' + project.context.trim());
-    // memoryEnabled gates injection; autoMemory only governs agent auto-saving
-    if (memOn ?? settings.memoryEnabled) {
-      const mems = useData.getState().memories;
-      if (mems.length) {
-        parts.push('# Long-term memory\n' + mems.map((m) => '- ' + m.content).join('\n'));
-      }
-    }
-    const skills = useData.getState().skills.filter((s) => Number(s.enabled) === 1);
-    if (skills.length) {
-      parts.push('# Active skills\n' + skills.map((s) => `## skill: ${s.name}\n${s.content}`).join('\n\n'));
-    }
-    if (goal && goal.trim()) parts.push('# Session goal\n' + goal.trim());
-    // Reply style (Claude-style): a named persona/tone the user picks in the
-    // composer and edits in Settings. Builtin = shipped with the app.
-    const style = useData.getState().styles.find((s) => s.id === settings.defaultStyleId);
-    const styleName = style?.name || null;
-    if (style) parts.push('# Reply style' + (style.builtin ? '' : ' (custom)') + '\n' + style.content);
-    // Only advertise tools when they will actually be sent to the provider —
-    // the old hint told models to "use tools proactively" even when the
-    // tools toggle was off, and they replied with unusable tool-call text.
-    if (toolsOn ?? settings.toolsEnabled) {
-      const toolNames = 'save_memory, list_memories, create_story_entry, update_story_entry, search_story, read_story_bible, read_story_file, create_chapter, update_chapter, append_to_chapter, list_chapters, read_chapter, list_projects, read_project';
-      const toolHint = styleName
-        ? `You have native story tools (${toolNames}). When a tool result comes back, write the surrounding reply in the user's "${styleName}" style — but tool calls themselves stay plain and functional. Use tools proactively when the user discusses story worldbuilding, characters, items, lore or chapters.`
-        : `You have native tools (${toolNames}). Use them proactively when the user discusses story worldbuilding, characters, items, lore or chapters.`;
-      parts.push('# Story tools\n' + toolHint);
-    }
-    if (attachments.length) {
-      const blocks = attachments.map((a) => `=== FILE: ${a.name} ===\n${a.content}`).join('\n\n');
-      parts.push(`# Attached files (${attachments.length}) — user-provided context for this turn\n${blocks}`);
-    }
-    return parts.join('\n\n');
+  // ---- thinking capability (Task 4) -------------------------------------
+  // Evidence comes from the persisted registry (rejected / probed) and falls
+  // back to the model-family table. `unknown` is a real answer: the control is
+  // shown muted rather than pretending the model can or cannot think.
+  const thinkCapsKey = effProvider && effModel ? `${effProvider.id}::${effModel}` : '';
+  const capsRecord = thinkCapsKey ? settings.modelCaps[thinkCapsKey] : undefined;
+  const thinkSupport = thinkingSupport(effModel || '', {
+    kind: (effProvider as any)?.kind || 'auto',
+    record: capsRecord
+  });
+  const contextForThinking = modelOv?.context ?? capsRecord?.caps?.contextTokens ?? 0;
+  const maxThinkBudget = contextForThinking > 2048 ? Math.max(1024, Math.floor(contextForThinking / 2)) : 100000;
+  const thinkResolved = resolveThinking(
+    thinkSupport,
+    thinkOn ?? settings.thinkingEnabled,
+    thinkBudget ?? modelOv?.thinkBudget ?? settings.thinkingBudget,
+    contextForThinking
+  );
+  // Session-only reasoning durations. There is no DB column for them: after a
+  // restart the trace still opens, it just shows the plain header.
+  const thinkDurationsRef = useRef<Record<string, number>>({});
+
+  /**
+   * Prompt assembly lives in `src/lib/prompt.ts` so it can be tested without a
+   * window. This wrapper only gathers what the store already has.
+   */
+  function buildSystemPrompt(
+    chatRow: Chat,
+    promptAttachments: Array<{ name: string; kind: 'file' | 'story' | 'chapter'; content: string }> = attachments
+  ): string {
+    const state = useData.getState();
+    const project = projects.find((p) => p.id === (chatRow.project_id || activeProjectId)) || null;
+    return composeSystemPrompt({
+      systemOverride: ovSystem,
+      defaultSystem: settings.defaultSystem,
+      agentMd: settings.agentMd,
+      project,
+      memories: state.memories.map((m) => m.content),
+      memoryEnabled: memOn ?? settings.memoryEnabled,
+      skills: state.skills,
+      skillsOff: parseSkillsOff(chatRow.skills_off),
+      style: state.styles.find((s) => s.id === settings.defaultStyleId) || null,
+      goal,
+      toolsEnabled: toolsOn ?? settings.toolsEnabled,
+      attachments: promptAttachments
+    });
   }
 
   async function send(pendingUser?: Message, textOverride?: string, historyBase?: Message[]) {
@@ -571,7 +757,7 @@ export function ChatView() {
       return;
     }
     if (!effProvider.baseUrl || !String(effProvider.baseUrl).trim()) {
-      ui.toast(`${effProvider.name}: ${t('providers.baseUrl')} is missing — fix it in Settings → AI Providers.`, 'error');
+      ui.toast(t('chat.baseUrlMissing').replace('{name}', effProvider.name), 'error');
       return;
     }
 
@@ -579,17 +765,28 @@ export function ChatView() {
     const chatId = chatRow.id;
 
     let userMsg = pendingUser;
+    let firstFileName = '';
     if (!userMsg) {
-      userMsg = await dbCall<Message>('addMessage', { chatId, role: 'user', content: text });
+      // One call writes the user turn AND its files — a rejection (too large,
+      // binary, too many) leaves no partial row and keeps the composer intact.
+      const filesSent = attachments.map((a) => ({ name: a.name, kind: a.kind, content: a.content }));
+      firstFileName = filesSent[0]?.name || '';
+      try {
+        userMsg = await dbCall<Message>('addMessage', { chatId, role: 'user', content: text, files: filesSent });
+      } catch (e: any) {
+        ui.toast(e?.message || String(e), 'error');
+        return;
+      }
       setMessages((m) => [...m, userMsg!]);
       setInput('');
       // Attachments rode along with this send — the next message starts clean.
+      attachmentsRef.current = [];
       setAttachments([]);
     }
 
-    // auto title from first user message
+    // auto title from first user message (or the first attached file name)
     if (chatRow.title === 'New chat' && userMsg) {
-      const auto = userMsg.content.slice(0, 40).trim() || 'New chat';
+      const auto = userMsg.content.slice(0, 40).trim() || firstFileName.slice(0, 40).trim() || 'New chat';
       await dbCall('updateChat', { id: chatId, title: auto });
       reloadChatRelated();
     }
@@ -603,7 +800,22 @@ export function ChatView() {
     const prior = pendingUser ? base.filter((m) => m.id !== pendingUser.id) : base;
     const history: Message[] = [...prior, userMsg];
 
-    const sys = buildSystemPrompt(chatRow);
+    // Resend/regenerate sends an existing user row, whose file bodies are not
+    // in message state (metadata only) — load them so the model keeps seeing
+    // the attachment instead of silently losing the context.
+    let promptAttachments: Array<{ name: string; kind: 'file' | 'story' | 'chapter'; content: string }> = [];
+    if (pendingUser?.files?.length) {
+      const loaded = await Promise.all(pendingUser.files.map(async (f) => {
+        try {
+          const row = await dbCall<{ content: string }>('readMessageFile', { id: f.id });
+          return { name: f.name, kind: f.kind, content: row.content };
+        } catch { return null; }
+      }));
+      promptAttachments = loaded.filter((f): f is { name: string; kind: 'file' | 'story' | 'chapter'; content: string } => !!f);
+    } else if (!pendingUser) {
+      promptAttachments = attachments;
+    }
+    const sys = buildSystemPrompt(chatRow, promptAttachments);
     // @-mentions: expand tokens into full content blocks FOR THE MODEL ONLY —
     // the stored transcript keeps the compact token so edit/resend still works.
     const mentionCands = buildCandidates(
@@ -667,8 +879,11 @@ export function ChatView() {
       temperature: ovTemp ?? modelOv?.temperature ?? settings.temperature,
       maxTokens: ovMaxTok ?? modelOv?.maxTokens ?? settings.maxTokens,
       topP: ovTopP ?? modelOv?.topP ?? settings.topP,
-      thinkingEnabled: thinkOn ?? settings.thinkingEnabled,
-      thinkingBudget: thinkBudget ?? modelOv?.thinkBudget ?? settings.thinkingBudget,
+      // A model that cannot expose reasoning never receives the parameter, no
+      // matter what the global preference says; the budget obeys the context
+      // window so "thinking" cannot starve the actual answer.
+      thinkingEnabled: thinkResolved.enabled,
+      thinkingBudget: thinkResolved.budget,
       toolsEnabled: toolsOn ?? settings.toolsEnabled,
       projectId: chatRow.project_id || activeProjectId || null
     };
@@ -682,6 +897,8 @@ export function ChatView() {
 
     let accText = '';
     let accThink = '';
+    let thinkFirstAt = 0;
+    let thinkLastAt = 0;
     const accTools: string[] = [];
     // Coalesce chunk bursts into one render per animation frame — tokens can
     // arrive faster than 60fps and each setState used to mean a full re-render.
@@ -709,7 +926,14 @@ export function ChatView() {
       if (reqId !== req.reqId) return;
       const c = chunk as GenChunk;
       if (c.type === 'text') { accText += c.text || ''; dirtyText = accText; }
-      else if (c.type === 'thinking') { accThink += c.text || ''; dirtyThink = accThink; }
+      else if (c.type === 'thinking') {
+        accThink += c.text || '';
+        dirtyThink = accThink;
+        // Reasoning duration = first → last reasoning chunk, so the time spent
+        // writing the answer afterwards is not counted as "thought for".
+        if (!thinkFirstAt) thinkFirstAt = Date.now();
+        thinkLastAt = Date.now();
+      }
       else if (c.type === 'replaceText') { accText = c.text || ''; dirtyText = accText; }
       else if (c.type === 'tool' && c.tool) {
         accTools.push(c.tool.name);
@@ -730,6 +954,22 @@ export function ChatView() {
 
     const aborted = !!(res.ok && (res.data as any)?.aborted);
     const userAborted = aborted || (res.ok === false && !res.error);
+    const thinkMs = thinkFirstAt && thinkLastAt ? Math.max(0, thinkLastAt - thinkFirstAt) : 0;
+
+    // Real evidence beats the family table: the provider either rejected the
+    // thinking parameter (main retried without it) or failed with a thinking
+    // error. Persist it so the next chat hides the control immediately.
+    const thinkingRefused = res.ok
+      ? !!res.data?.thinkingRejected
+      : (!userAborted && thinkResolved.enabled && /thinking|reasoning|budget/i.test(String(res.error || '')));
+    if (thinkingRefused && thinkCapsKey) {
+      // Merge in the main process (it owns the registry) and refresh the store
+      // so the composer hides the control on the next render. Fire-and-forget:
+      // a failed write must never block the reply.
+      void window.inkwell.markThinkingRejected(provider.id, effModel || '')
+        .then((r) => (r?.ok ? useSettings.getState().load() : undefined))
+        .catch(() => {});
+    }
 
     // Auto health tracking: feed the model status bar from real usage.
     // Deliberate user aborts are excluded — they say nothing about model health.
@@ -758,8 +998,10 @@ export function ChatView() {
           thinking: finalThink || null,
           model: effModel,
           tokens_in: res.data?.tokensIn ?? null,
-          tokens_out: res.data?.tokensOut ?? null
+          tokens_out: res.data?.tokensOut ?? null,
+          tokens_cached: res.data?.tokensCached ?? null
         });
+        if (thinkMs > 0) thinkDurationsRef.current[saved.id] = thinkMs;
         (saved as any).toolsUsed = toolsUsed;
         if (stillHere) setMessages((m) => [...m, saved]);
         else useUnreadStore.getState().markReply(chatId, activeChatIdRef.current);
@@ -773,6 +1015,7 @@ export function ChatView() {
         const saved = await dbCall<Message>('addMessage', {
           chatId, role: 'assistant', content: accText, thinking: accThink || null, model: effModel
         });
+        if (thinkMs > 0) thinkDurationsRef.current[saved.id] = thinkMs;
         (saved as any).toolsUsed = accTools;
         setMessages((m) => [...m, saved]);
       } else if (!res.ok && res.error) {
@@ -781,6 +1024,7 @@ export function ChatView() {
           const saved = await dbCall<Message>('addMessage', {
             chatId, role: 'assistant', content: accText, thinking: accThink || null, model: effModel
           });
+          if (thinkMs > 0) thinkDurationsRef.current[saved.id] = thinkMs;
           (saved as any).toolsUsed = accTools;
           setMessages((m) => [...m, saved]);
         }
@@ -841,14 +1085,35 @@ export function ChatView() {
   exportRef.current = exportChat;
   const regenRef = useRef<() => void>(() => {});
   regenRef.current = regenLast;
+  // Chat-scoped shortcuts read the transcript through a ref: the listener
+  // attaches once, the messages keep changing.
+  const messagesRef = useRef<Message[]>([]);
+  messagesRef.current = messages;
   useEffect(() => {
     const onExport = (e: Event) => exportRef.current((e as CustomEvent).detail === 'json' ? 'json' : 'md');
     const onRegen = () => regenRef.current();
     window.addEventListener('inkwell:export-chat', onExport);
     window.addEventListener('inkwell:regen-last', onRegen);
+    const onKey = (e: KeyboardEvent) => {
+      const combos = (id: string) => shortcutById(id)?.keys || [];
+      if (combos('regen').some((c) => matchesCombo(e, c))) {
+        e.preventDefault();
+        regenRef.current();
+      } else if (combos('copy-last').some((c) => matchesCombo(e, c))) {
+        const last = [...messagesRef.current].reverse().find((m) => m.role === 'assistant' && m.content.trim());
+        if (!last) return;
+        e.preventDefault();
+        navigator.clipboard.writeText(last.content).then(
+          () => ui.toast(t('chat.copied'), 'ok'),
+          () => ui.toast(t('chat.copyFailed'), 'error')
+        );
+      }
+    };
+    window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('inkwell:export-chat', onExport);
       window.removeEventListener('inkwell:regen-last', onRegen);
+      window.removeEventListener('keydown', onKey);
     };
   }, []);
 
@@ -878,6 +1143,37 @@ export function ChatView() {
     // the model just parrots its old answer back.
     const idx = messages.findIndex((m) => m.id === lastUser.id);
     await send(lastUser, undefined, idx >= 0 ? messages.slice(0, idx + 1) : undefined);
+  }
+
+  // Regenerate from ANY assistant turn: everything after the user turn that
+  // produced it is removed and that turn is sent again (its files are re-read
+  // from the DB by send()).
+  async function regenFrom(msg: Message) {
+    if (streaming || !chat) return;
+    const idx = messages.findIndex((m) => m.id === msg.id);
+    if (idx < 0) return;
+    let uIdx = idx;
+    while (uIdx >= 0 && messages[uIdx].role !== 'user') uIdx--;
+    if (uIdx < 0) return;
+    const userMsg = messages[uIdx];
+    for (const m of messages.slice(uIdx + 1)) await dbCall('deleteMessage', { id: m.id });
+    setMessages(messages.slice(0, uIdx + 1));
+    await send(userMsg, undefined, messages.slice(0, uIdx + 1));
+  }
+
+  async function renameChat() {
+    if (!chat) return;
+    const next = await textPrompt({ title: t('chat.rename'), defaultValue: chat.title, confirmLabel: t('model.save') });
+    if (!next || !next.trim() || next.trim() === chat.title) return;
+    await dbCall('updateChat', { id: chat.id, title: next.trim() });
+    reloadChatRelated();
+  }
+
+  async function togglePin() {
+    if (!chat) return;
+    const pinned = Number(chat.pinned) === 1 || chat.pinned === true;
+    await dbCall('updateChat', { id: chat.id, pinned: !pinned });
+    reloadChatRelated();
   }
 
   async function resendFrom(msg: Message) {
@@ -1000,11 +1296,12 @@ export function ChatView() {
   // Stable bubble callbacks: the latest logic lives in a ref, the identity
   // never changes, so `memo(MessageBubble)` actually skips re-renders while a
   // reply streams into the sibling bubble.
-  const bubbleActions = useRef({ deleteMsg, editMsg, saveToChapter });
-  bubbleActions.current = { deleteMsg, editMsg, saveToChapter };
+  const bubbleActions = useRef({ deleteMsg, editMsg, saveToChapter, regenFrom });
+  bubbleActions.current = { deleteMsg, editMsg, saveToChapter, regenFrom };
   const onDeleteMessage = useCallback((m: Message) => { void bubbleActions.current.deleteMsg(m.id); }, []);
   const onEditMessage = useCallback((m: Message, text: string) => { void bubbleActions.current.editMsg(m, text); }, []);
   const onSaveMessage = useCallback((m: Message) => { bubbleActions.current.saveToChapter(m); }, []);
+  const onRegenMessage = useCallback((m: Message) => { void bubbleActions.current.regenFrom(m); }, []);
 
   // Per-chat model options: union of all providers' models
   const allModels = Array.from(new Set(enabledProviders.flatMap((p) => p.models as string[])));
@@ -1013,6 +1310,29 @@ export function ChatView() {
   // into a checkmark so the same text can't be duplicated by double-clicks).
   const [savedChapters, setSavedChapters] = useState<Set<string>>(new Set());
   useEffect(() => { setSavedChapters(new Set()); }, [activeChatId]);
+
+  // Motion: only bubbles that appear *while reading* animate. Messages present
+  // on load are recorded on the first non-empty render, so opening a long chat
+  // does not animate the whole transcript (Task 10).
+  const knownIds = useRef<Set<string>>(new Set());
+  const hydrated = useRef(false);
+  const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!messages.length) return;
+    if (!hydrated.current) {
+      hydrated.current = true;
+      knownIds.current = new Set(messages.map((m) => m.id));
+      return;
+    }
+    const added = messages.filter((m) => !knownIds.current.has(m.id)).map((m) => m.id);
+    knownIds.current = new Set(messages.map((m) => m.id));
+    if (!added.length) return;
+    setFreshIds(new Set(added));
+    const timer = setTimeout(() => setFreshIds(new Set()), 400);
+    return () => clearTimeout(timer);
+  }, [messages]);
+  // A chat switch is a fresh transcript: nothing on screen should animate.
+  useEffect(() => { hydrated.current = false; knownIds.current = new Set(); setFreshIds(new Set()); }, [activeChatId]);
 
   // Context guard notice: number of turns dropped from the REQUEST (not the
   // transcript) this session. Toasted once per chat so it never nags.
@@ -1026,95 +1346,284 @@ export function ChatView() {
   const [chapterTarget, setChapterTarget] = useState<Message | null>(null);
   // Chapters of the chat's project — the picker's append options.
   const saveProjectId = chat?.project_id || activeProjectId || null;
-  const projectChapters = useData((s) => s.chapters)
+  const projectChapters = allChapters
     .filter((c) => c.project_id === saveProjectId)
     .sort((a, b) => a.position - b.position);
 
+  // ---- context meter (Task 5) ------------------------------------------
+  // Cheap estimate (~4 chars/token): good enough to warn before a provider
+  // rejects the request, never presented as an exact count.
+  const systemTokens = useMemo(() => {
+    if (!chat) return 0;
+    return estimateTokens(buildSystemPrompt(chat));
+  }, [
+    chat?.id, chat?.project_id, ovSystem, attachments, goal,
+    settings.defaultSystem, settings.agentMd, settings.memoryEnabled,
+    settings.toolsEnabled, settings.defaultStyleId, toolsOn, memOn
+  ]);
+  const contextUsedTokens = useMemo(() => {
+    const messagesTokens = messages.reduce(
+      (n, m) => n + estimateTokens(m.content) + estimateTokens(m.thinking || ''), 0
+    );
+    return systemTokens + messagesTokens + estimateTokens(input);
+  }, [messages, input, systemTokens]);
+  const contextWindow = modelOv?.context ?? capsRecord?.caps?.contextTokens ?? 0;
+  const contextPct = contextWindow > 0 ? Math.min(100, Math.round((contextUsedTokens / contextWindow) * 100)) : 0;
+  const cacheProfile = inferCacheProfile(effModel || '', {
+    kind: (effProvider as any)?.kind || 'auto', baseUrl: effProvider?.baseUrl
+  });
+  const cacheTitle = cacheProfile.mode === 'none'
+    ? t('header.cacheNone')
+    : cacheProfile.mode === 'unknown'
+      ? t('header.cacheUnknown')
+      : t(cacheProfile.mode === 'explicit' ? 'header.cacheExplicit' : 'header.cacheAuto');
+
+  const recentChats = chats.slice(0, 3);
+  const latestChapter = allChapters.slice().sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0))[0];
+
+  // Empty-chat starters: built from what the project actually has, so the
+  // chips never promise a chapter that does not exist.
+  const emptySuggestions = useMemo(() => {
+    const list: Array<{ label: string; prompt: string }> = [];
+    if (latestChapter) {
+      list.push({
+        label: t('chat.suggest.continue').replace('{title}', latestChapter.title),
+        prompt: t('chat.suggest.continuePrompt').replace('{title}', latestChapter.title)
+      });
+    }
+    if (projectChapters.length) {
+      list.push({ label: t('chat.suggest.critique'), prompt: t('chat.suggest.critiquePrompt') });
+    }
+    if (allStory.length) {
+      list.push({ label: t('chat.suggest.summarize'), prompt: t('chat.suggest.summarizePrompt') });
+    }
+    list.push({ label: t('chat.suggest.outline'), prompt: t('chat.suggest.outlinePrompt') });
+    return list.slice(0, 4);
+  }, [latestChapter, projectChapters, allStory, t]);
+
+  /** Per-chat skill opt-out (composer popover), stored on the chat row. */
+  async function toggleChatSkill(skillId: string) {
+    if (!chat) return;
+    const off = parseSkillsOff(chat.skills_off);
+    const next = off.includes(skillId) ? off.filter((x) => x !== skillId) : [...off, skillId];
+    await dbCall('updateChat', { id: chat.id, skills_off: next });
+    await useData.getState().reloadChatRelated();
+  }
+
+  async function startFromPrompt(prompt: string, projectId?: string | null) {
+    // The new chat remounts this view, so hand the draft to the next instance.
+    pendingChatDraft = prompt;
+    try {
+      await createChatUi('New chat', projectId ?? activeProjectId);
+    } catch (e) {
+      pendingChatDraft = null;
+      throw e;
+    }
+  }
+
   if (!chat) {
+    // No provider yet: connecting one is the only action that unblocks
+    // everything else, so it leads the grid.
+    const connectFirst = enabledProviders.length === 0;
+    const cards: Array<{ key: string; icon: IconName; title: string; desc: string; onClick: () => void; primary: boolean }> = [
+      {
+        key: 'story', icon: 'quill', primary: false,
+        title: t('welcome.card.story'), desc: t('welcome.card.storyDesc'),
+        onClick: () => { void startFromPrompt(t('welcome.promptStory')); }
+      },
+      {
+        key: 'continue', icon: 'book', primary: false,
+        title: t('welcome.card.continue'), desc: t('welcome.card.continueDesc'),
+        onClick: () => {
+          void startFromPrompt(
+            latestChapter
+              ? t('welcome.promptContinue').replace('{title}', latestChapter.title)
+              : t('welcome.promptContinueNone'),
+            latestChapter?.project_id ?? activeProjectId
+          );
+        }
+      },
+      {
+        key: 'canon', icon: 'scroll', primary: false,
+        title: t('welcome.card.canon'), desc: t('welcome.card.canonDesc'),
+        onClick: () => { void startFromPrompt(allStory.length ? t('welcome.promptCanon') : t('welcome.promptCanonEmpty')); }
+      },
+      {
+        key: 'connect', icon: 'plug', primary: connectFirst,
+        title: t('welcome.card.connect'), desc: t('welcome.card.connectDesc'),
+        onClick: () => useData.getState().navigate('settings')
+      }
+    ];
+    const ordered = connectFirst ? [cards[3], ...cards.slice(0, 3)] : cards;
+
     return (
-      <div className="page" style={{ display: 'flex', flexDirection: 'column' }}>
+      <div className="page welcome-page" style={{ display: 'flex', flexDirection: 'column' }}>
         <div className="welcome-hero">
           <div className="logo-big">Open<span className="ink">Plot</span>&nbsp;AI</div>
           <p>{t('chat.welcomeSub')}</p>
         </div>
         <div className="welcome-cards">
-          <div className="welcome-card" onClick={newChat}>
-            <div className="ic"><Icon name="chat" size={22} /></div>
-            <div className="t">{t('app.newChat')}</div>
-            <div className="d">{t('chat.welcomeStart')}</div>
+          {ordered.map((c) => (
+            <div
+              key={c.key}
+              className={`welcome-card ${c.primary ? 'primary' : ''}`}
+              role="button"
+              tabIndex={0}
+              onClick={c.onClick}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); c.onClick(); } }}
+            >
+              <div className="ic"><Icon name={c.icon} size={22} /></div>
+              <div className="t">{c.title}</div>
+              <div className="d">{c.desc}</div>
+            </div>
+          ))}
+        </div>
+
+        {recentChats.length > 0 && (
+          <div className="welcome-recent">
+            <div className="wr-label">{t('welcome.recent')}</div>
+            <div className="wr-list">
+              {recentChats.map((c) => (
+                <button key={c.id} className="wr-item" onClick={() => setActiveChat(c.id)}>
+                  <Icon name="chat" size={13} />
+                  <span className="wr-title">{c.title}</span>
+                  <span className="wr-time">{relativeTime(c.updated_at || c.created_at, t)}</span>
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="welcome-card" onClick={() => useData.getState().navigate('story')}>
-            <div className="ic"><Icon name="book" size={22} /></div>
-            <div className="t">{t('app.story')}</div>
-            <div className="d">{t('chat.welcomeStory')}</div>
-          </div>
-          <div className="welcome-card" onClick={() => useData.getState().navigate('settings')}>
-            <div className="ic"><Icon name="settings" size={22} /></div>
-            <div className="t">{t('app.settings')}</div>
-            <div className="d">{t('chat.welcomeSettings')}</div>
-          </div>
-          <div className="welcome-card" onClick={() => window.inkwell.openExternal(DONATE_URL)}>
-            <div className="ic"><Icon name="donate" size={22} /></div>
-            <div className="t">{t('app.donate')}</div>
-            <div className="d">{t('chat.welcomeDonate')}</div>
-          </div>
-          <div className="welcome-card" onClick={() => window.inkwell.openExternal(SAWERIA_URL)}>
-            <div className="ic"><Icon name="heart" size={22} /></div>
-            <div className="t">Saweria</div>
-            <div className="d">{t('chat.welcomeDonate2')}</div>
-          </div>
+        )}
+
+        <div className="welcome-health">
+          <span className="wh-label">{t('welcome.modelHealth')}</span>
+          {effModel ? (
+            <span className="wh-model">
+              <ModelBadge model={effModel} />
+              {effProvider && <ModelStatusBar providerId={effProvider.id} model={effModel} />}
+            </span>
+          ) : (
+            <span className="wh-none">
+              {t('welcome.noModel')}{' '}
+              <button className="link" onClick={() => useData.getState().navigate('settings')}>{t('welcome.connect')}</button>
+            </span>
+          )}
+        </div>
+
+        <div className="welcome-foot">
+          <button className="link" onClick={() => window.inkwell.openExternal(DONATE_URL)}>{t('chat.welcomeDonate')}</button>
+          <span>·</span>
+          <button className="link" onClick={() => window.inkwell.openExternal(SAWERIA_URL)}>{t('chat.welcomeDonate2')}</button>
         </div>
       </div>
     );
   }
 
   const ov = showAdvanced;
+  const pinned = Number(chat.pinned) === 1 || chat.pinned === true;
+  const cacheAvailable = cacheProfile.mode === 'auto' || cacheProfile.mode === 'explicit';
+  const toolsCap = toolsOn ?? settings.toolsEnabled;
 
   return (
     <div className={`chat-root ${headerHidden ? 'header-hidden' : ''} ${zen ? 'zen' : ''}`}>
       <div className={`chat-header ${headerScrolled ? 'scrolled' : ''}`}>
         <div className="title">{chat.title}</div>
-        {effModel && effProvider && <ModelBadge model={effModel} withBar />}
+
+        {/* Capability strip: what this model can do BEFORE sending, plus the
+            prompt estimate so a 400 from the context limit is avoidable. */}
+        <div className="chat-caps">
+          {effModel && effProvider && (
+            <span className="cc-model" title={`${effProvider.name} · ${effModel}`}>
+              {effModel}<span className="cc-prov"> · {effProvider.name}</span>
+            </span>
+          )}
+          <span
+            className={`cap-dot ${thinkSupport === 'yes' ? 'on' : thinkSupport === 'no' ? 'off' : 'unk'}`}
+            title={thinkSupport === 'yes' ? t('think.capYes') : thinkSupport === 'no' ? t('think.capNo') : t('think.capUnknown')}
+          ><Icon name="brain" size={11} /></span>
+          <span className={`cap-dot ${cacheProfile.mode === 'none' ? 'off' : cacheAvailable ? 'on' : 'unk'}`} title={cacheTitle}>
+            <Icon name="bolt" size={11} />
+          </span>
+          <span className={`cap-dot ${toolsCap ? 'on' : 'off'}`} title={t('chat.tools')}>
+            <Icon name="tools" size={11} />
+          </span>
+          <span
+            className={`ctx-meter ${contextWindow > 0 && contextPct >= 80 ? 'warn' : ''}`}
+            title={t('chat.contextMeter')
+              .replace('{n}', String(contextUsedTokens))
+              .replace('{max}', contextWindow > 0 ? fmtTokens(contextWindow) : '?')}
+          >
+            {contextWindow > 0 && <span className="cm-bar"><span className="cm-fill" style={{ width: `${contextPct}%` }} /></span>}
+            <span className="cm-text">
+              {fmtTokens(contextUsedTokens)}{contextWindow > 0 ? ` / ${fmtTokens(contextWindow)}` : ''}
+            </span>
+          </span>
+        </div>
+
         <button className="small ghost" onClick={() => setModelModal(true)} title={t('model.editTitle')} aria-label={t('model.editTitle')}><Icon name="cpu" size={15} /></button>
-        <button className="small ghost" onClick={() => setShowAdvanced(!showAdvanced)} title="Advanced settings" aria-label="Advanced settings"><Icon name="settings" size={15} /></button>
+        <button className="small ghost" onClick={() => setShowAdvanced(!showAdvanced)} title={t('advanced.title')} aria-label={t('advanced.title')}><Icon name="settings" size={15} /></button>
         <button className={`small ghost ${zen ? 'active' : ''}`} onClick={() => setZen(!zen)} title={t('chat.zen')} aria-label={t('chat.zen')}><Icon name="expand" size={15} /></button>
         <button className={`small ghost ${ui.sidebarHidden ? 'active' : ''}`} onClick={() => ui.setSidebarHidden(!ui.sidebarHidden)} title={ui.sidebarHidden ? t('chat.showSidebar') : t('chat.hideSidebar')} aria-label={ui.sidebarHidden ? t('chat.showSidebar') : t('chat.hideSidebar')}><Icon name="panelLeft" size={15} /></button>
         <button className="small ghost" onClick={regenLast} disabled={streaming} title={t('chat.regenLast')} aria-label={t('chat.regenLast')}><Icon name="refresh" size={15} /></button>
-        <button className="small ghost" onClick={() => exportChat('md')} disabled={messages.length === 0} title={t('chat.export')} aria-label={t('chat.export')}><Icon name="download" size={15} /></button>
-        <button className="small ghost" onClick={() => exportChat('json')} disabled={messages.length === 0} title={t('chat.exportJson')} aria-label={t('chat.exportJson')}><Icon name="file" size={15} /></button>
-        <button className="small ghost danger" onClick={deleteChat} title={t('chat.delete')} aria-label={t('chat.delete')}><Icon name="trash" size={15} /></button>
+
+        <div className="comp-menu-wrap">
+          <button className="small ghost" onClick={() => setMenuOpen(!menuOpen)} aria-expanded={menuOpen}
+            title={t('chat.menu')} aria-label={t('chat.menu')}>⋯</button>
+          <Popover open={menuOpen} onClose={() => setMenuOpen(false)} align="right" width={300}>
+            <MenuItem icon="pencil" label={t('chat.rename')} onClick={() => { setMenuOpen(false); void renameChat(); }} />
+            <MenuItem icon="pin" label={pinned ? t('chat.unpin') : t('chat.pin')} active={pinned}
+              onClick={() => { setMenuOpen(false); void togglePin(); }} />
+            <MenuItem icon="download" label={t('chat.export')} onClick={() => { setMenuOpen(false); void exportChat('md'); }} />
+            <MenuItem icon="file" label={t('chat.exportJson')} onClick={() => { setMenuOpen(false); void exportChat('json'); }} />
+            <div className="menu-field">
+              <label>{t('chat.bindProject')}</label>
+              <select value={chat.project_id || ''} onChange={(e) => {
+                void dbCall('updateChat', { id: chat.id, project_id: e.target.value || null });
+                setActiveProject(e.target.value || null);
+                reloadChatRelated();
+              }}>
+                <option value="">{t('chat.noProject')}</option>
+                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <MenuItem icon="trash" danger label={t('chat.delete')} onClick={() => { setMenuOpen(false); void deleteChat(); }} />
+          </Popover>
+        </div>
       </div>
 
       {ov && !headerHidden && (
         <div className="card" style={{ margin: '10px 16px 0', flexShrink: 0 }}>
           <div className="grid-2">
             <div className="field">
-              <label>System prompt (this chat)</label>
+              <label>{t('advanced.system')}</label>
               <textarea rows={3} value={ovSystem || ''} onChange={(e) => setOvSystem(e.target.value)}
                 onBlur={() => dbCall('updateChat', { id: chat.id, system_prompt: ovSystem })} />
             </div>
             <div className="field">
-              <label>Project</label>
+              <label>{t('advanced.project')}</label>
               <select value={chat.project_id || ''} onChange={(e) => { dbCall('updateChat', { id: chat.id, project_id: e.target.value || null }); setActiveProject(e.target.value || null); reloadChatRelated(); }}>
-                <option value="">— none —</option>
+                <option value="">{t('advanced.none')}</option>
                 {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               <div className="hint">{t('projects.context')}</div>
             </div>
-            <div className="field"><label>Temperature: {(ovTemp ?? settings.temperature).toFixed(2)}</label>
+            <div className="field"><label>{t('advanced.temperature')}: {(ovTemp ?? settings.temperature).toFixed(2)}</label>
               <input type="range" min={0} max={2} step={0.05} value={ovTemp ?? settings.temperature} onChange={(e) => setOvTemp(clampNum(Number(e.target.value), 0, 2, settings.temperature))} /></div>
-            <div className="field"><label>Max tokens</label>
+            <div className="field"><label>{t('advanced.maxTokens')}</label>
               <input type="number" min={64} max={200000} value={ovMaxTok ?? settings.maxTokens} onChange={(e) => setOvMaxTok(clampNum(Number(e.target.value), 64, 200000, settings.maxTokens))} /></div>
-            <div className="field"><label>Top P</label>
+            <div className="field"><label>{t('advanced.topP')}</label>
               <input type="number" step={0.05} min={0} max={1} value={ovTopP ?? settings.topP} onChange={(e) => setOvTopP(clampNum(Number(e.target.value), 0, 1, settings.topP))} /></div>
-            <div className="field"><label>Thinking budget (tokens)</label>
-              <input type="number" min={1024} max={100000} value={thinkBudget ?? settings.thinkingBudget} onChange={(e) => setThinkBudget(clampNum(Number(e.target.value), 1024, 100000, settings.thinkingBudget))} /></div>
+            <div className="field"><label>{t('think.budgetLabel')}</label>
+              <input type="number" min={1024} max={maxThinkBudget} value={thinkBudget ?? settings.thinkingBudget} disabled={thinkSupport === 'no'}
+                title={thinkSupport === 'no' ? t('think.capNo') : undefined}
+                onChange={(e) => setThinkBudget(clampNum(Number(e.target.value), 1024, maxThinkBudget, settings.thinkingBudget))} />
+              <div className="hint">{t('think.budgetHint').replace('{n}', String(Math.round(maxThinkBudget / 1024)))}</div></div>
           </div>
           <div className="row" style={{ gap: 18 }}>
-            <label className="toggle"><input type="checkbox" checked={thinkOn ?? settings.thinkingEnabled} onChange={(e) => setThinkOn(e.target.checked)} /> <Icon name="brain" size={14} /> {t('chat.think')}</label>
+            <label className="toggle" title={thinkSupport === 'no' ? t('think.capNo') : undefined}><input type="checkbox" checked={(thinkOn ?? settings.thinkingEnabled) && thinkSupport !== 'no'} disabled={thinkSupport === 'no'} onChange={(e) => setThinkOn(e.target.checked)} /> <Icon name="brain" size={14} /> {t('chat.think')}</label>
             <label className="toggle"><input type="checkbox" checked={toolsOn ?? settings.toolsEnabled} onChange={(e) => setToolsOn(e.target.checked)} /> <Icon name="tools" size={14} /> {t('chat.tools')}</label>
-            <label className="toggle"><input type="checkbox" checked={memOn ?? settings.memoryEnabled} onChange={(e) => setMemOn(e.target.checked)} /> <Icon name="memory" size={14} /> Memory</label>
+            <label className="toggle"><input type="checkbox" checked={memOn ?? settings.memoryEnabled} onChange={(e) => setMemOn(e.target.checked)} /> <Icon name="memory" size={14} /> {t('advanced.memory')}</label>
           </div>
+          {thinkSupport === 'no' && <div className="hint" style={{ marginTop: 6 }}>{t('think.capNo')}</div>}
         </div>
       )}
 
@@ -1127,6 +1636,23 @@ export function ChatView() {
         onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
         onDrop={handleDrop}
       >
+        {messages.length === 0 && !streaming && (
+          <div className="chat-empty">
+            <div className="ce-ic"><Icon name="sparkle" size={20} /></div>
+            <div className="ce-title">{t('chat.emptyTitle')}</div>
+            <div className="ce-sub">{t('chat.emptySub')}</div>
+            <div className="ce-chips">
+              {emptySuggestions.map((s, i) => (
+                <button key={i} className="chip" onClick={() => setInput(s.prompt)}>{s.label}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        {hasOlder && (
+          <button className="load-earlier" onClick={loadOlder} disabled={loadingOlder} aria-busy={loadingOlder}>
+            {loadingOlder ? t('chat.loadingEarlier') : t('chat.loadOlderPage').replace('{n}', String(MESSAGE_PAGE))}
+          </button>
+        )}
         {renderLimit < messages.length && (
           <button className="load-earlier" onClick={expandEarlier} disabled={loadingEarlier} aria-busy={loadingEarlier}>
             {t('chat.loadEarlier').replace('{n}', String(Math.min(RENDER_WINDOW, messages.length - renderLimit)))}
@@ -1141,22 +1667,28 @@ export function ChatView() {
           <div className="msg-spacer" style={{ height: (messages.length - renderLimit) * 84 }} aria-hidden />
         )}
         {messages.slice(Math.max(0, messages.length - renderLimit)).map((m) => (
-          <MessageBubble key={m.id} msg={m} youLabel={t('chat.you')}
+          <MessageBubble key={m.id} msg={m} fresh={freshIds.has(m.id)} youLabel={t('chat.you')}
             editLabel={t('chat.edit')}
             saveResendLabel={t('chat.saveAndResend')}
             cancelLabel={t('chat.cancelEdit')}
             deleteLabel={t('chat.delete')}
+            onOpenFile={openMessageFile}
+            onRegen={onRegenMessage}
+            regenLabel={t('chat.regenHere')}
+            streaming={streaming}
             onDelete={onDeleteMessage}
             onEdit={onEditMessage}
             onSaveChapter={onSaveMessage}
             savedToChapter={savedChapters.has(m.id)}
-            tokensLabel={tokenLabel(m)} />
+            tokensLabel={tokenLabel(m)}
+            thinkMs={thinkDurationsRef.current[m.id]}
+            thinkingDisplay={settings.thinkingDisplay} />
         ))}
         {streaming && (
           <div className="msg assistant streaming">
             <div className="avatar"><Icon name="quill" size={15} /></div>
             <div className="bubble">
-              {streamThink && <ThinkingBlock text={streamThink} live />}
+              {streamThink && <ThinkingBlock text={streamThink} live display={settings.thinkingDisplay} />}
               {streamTools.length > 0 && (
                 <div style={{ marginBottom: 6 }}>
                   {streamTools.map((n, i) => <span key={i} className="tool-chip"><span className="tname">{n}</span></span>)}
@@ -1169,6 +1701,16 @@ export function ChatView() {
           </div>
         )}
       </div>
+
+      {dragOver && (
+        <div className="drop-overlay">
+          <div className="do-card">
+            <Icon name="paperclip" size={24} />
+            <span>{t('chat.dropHint')}</span>
+            <small>{t('chat.dropFormats')}</small>
+          </div>
+        </div>
+      )}
 
       {unreadCount > 0 && (
         <button
@@ -1213,6 +1755,11 @@ export function ChatView() {
         onPickModel={(m) => { setOvModel(m); if (chat) dbCall('updateChat', { id: chat.id, model: m }); }}
         thinkOn={thinkOn ?? settings.thinkingEnabled}
         setThinkOn={setThinkOn}
+        thinkSupport={thinkSupport}
+        thinkingUi={settings.thinkingUi}
+        thinkBudget={thinkBudget ?? settings.thinkingBudget}
+        setThinkBudget={setThinkBudget}
+        maxThinkBudget={maxThinkBudget}
         toolsOn={toolsOn ?? settings.toolsEnabled}
         setToolsOn={setToolsOn}
         // Chip mengikuti chat saja — TANPA fallback ke activeProjectId, agar
@@ -1226,6 +1773,8 @@ export function ChatView() {
         styles={styles}
         activeStyleId={settings.defaultStyleId}
         onPickStyle={(id) => settings.set('defaultStyleId', id)}
+        chatSkillsOff={parseSkillsOff(chat?.skills_off)}
+        onToggleSkill={toggleChatSkill}
         attachments={attachments}
         onRemoveAttachment={removeAttachment}
         onAttachClick={async () => {
@@ -1235,6 +1784,18 @@ export function ChatView() {
           if (files.length) addAttachments(files.map((f) => ({ id: uid(), name: f.name, kind: 'file' as const, content: f.content })));
         }}
       />
+
+      {filePreview && (
+        <FilePreviewModal
+          name={filePreview.name}
+          kind={filePreview.kind}
+          bytes={filePreview.bytes}
+          content={filePreview.content}
+          loading={filePreview.loading}
+          error={filePreview.error}
+          onClose={() => setFilePreview(null)}
+        />
+      )}
 
       {modelModal && effModel && effProvider && (
         // Guard: modal tanpa provider tidak punya key override yang valid.

@@ -64,7 +64,11 @@ const server = http.createServer((req, res) => {
             write({ choices: [{ index: 0, delta: { content: words[i] }, finish_reason: null }] });
             i++;
           } else {
-            write({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] });
+            // Provider usage on the final chunk, including prompt-cache reuse.
+            write({
+              choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+              usage: { prompt_tokens: 500, completion_tokens: 12, prompt_tokens_details: { cached_tokens: 384 } }
+            });
             res.write('data: [DONE]\n\n');
             clearInterval(timer);
             res.end();
@@ -127,6 +131,7 @@ async function main() {
   );
 
   check('final text correct', result.text === 'Hello from the mock stream engine test!', JSON.stringify(result.text));
+  check('cached prompt tokens are captured from usage', result.tokensCached === 384, String(result.tokensCached));
   check('tool was used', result.toolsUsed.includes('save_memory'), JSON.stringify(result.toolsUsed));
 
   // streaming must be incremental: text deltas spread over time, not one burst.

@@ -4,6 +4,7 @@ import { useT } from '../i18nReact';
 import { Icon } from './Icons';
 import { Modal, Switch } from './Ui';
 import { Provider } from '../types';
+import { thinkingSupport } from '../lib/modelCaps';
 
 const CONTEXT_PRESETS = [8192, 16384, 32768, 65536, 131072, 200000, 1000000];
 
@@ -30,6 +31,10 @@ export function ModelSettingsModal({
   const key = modelOverrideKey(provider.id, model);
   const saved: ModelOverride = settings.modelOverrides[key] || {};
   const savedSmart = saved.context === undefined && saved.maxTokens === undefined && saved.temperature === undefined && saved.topP === undefined && saved.thinkBudget === undefined;
+  // Capability evidence for this exact model: a rejected/probed record wins,
+  // otherwise the family table speaks (possibly `unknown`).
+  const support = thinkingSupport(model, { kind: (provider as any).kind || 'auto', record: settings.modelCaps[key] });
+  const supportLabel = support === 'yes' ? t('think.capYes') : support === 'no' ? t('think.capNo') : t('think.capUnknown');
 
   const [smart, setSmart] = useState(savedSmart);
   const [ctx, setCtx] = useState<number | ''>(saved.context ?? '');
@@ -88,6 +93,15 @@ export function ModelSettingsModal({
       <div className="field">
         <label>{t('model.id')}</label>
         <input value={model} disabled />
+        <div className={`caps-line support-${support}`} title={supportLabel}>
+          <Icon name="brain" size={13} />
+          <span>{supportLabel}</span>
+          {support === 'yes' && (
+            <span className="caps-budget">
+              · {t('think.budgetShort').replace('{n}', String(Math.max(1, Math.round((budget === '' ? settings.thinkingBudget : Number(budget)) / 1024))))}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="field">
@@ -145,9 +159,9 @@ export function ModelSettingsModal({
             </div>
             <div className="field" style={{ margin: 0, gridColumn: '1 / -1' }}>
               <label>{t('model.budget')}</label>
-              <input type="number" step={256} min={0} placeholder={String(settings.thinkingBudget)} disabled={smart}
+              <input type="number" step={256} min={0} placeholder={String(settings.thinkingBudget)} disabled={smart || support === 'no'}
                 value={budget} onChange={(e) => setBudget(e.target.value === '' ? '' : Number(e.target.value))} />
-              <div className="hint">{t('model.budgetHint')}</div>
+              <div className="hint">{support === 'no' ? t('think.capNo') : t('model.budgetHint')}</div>
             </div>
           </div>
         </div>

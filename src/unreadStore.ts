@@ -31,6 +31,8 @@ interface UnreadState {
   markRead(chatId: string): void;
   /** Remove tracking for deleted chats. */
   forget(chatId: string): void;
+  /** Drop entries whose chat no longer exists (called once on app load). */
+  prune(existingIds: string[]): void;
 }
 
 export const useUnreadStore = create<UnreadState>((set, get) => ({
@@ -51,6 +53,16 @@ export const useUnreadStore = create<UnreadState>((set, get) => ({
       delete unread[chatId];
       return { unread, lastRead: stamped };
     });
+  },
+
+  // Persisted last-read maps are never cleaned up by anything else, so a user
+  // who deletes chats accumulates keys forever (Task 11).
+  prune(existingIds) {
+    const keep = new Set(existingIds);
+    const lastRead = Object.fromEntries(Object.entries(get().lastRead).filter(([id]) => keep.has(id)));
+    const unread = Object.fromEntries(Object.entries(get().unread).filter(([id]) => keep.has(id)));
+    saveLastRead(lastRead);
+    set({ lastRead, unread });
   },
 
   forget(chatId) {

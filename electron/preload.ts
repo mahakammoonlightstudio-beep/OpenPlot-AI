@@ -14,6 +14,7 @@ const api = {
   verifyModel: (provider: any, model: string, reqId?: string) => ipcRenderer.invoke('ai:verifyModel', provider, model, reqId),
   validateKey: (provider: any) => ipcRenderer.invoke('ai:validateKey', provider),
   probeCapabilities: (provider: any, model: string) => ipcRenderer.invoke('ai:probeCapabilities', provider, model),
+  markThinkingRejected: (providerId: string, model: string) => ipcRenderer.invoke('ai:markThinkingRejected', providerId, model),
   providerPresets: () => ipcRenderer.invoke('ai:providerPresets'),
   refreshPresets: (providers: any[]) => ipcRenderer.invoke('ai:refreshPresets', providers),
   runPlugin: (pluginId: string, command: string, payload?: any) =>

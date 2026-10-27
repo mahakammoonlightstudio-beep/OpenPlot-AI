@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useData, useUi, dbCall } from '../store';
+import { useData, useSettings, useUi, dbCall } from '../store';
 import { useT } from '../i18nReact';
 import { Icon } from './Icons';
 import { Popover, MenuItem } from './Ui';
-import { Provider, StyleRow } from '../types';
+import { Provider, StyleRow, ThinkingSupport } from '../types';
 import {
   PROMPT_LIBRARY, PROMPT_CATEGORIES, applyPromptTemplate, mergePrompts,
   LibraryPrompt, PromptCategory
 } from '../promptLibrary';
 import { PromptEditorModal } from './PromptEditorModal';
+import { FilePreviewModal } from './FilePreviewModal';
 import { MentionCandidate, mentionToken, buildCandidates } from '../mentions';
+import { formatBytes, attachmentBytes } from '../lib/chatFiles';
+import { thinkingSupport } from '../lib/modelCaps';
 
 /**
  * The bottom composer:
@@ -23,12 +26,13 @@ import { MentionCandidate, mentionToken, buildCandidates } from '../mentions';
 export function Composer({
   input, setInput, onSend, streaming, onAbort,
   effModel, effProvider, allModels, onPickModel,
-  thinkOn, setThinkOn, toolsOn, setToolsOn,
+  thinkOn, setThinkOn,  thinkSupport, thinkingUi, thinkBudget, setThinkBudget, maxThinkBudget, toolsOn, setToolsOn,
   chatProjectId, onPickProject, onDetachProject,
   goal, setGoal,
   wordCount,
   styles, activeStyleId, onPickStyle,
   attachments, onRemoveAttachment, onAttachClick,
+  chatSkillsOff, onToggleSkill,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -41,6 +45,14 @@ export function Composer({
   onPickModel: (m: string) => void;
   thinkOn: boolean;
   setThinkOn: (v: boolean) => void;
+  /** What the selected model can actually expose (Task 4). */
+  thinkSupport: ThinkingSupport;
+  /** auto hides the control for `no` models; always keeps the plain switch. */
+  thinkingUi: 'auto' | 'always';
+  /** Per-chat reasoning budget, already bounded by the context window. */
+  thinkBudget: number;
+  setThinkBudget: (v: number) => void;
+  maxThinkBudget: number;
   toolsOn: boolean;
   setToolsOn: (v: boolean) => void;
   chatProjectId: string | null;
@@ -54,19 +66,47 @@ export function Composer({
   styles: StyleRow[];
   activeStyleId: string | null;
   onPickStyle: (id: string | null) => void;
-  /** Files/story/chapter chips for the NEXT message. */
-  attachments: Array<{ id: string; name: string; kind: 'file' | 'story' | 'chapter'; content: string }>;
+  /** Files/story/chapter cards for the NEXT message. */
+  attachments: Array<{ id: string; name: string; kind: 'file' | 'story' | 'chapter'; content: string; bytes?: number }>;
   onRemoveAttachment: (id: string) => void;
   onAttachClick: () => void | Promise<void>;
+  /** Skill ids this chat muted in the composer popover. */
+  chatSkillsOff?: string[];
+  onToggleSkill?: (id: string) => void;
 }) {
   const t = useT();
   const ui = useUi();
-  const { projects, providers, userPrompts } = useData();
+  // Narrow selectors (Task 11): the composer re-rendered on every data-store
+  // write — including story-bible edits and message reloads — because it
+  // subscribed to the whole store.
+  const projects = useData((s) => s.projects);
+  const providers = useData((s) => s.providers);
+  const userPrompts = useData((s) => s.userPrompts);
+  const skills = useData((s) => s.skills);
+  const modelCaps = useSettings((s) => s.modelCaps);
+  const [skillsOpen, setSkillsOpen] = useState(false);
+  // Skills that actually reach the prompt: enabled in Settings AND not muted
+  // for this chat. The popover toggles the per-chat half.
+  const offSkills = chatSkillsOff || [];
+  const enabledSkills = skills.filter((s) => Number(s.enabled) === 1 && !offSkills.includes(s.id));
+  const draftTokens = Math.ceil((input || '').length / 4);
+  // Hide the thinking control entirely when the model cannot expose reasoning;
+  // the `always` preference keeps the familiar On/Off switch (with a hint that
+  // this model may ignore it).
+  const showThink = thinkSupport !== 'no' || thinkingUi === 'always';
+  const thinkTitle = thinkSupport === 'no'
+    ? t('think.mayIgnore')
+    : thinkSupport === 'unknown'
+      ? t('think.unverifiedTitle')
+      : t('chat.think');
   const [addOpen, setAddOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [thinkOpen, setThinkOpen] = useState(false);
   const [styleOpen, setStyleOpen] = useState(false);
   const [projOpen, setProjOpen] = useState(false);
+  // Attachment preview lives here because the composer already holds the
+  // in-memory content — no DB round-trip until the message is sent.
+  const [previewFile, setPreviewFile] = useState<{ name: string; kind: 'file' | 'story' | 'chapter'; bytes: number; content: string } | null>(null);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const activeStyle = styles.find((s) => s.id === activeStyleId) || null;
   const chatProject = projects.find((p) => p.id === chatProjectId) || null;
@@ -74,7 +114,8 @@ export function Composer({
   // ---- @-mentions (story bible & chapters) ----
   // Typing "@word" opens a picker; inserting appends a compact token like
   // @["character:Kael Ardent"] that ChatView expands before sending.
-  const { story, chapters } = useData();
+  const story = useData((s) => s.story);
+  const chapters = useData((s) => s.chapters);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIdx, setMentionIdx] = useState(0);
   const mentionCandidates = useMemo(
@@ -217,20 +258,77 @@ export function Composer({
 
   const hasProject = !!chatProject;
 
+  // Thinking lives in the ability row (tools / thinking / skills) instead of
+  // the send toolbar; the popover keeps the per-chat budget for `yes` models.
+  const thinkingControl = showThink ? (
+    <div className="comp-menu-wrap">
+      <button
+        className={`think-btn ${thinkOn && thinkSupport !== 'no' ? 'on' : ''} support-${thinkSupport}`}
+        onClick={() => setThinkOpen(!thinkOpen)}
+        aria-expanded={thinkOpen}
+        title={thinkTitle}
+      >
+        <Icon name="brain" size={14} /> {thinkOn ? t('composer.on') : t('composer.off')}
+        {thinkSupport === 'unknown' && <span className="think-unknown" aria-label={t('think.unverifiedTitle')}>?</span>}
+        <Icon name="chevronDown" size={12} />
+      </button>
+      <Popover open={thinkOpen} onClose={() => setThinkOpen(false)} align="right" width={250}>
+        {thinkSupport === 'no' && <div className="ui-menu-empty">{t('think.mayIgnore')}</div>}
+        {thinkSupport === 'unknown' && <div className="ui-menu-empty">{t('think.unverifiedTitle')}</div>}
+        <MenuItem label={t('composer.off')} active={!thinkOn} onClick={() => { setThinkOpen(false); setThinkOn(false); }} />
+        <MenuItem label={t('composer.on')} active={thinkOn} onClick={() => { setThinkOpen(false); setThinkOn(true); }} />
+        {thinkSupport === 'yes' && (
+          <div className="think-budget">
+            <label>{t('think.budgetLabel')}</label>
+            <input
+              type="number" min={1024} max={maxThinkBudget} step={256}
+              value={thinkBudget}
+              onChange={(e) => setThinkBudget(Math.min(maxThinkBudget, Math.max(1024, Number(e.target.value) || thinkBudget)))}
+            />
+            <div className="hint">{t('think.budgetHint').replace('{n}', String(Math.round(maxThinkBudget / 1024)))}</div>
+          </div>
+        )}
+      </Popover>
+    </div>
+  ) : null;
+
   return (
     <div className="composer2">
       {attachments.length > 0 && (
-        <div className="attach-row">
-          {attachments.map((a) => (
-            <span key={a.id} className={`attach-chip kind-${a.kind}`} title={`${a.name} · ${a.content.length.toLocaleString()} chars`}>
-              <Icon name={a.kind === 'file' ? 'paperclip' : a.kind === 'story' ? 'book' : 'file'} size={12} />
-              <span className="n">{a.name}</span>
-              <button className="x" aria-label="Remove attachment" onClick={() => onRemoveAttachment(a.id)}>
-                <Icon name="x" size={11} />
-              </button>
-            </span>
-          ))}
+        <div className="attach-cards" aria-label={t('composer.attachments')}>
+          {attachments.map((a) => {
+            const bytes = attachmentBytes(a);
+            return (
+              <div key={a.id} className={`file-card kind-${a.kind}`}>
+                <button className="fc-main" title={t('chat.openFile').replace('{name}', a.name)}
+                  aria-label={t('chat.openFile').replace('{name}', a.name)}
+                  onClick={() => setPreviewFile({ name: a.name, kind: a.kind, bytes, content: a.content })}>
+                  <span className="fc-icon">
+                    <Icon name={a.kind === 'file' ? 'paperclip' : a.kind === 'story' ? 'book' : 'file'} size={14} />
+                  </span>
+                  <span className="fc-text">
+                    <span className="fc-name">{a.name}</span>
+                    <span className="fc-size">{formatBytes(bytes)} · {t('file.chars').replace('{n}', a.content.length.toLocaleString())}</span>
+                  </span>
+                </button>
+                <button className="fc-x" aria-label={t('composer.removeAttachment')}
+                  title={t('composer.removeAttachment')} onClick={() => onRemoveAttachment(a.id)}>
+                  <Icon name="x" size={12} />
+                </button>
+              </div>
+            );
+          })}
         </div>
+      )}
+
+      {previewFile && (
+        <FilePreviewModal
+          name={previewFile.name}
+          kind={previewFile.kind}
+          bytes={previewFile.bytes}
+          content={previewFile.content}
+          onClose={() => setPreviewFile(null)}
+        />
       )}
       {editorState && (
         <PromptEditorModal
@@ -263,7 +361,7 @@ export function Composer({
               onClick={() => setEditorState({ mode: 'new' })}>
               <Icon name="plus" size={13} />
             </button>
-            <button className="small ghost" aria-label="Close" onClick={() => setPromptOpen(false)}>
+            <button className="small ghost" aria-label={t('file.close')} onClick={() => setPromptOpen(false)}>
               <Icon name="x" size={13} />
             </button>
           </div>
@@ -467,31 +565,28 @@ export function Composer({
           <div className="comp-right">
             <div className="comp-menu-wrap">
               <button className="model-btn" onClick={() => setModelOpen(!modelOpen)} aria-expanded={modelOpen}
-                title={effProvider ? `${effProvider.name} · ${effModel}` : effModel || ''}>
+                title={allModels.length === 0
+                  ? t('composer.noModelsTitle')
+                  : effProvider ? `${effProvider.name} · ${effModel}` : effModel || ''}>
                 {effModel || t('chat.noModel')}
                 <Icon name="chevronDown" size={12} />
               </button>
               <Popover open={modelOpen} onClose={() => setModelOpen(false)} align="right" width={340}>
                 {allModels.map((m) => {
                   const owner = providers.find((p) => p.enabled && (Array.isArray(p.models) ? p.models : []).includes(m));
+                  // Say up front that a model has nothing to show for reasoning,
+                  // so the missing control is never a surprise.
+                  const support = thinkingSupport(m, {
+                    kind: (owner as any)?.kind || 'auto',
+                    record: owner ? modelCaps[`${owner.id}::${m}`] : undefined
+                  });
+                  const desc = [owner?.name, support === 'no' ? t('think.noReasoning') : ''].filter(Boolean).join(' · ');
                   return (
-                    <MenuItem key={m} label={m} desc={owner?.name} active={m === effModel}
+                    <MenuItem key={m} label={m} desc={desc} active={m === effModel}
                       onClick={() => { setModelOpen(false); onPickModel(m); }} />
                   );
                 })}
                 {allModels.length === 0 && <div className="ui-menu-empty">{t('chat.noProvider')}</div>}
-              </Popover>
-            </div>
-
-            <div className="comp-menu-wrap">
-              <button className={`think-btn ${thinkOn ? 'on' : ''}`} onClick={() => setThinkOpen(!thinkOpen)}
-                aria-expanded={thinkOpen} title={t('chat.think')}>
-                <Icon name="brain" size={14} /> {thinkOn ? t('composer.on') : t('composer.off')}
-                <Icon name="chevronDown" size={12} />
-              </button>
-              <Popover open={thinkOpen} onClose={() => setThinkOpen(false)} align="right" width={230}>
-                <MenuItem label={t('composer.off')} active={!thinkOn} onClick={() => { setThinkOpen(false); setThinkOn(false); }} />
-                <MenuItem label={t('composer.on')} active={thinkOn} onClick={() => { setThinkOpen(false); setThinkOn(true); }} />
               </Popover>
             </div>
 
@@ -516,7 +611,11 @@ export function Composer({
                 <Icon name="stop" size={14} />
               </button>
             ) : (
-              <button className="send-btn" onClick={onSend} disabled={!input.trim()} aria-label={t('chat.send')} title={t('chat.send')}>
+              <button className="send-btn" onClick={onSend} disabled={!input.trim()}
+                aria-label={t('chat.send')}
+                title={allModels.length === 0
+                  ? t('composer.sendNoModel')
+                  : !input.trim() ? t('composer.sendEmpty') : t('chat.send')}>
                 <Icon name="send" size={14} />
               </button>
             )}
@@ -524,10 +623,59 @@ export function Composer({
         </div>
       </div>
 
-      <div className="comp-hints">
-        <label className="toggle"><input type="checkbox" checked={toolsOn} onChange={(e) => setToolsOn(e.target.checked)} /> <Icon name="tools" size={13} /> {t('chat.tools')}</label>
+      <div className="comp-hints ability-row">
+        <label className={`ability-toggle ${toolsOn ? 'on' : ''}`} title={t('composer.toolsHint')}>
+          <input type="checkbox" checked={toolsOn} onChange={(e) => setToolsOn(e.target.checked)} />
+          <Icon name="tools" size={13} /> {t('chat.tools')}
+        </label>
+
+        {thinkingControl}
+
+        <div className="comp-menu-wrap">
+          <button className={`ability-btn ${enabledSkills.length ? 'on' : ''}`}
+            onClick={() => setSkillsOpen(!skillsOpen)} aria-expanded={skillsOpen}
+            title={t('composer.skillsHint')}>
+            <Icon name="sparkle" size={13} /> {t('composer.skills').replace('{n}', String(enabledSkills.length))}
+            <Icon name="chevronDown" size={11} />
+          </button>
+          <Popover open={skillsOpen} onClose={() => setSkillsOpen(false)} width={320}>
+            {skills.length === 0 && <div className="ui-menu-empty">{t('composer.skillsNone')}</div>}
+            {skills.map((s) => {
+              const enabled = Number(s.enabled) === 1;
+              const muted = offSkills.includes(s.id);
+              return (
+                <label
+                  key={s.id}
+                  className={`skill-toggle ${enabled ? '' : 'off'} ${muted ? 'muted' : ''}`}
+                  title={enabled ? (s.description || s.content.slice(0, 120)) : t('composer.skillDisabled')}
+                >
+                  <input
+                    type="checkbox"
+                    checked={enabled && !muted}
+                    disabled={!enabled || !onToggleSkill}
+                    onChange={() => onToggleSkill?.(s.id)}
+                  />
+                  <span className="skill-toggle-text">
+                    <span className="t">{s.name}</span>
+                    {s.description ? <small>{s.description}</small> : null}
+                  </span>
+                  {!enabled && <span className="badge">{t('composer.skillOff')}</span>}
+                </label>
+              );
+            })}
+            <button className="link skills-manage" onClick={() => { setSkillsOpen(false); useData.getState().navigate('settings'); }}>
+              {t('composer.manageSkills')}
+            </button>
+          </Popover>
+        </div>
+
         <span className="spacer" />
-        {wordCount > 0 && <span className="composer-words">{t('chat.words').replace('{n}', wordCount.toLocaleString())}</span>}
+        {draftTokens > 0 && (
+          <span className="composer-words">
+            {t('composer.tokens').replace('{n}', draftTokens.toLocaleString())}
+            {wordCount > 0 ? ` · ${t('chat.words').replace('{n}', wordCount.toLocaleString())}` : ''}
+          </span>
+        )}
         <span><kbd>Enter</kbd> {t('composer.send')} · <kbd>Shift+Enter</kbd> {t('composer.newline')}</span>
       </div>
     </div>

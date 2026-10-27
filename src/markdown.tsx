@@ -58,10 +58,33 @@ const ALIAS_LANGS: Record<string, string> = {
 const HL_CACHE = new Map<string, string>();
 const HL_CACHE_MAX = 300;
 const HL_CACHE_SKIP = 64 * 1024; // don't cache huge blocks
+// Byte budget (v1.2.3 Task 11): 300 long code blocks could still hold tens of
+// megabytes, so the cache is bounded by the size of what it stores.
+const HL_CACHE_BYTES_MAX = 4 * 1024 * 1024;
+let hlCacheBytes = 0;
+function hlCacheEvict(): void {
+  while ((HL_CACHE.size > HL_CACHE_MAX || hlCacheBytes > HL_CACHE_BYTES_MAX) && HL_CACHE.size) {
+    const oldest = HL_CACHE.keys().next().value as string;
+    const val = HL_CACHE.get(oldest) || '';
+    hlCacheBytes -= oldest.length + val.length;
+    HL_CACHE.delete(oldest);
+  }
+  if (hlCacheBytes < 0) hlCacheBytes = 0;
+}
+
+/** Introspection for the perf tests — never used by the app. */
+export function highlightCacheStats(): { entries: number; bytes: number } {
+  return { entries: HL_CACHE.size, bytes: hlCacheBytes };
+}
 function highlightCached(raw: string, language: string): string {
   const key = language + '\u0000' + raw;
   const hit = HL_CACHE.get(key);
-  if (hit !== undefined) return hit;
+  if (hit !== undefined) {
+    // Touch for LRU: re-insert so eviction drops the coldest entry first.
+    HL_CACHE.delete(key);
+    HL_CACHE.set(key, hit);
+    return hit;
+  }
   let value: string;
   try {
     const lang = ALIAS_LANGS[language] || language;
@@ -72,11 +95,9 @@ function highlightCached(raw: string, language: string): string {
     value = raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
   if (raw.length <= HL_CACHE_SKIP) {
-    if (HL_CACHE.size >= HL_CACHE_MAX) {
-      // drop the oldest entry (insertion order) — keeps memory bounded
-      HL_CACHE.delete(HL_CACHE.keys().next().value as string);
-    }
     HL_CACHE.set(key, value);
+    hlCacheBytes += key.length + value.length;
+    hlCacheEvict();
   }
   return value;
 }

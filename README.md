@@ -59,6 +59,21 @@ _Captured from a demo workspace using a local mock provider._
 - **Bring your own model.** OpenAI, Anthropic, OpenRouter, Groq, Ollama, LM Studio or any OpenAI-compatible `/v1` endpoint. One provider card per service, any model per chat.
 - **Local-first by design.** SQLite on your disk, API keys in the OS credential vault, no account, no cloud sync, no telemetry.
 
+## New in 1.2.3
+
+The “studio UX” release: a patch number on the tin, a rebuilt studio inside.
+
+- **Files live in the chat.** Attach a file and it becomes a card with its name and size — click it to read before sending. After send the card stays in the transcript and opens the full content in a popup; it survives restarts and is deleted with its message. Stored locally with the message (8 files, 256 KB each).
+- **A guide inside the app.** A bundled, searchable handbook in English and Bahasa Indonesia — chat, files, models and cache, thinking, skills, `agent.md`, the Story Bible, chapters, flow, stats, export, settings, plugins, MCP, privacy, troubleshooting, shortcuts — from the sidebar, the palette, `F1`, and the help buttons next to each setting.
+- **Thinking only where it exists.** The thinking control follows the model: reasoning models show the toggle, budget, live trace and duration; models without reasoning hide it and are never sent thinking parameters; unverified ones say so.
+- **Smart configuration reports cache memory.** Each model card states context, output, reasoning and prompt-cache capacity (automatic, explicit breakpoints, or unknown), plus the cached tokens the last reply actually reused. Anthropic requests send `cache_control`; OpenAI, DeepSeek and Gemini are read from provider usage.
+- **Skills you enable on purpose.** Six builtin skills ship with the app and upgrade safely. A newly added skill starts **disabled** — it must be enabled before it changes a reply — and can be switched off per chat from the composer.
+- **Settings that explain themselves.** Six groups instead of a wall of tabs, search across every control, a Simple/Advanced switch, guided provider setup, per-section reset, and a rewritten `agent.md` with a compiled-prompt preview and restore-to-default.
+- **Lighter under load.** Versioned migrations with a pre-upgrade backup, paged transcripts (at most 200 messages in memory, with load-earlier that keeps your place), code-split views, narrow store subscriptions, byte-capped highlight cache, and teardown for every timer and listener.
+- **Motion you can switch off.** Route fade, modal and toast entry, and a message-in animation for the newest bubble only — reduced-motion aware, and off in one setting.
+
+> Not in 1.2.3: the MCP bridge and the extended automation triggers. MCP server definitions are already stored, but nothing is spawned yet; see the MCP article in the in-app guide.
+
 ## New in 1.2
 
 - **Plot Smith — the story agent.** A four-step guided wizard: brief → three premise options → cast & world → three-act outline. Pick genre, tone, POV, length, format, audience, language and must-haves; include or exclude any character, location or lore card; then create the whole project — bible entries, chapters and flow beats — in one click. Plans are saved locally and can be reopened, and every step can be cancelled mid-generation.
@@ -72,7 +87,7 @@ _Captured from a demo workspace using a local mock provider._
 - Multi-provider, multi-model. Any model from any connected provider can be chosen per chat.
 - Streaming responses with a reasoning/thinking display (Anthropic extended thinking, DeepSeek-style `reasoning`, `<think>` tags).
 - **Reply styles** — builtin personas (Default, Concise, Explanatory, Editorial, Empathetic, Formal) injected as a system fragment; edit builtins or add custom styles in Settings → Styles.
-- **Attachments as chips** — attach files or drag them onto the chat; drag Story Bible entries and chapters straight from their views. They ride in the model context without polluting the composer.
+- **Attachment cards** — attach files or drag them onto the chat; drag Story Bible entries and chapters straight from their views. Each attachment is a card you can read before sending, and the file stays in the transcript after send, reopening in a popup.
 - **Token accounting** — prompt/completion tokens are captured from the provider when reported, estimated otherwise, and summarized per model and per chat in Settings → Usage.
 - **Agent tools** — the model can save memories, read the whole story bible in one call, search entries, create/update entries, create/update/append chapters, and read projects and chapters directly. Write actions refresh the Story Bible automatically.
 - **Prompt library** with `/` templates and `{placeholder}` substitution, **@-mentions** that expand entries and chapters into context, edit-and-resend, regenerate, delete and Markdown export.
@@ -85,7 +100,7 @@ _Captured from a demo workspace using a local mock provider._
 - **Story Flow** — a three-act outline board of beats that can be linked to chapters and moved between acts.
 - **One-click AI actions** on the open chapter: continue writing, critique, beat outline.
 - **Writing statistics** — daily goal, current and best streak, weekly totals, 90-day heatmap, per-project stakes and an AI arc analysis.
-- **Skills** — Continuity Guardian, Prose Polisher, Dialogue Coach and Pacing Analyst ship with the app; edit, delete or add your own.
+- **Skills** — Continuity Guardian, Prose Polisher, Dialogue Coach, Pacing Analyst, Beta Reader and Worldbuilding Architect ship with the app; edit, reset or delete them, add your own (new skills start disabled until enabled), and switch any skill off per chat.
 
 **Export and organization**
 - Whole-project export to Markdown, plain-text manuscript or EPUB (assembled in the main process, no external dependencies) with author and language metadata from Settings; per-chat Markdown export.
@@ -100,18 +115,18 @@ _Captured from a demo workspace using a local mock provider._
 
 ## Downloads
 
-Prebuilt binaries for **v1.2.1** are attached to the [GitHub releases](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases). Two packaging styles are provided for each platform:
+Prebuilt binaries for **v1.2.3** are attached to the [GitHub releases](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases). Two packaging styles are provided for each platform:
 
 - **Full app** — a single installer or self-contained file. Install (or run) and the app appears in the usual place for your system.
 - **Folder** — a compressed archive containing the application directory. Extract it anywhere and run the binary inside; useful for portable setups and systems without installer permissions.
 
 | Platform | Full app | Folder |
 | --- | --- | --- |
-| Windows | `OpenPlot.AI.Setup.1.2.1.exe` (NSIS installer) | `OpenPlot.AI-1.2.1-win.zip` |
-| macOS | `OpenPlot.AI-1.2.1-universal.dmg` (universal) | `OpenPlot.AI-1.2.1-universal-mac.zip` (universal) / `OpenPlot.AI-1.2.1-arm64-mac.zip` (Apple silicon) |
-| Linux | `OpenPlot.AI-1.2.1.AppImage` | `openplot-ai-1.2.1.tar.gz` |
+| Windows | `OpenPlot.AI.Setup.1.2.3.exe` (NSIS installer) | `OpenPlot.AI-1.2.3-win.zip` |
+| macOS | `OpenPlot.AI-1.2.3-universal.dmg` (universal) | `OpenPlot.AI-1.2.3-universal-mac.zip` (universal) / `OpenPlot.AI-1.2.3-arm64-mac.zip` (Apple silicon) |
+| Linux | `OpenPlot.AI-1.2.3.AppImage` | `openplot-ai-1.2.3.tar.gz` |
 
-The macOS disk image and the main macOS zip are universal binaries containing both Intel and Apple silicon builds; the `arm64-mac.zip` remains available for a smaller Apple silicon-only download. Older assets for v1.0.0, v1.0.1, v1.0.2, v1.1.0, v1.1.1 and v1.2.0 stay attached to their releases.
+The macOS disk image and the main macOS zip are universal binaries containing both Intel and Apple silicon builds; the `arm64-mac.zip` remains available for a smaller Apple silicon-only download. Older assets for v1.0.0, v1.0.1, v1.0.2, v1.1.0, v1.1.1, v1.2.0 and v1.2.1 stay attached to their releases.
 
 Releases are built automatically by GitHub Actions on tagged commits.
 

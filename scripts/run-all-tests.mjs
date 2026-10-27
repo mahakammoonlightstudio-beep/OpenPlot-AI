@@ -35,6 +35,16 @@ const PROJ = path.resolve(import.meta.dirname, '..');
 const GROUPS = {
   headless: [
     'db-test.mjs',        // sql.js schema/migrations/CRUD — no build output needed
+    'db-migration-test.mjs', // versioned migrations, pre-upgrade backup, newer-DB refusal
+    'model-caps-test.mjs',   // capability inference, cache profiles, persisted registry
+    'settings-index-test.mjs', // settings IA: groups, search, mode gating, reset defaults
+    'chat-files-test.mjs',   // chat attachments: metadata, lazy read, caps, cascade cleanup
+    'thinking-test.mjs',     // thinking parameter gating + reject-and-retry (mock Anthropic)
+    'skills-test.mjs',       // skills v2: idempotent seeding, enable gate, builtin reset
+    'prompt-test.mjs',       // system-prompt order, skill gating, budgets
+    'guide-test.mjs',        // guide articles: parsing, tokens, search, EN/ID coverage
+    'perf-test.mjs',         // transcript paging + DB write/persist budgets (5,000-row fixture)
+    'bundle-budget.mjs',     // built asset sizes: chunk/total JS + CSS caps (skips without dist/)
     'ai-parser-test.mjs', // baseUrlCandidates, SseParser, dataLines, extractError, statusHint
     'tools-test.mjs',     // agent tools vs a real temp DB
     'story-import-test.mjs', // story-bible file import parser (markdown/json/csv/txt)
@@ -47,7 +57,8 @@ const GROUPS = {
   ],
   'e2e-local': [
     'gui-test.mjs',       // boots vite+electron, drives the real UI (chat, tools, prompts)
-    'focus-test.mjs'      // boots vite+electron, keyboard-focus regression suite
+    'focus-test.mjs',     // boots vite+electron, keyboard-focus regression suite
+    'ui-task5-test.mjs'   // boots vite+electron, Task 5 studio UX (ability row, meter, drop, regen)
   ],
   'e2e-attach': [
     'e2e-flow-test.mjs',  // full story-flow flow on the running app

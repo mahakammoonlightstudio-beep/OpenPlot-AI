@@ -41,6 +41,10 @@ function withTimeout(p, ms, label) {
 // ---------- mock OpenAI SSE provider ----------
 const seenBodies = [];
 let seenToolRound = false; // one tool-call round per test run
+// The capability probe measures the context window with an echo ladder: each
+// rung asks for this marker back. Echoing it makes every rung pass, so the
+// card has a deterministic number (~131k) to display.
+const PROBE_MARKER = 'XQ7MARKER42';
 const server = http.createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/v1/models') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -68,6 +72,22 @@ const server = http.createServer((req, res) => {
             res.end(JSON.stringify({ choices: [{ message: { content: 'OK' } }] }));
           } catch { /* client aborted — socket already gone */ }
         }, 3000);
+        return;
+      }
+      // Context-ladder rung: echo the marker verbatim. The probe reads these
+      // bodies as plain JSON (it sets no `stream`), so answer in the shape it
+      // asked for — an SSE body here would make JSON.parse throw and end the
+      // ladder at the first rung.
+      if ((lastUser?.content || '').includes(PROBE_MARKER)) {
+        if (parsed.stream === true) {
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+          res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: PROBE_MARKER } }] }) + '\n\n');
+          res.write('data: [DONE]\n\n');
+          res.end();
+        } else {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ choices: [{ message: { content: PROBE_MARKER }, finish_reason: 'stop' }] }));
+        }
         return;
       }
       const round = seenBodies.length;
@@ -98,16 +118,18 @@ const server = http.createServer((req, res) => {
 // ---------- CDP with proper lifecycle handling ----------
 async function connectCdp(port) {
   // The /json/list endpoint can briefly return an empty target list while the
-  // renderer is still booting — poll until a page target exists.
+  // renderer is still booting, and an about:blank page target exists before the
+  // window navigates — binding to it makes every query return null. Poll until
+  // the dev-server URL is actually loaded.
   let list = [];
-  for (let i = 0; i < 40; i++) {
+  const findAppPage = () => list.find((t) => t.type === 'page' && /^http:\/\/localhost:5173/.test(t.url));
+  for (let i = 0; i < 80; i++) {
     try { list = await (await fetch('http://127.0.0.1:' + port + '/json/list')).json(); } catch { /* not ready */ }
-    const page = list.find((t) => t.type === 'page' && !/devtools/i.test(t.url));
-    if (page) break;
+    if (findAppPage()) break;
     await sleep(250);
   }
-  const page = list.find((t) => t.type === 'page' && !/devtools/i.test(t.url));
-  if (!page) throw new Error('no page target after polling');
+  const page = findAppPage();
+  if (!page) throw new Error('no app page target after polling');
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((res, rej) => { ws.onopen = res; ws.onerror = (e) => rej(new Error('ws error')); });
   let msgId = 0;
@@ -166,12 +188,17 @@ const setReactSelect = `(function(el,val){var p=Object.getOwnPropertyDescriptor(
   console.log('mock provider: http://127.0.0.1:' + mockPort + '/v1');
   console.log('isolated APPDATA: ' + tmpAppData + '\n');
 
-  const vite = spawn('npx', ['vite', '--port', '5173', '--strictPort'], { shell: true, stdio: 'ignore', cwd: PROJ });
+  // Spawn the vite binary directly: killing an `npx` wrapper leaves the node
+  // server orphaned and the next run silently reuses a stale dev server.
+  const vite = spawn(process.execPath, [path.join(PROJ, 'node_modules', 'vite', 'bin', 'vite.js'), '--port', '5173', '--strictPort'], { stdio: 'ignore', cwd: PROJ });
   await waitUntil(async () => { try { return (await fetch('http://localhost:5173/')).ok; } catch { return false; } }, 60000, 'vite ready');
   console.log('vite ready');
 
   const cdpPort = 9300 + Math.floor(Math.random() * 400);
-  const electron = spawn(electronExe, ['--remote-debugging-port=' + cdpPort, '.'], {
+  // Windows resolves %APPDATA% through the known-folder API and ignores the
+  // env override, so every run used to share one Chromium profile (and its
+  // persisted route). --user-data-dir makes the isolation real.
+  const electron = spawn(electronExe, ['--remote-debugging-port=' + cdpPort, '--user-data-dir=' + tmpAppData, '.'], {
     stdio: ['ignore', 'pipe', 'pipe'], cwd: PROJ,
     env: { ...process.env, INKWELL_DEV: '1', APPDATA: tmpAppData, OPENPLOT_DATA_DIR: tmpAppData, ELECTRON_ENABLE_LOGGING: '1' }
   });
@@ -196,9 +223,27 @@ const setReactSelect = `(function(el,val){var p=Object.getOwnPropertyDescriptor(
     // fail fast if this instance is somehow contaminated
     const counts = await cdp.evalJS("(async()=>{await window.inkwell.dbCall('resetAll');return 'fresh';})()");
     check('isolated DB confirmed (' + counts + ')', counts === 'fresh');
-    await waitUntil(() => cdp.evalJS("!!document.querySelector('.welcome-card')"), 30000, 'welcome screen');
+    try {
+      await waitUntil(() => cdp.evalJS("!!document.querySelector('.welcome-card')"), 30000, 'welcome screen');
+    } catch (e) {
+      const diag = await cdp.evalJS(`(async () => ({
+        route: window.useData?.getState().route,
+        chats: window.useData?.getState().chats.length,
+        activeChatId: window.useData?.getState().activeChatId,
+        welcomePage: !!document.querySelector('.welcome-page'),
+        settings: !!document.querySelector('.settings-content'),
+        position: localStorage.getItem('openplot.position.v1'),
+        dataPath: (await window.inkwell.appInfo()).dataPath,
+        text: document.body.innerText.slice(0, 160)
+      }))()`);
+      console.error('  boot diag: ' + JSON.stringify(diag));
+      throw e;
+    }
     check('welcome screen rendered', true);
-    await cdp.evalJS("document.querySelectorAll('.welcome-card')[0].click()");
+    // With no provider configured the FIRST card is "Connect a model" (it
+    // opens Settings), so pick a quick-start card that actually opens a chat.
+    const started = await cdp.evalJS("(function(){var c=document.querySelector('.welcome-card:not(.primary)');if(!c)return false;c.click();return true;})()");
+    if (!started) throw new Error('no quick-start card available');
     await waitUntil(() => cdp.evalJS("!!document.querySelector('.chat-header .title')"), 15000, 'chat view');
     check('chat opened via welcome card', true);
   });
@@ -231,11 +276,186 @@ const setReactSelect = `(function(el,val){var p=Object.getOwnPropertyDescriptor(
       throw new Error('Add button not found; buttons: ' + all);
     }
     await waitUntil(() => cdp.evalJS("!!document.querySelector('.provider-card')"), 10000, 'provider card');
-    await cdp.evalJS(`(function(){var c=document.querySelector('.provider-card');${setReactInput}(c.querySelector('.head input[type=text], .head input:not([type])'),'Mock');})()`);
-    await cdp.evalJS(`(function(){var c=document.querySelector('.provider-card .grid');var ins=c.querySelectorAll('input');${setReactInput}(ins[0],'http://127.0.0.1:${mockPort}/v1');${setReactInput}(ins[1],'sk-test');})()`);
-    await cdp.evalJS("[...document.querySelectorAll('.provider-card .head button')].find(b=>!b.className.includes('danger')).click()");
+    // Fill the form and press Test in ONE task: every discrete input event is
+    // flushed before the click, so the handler cannot run with a stale (empty)
+    // provider object. Splitting these into separate CDP calls used to drop the
+    // typed key now and then, which surfaced three checks downstream as a
+    // confusing "key decrypts" failure.
+    const configured = await cdp.evalJS(`(function(){
+      var c = document.querySelector('.provider-card');
+      var head = c.querySelector('.head input[type=text], .head input:not([type])');
+      var ins = c.querySelectorAll('.grid input');
+      ${setReactInput}(head, 'Mock');
+      ${setReactInput}(ins[0], 'http://127.0.0.1:${mockPort}/v1');
+      ${setReactInput}(ins[1], 'sk-test');
+      var test = [...c.querySelectorAll('.head button')].find(function(b){ return /test/i.test(b.textContent); });
+      if (!test) return 'no-test-button';
+      test.click();
+      return 'clicked';
+    })()`);
+    check('provider form filled and tested', configured === 'clicked', String(configured));
     await waitUntil(() => cdp.evalJS("[...document.querySelectorAll('.model-tag')].some(m=>m.textContent.includes('mock-gui'))"), 20000, 'models fetched');
     check('models fetched into UI (mock-gui)', true);
+    // The key must be in the row the app reads — assert it here, next to the
+    // step that writes it, instead of three checks later.
+    await waitUntil(() => cdp.evalJS("window.inkwell.dbCall('listProviders').then(rs=>rs.data.some(p=>(p.api_key??p.apiKey)==='sk-test'))"), 15000, 'provider key persisted');
+    check('typed api key persisted with the provider', true);
+
+    // Smart configuration card (v1.2.3 Task 2 UI). Nothing has probed mock-gui
+    // yet, so every row that needs evidence must read "unknown" rather than a
+    // plausible number.
+    const card = await cdp.evalJS(`(function(){
+      var c = document.querySelector('.provider-card .caps-card');
+      if (!c) return null;
+      var dd = c.querySelector('dd');
+      return {
+        rows: [...c.querySelectorAll('dt')].map(function(d){ return d.textContent.trim(); }).join('|'),
+        context: dd ? dd.textContent.trim() : '',
+        buttons: [...c.querySelectorAll('button')].map(function(b){ return b.textContent.trim(); }).join('|'),
+        summary: c.querySelector('.caps-summary') ? c.querySelector('.caps-summary').textContent.trim() : ''
+      };
+    })()`);
+    check('model card renders the four capability rows',
+      !!card && card.rows === 'Context|Max output|Reasoning|Prompt cache', JSON.stringify(card));
+    check('model card says unknown before any probe',
+      !!card && card.context === 'unknown' && /Context window unknown/.test(card.summary) && !/~\d/.test(card.summary),
+      JSON.stringify(card));
+    check('model card offers Verify', !!card && /Verify/.test(card.buttons), JSON.stringify(card));
+  });
+
+  await run('settings: grouped nav, models table, search, advanced mode', async () => {
+    const groups = await cdp.evalJS("[...document.querySelectorAll('.settings-group-label')].map(function(g){return g.textContent.trim();}).join('|')");
+    check('nav is grouped by area', /AI/.test(groups) && /Chat/.test(groups), groups);
+
+    // Models section: the mock provider's model must be listed even though
+    // nothing has probed it yet.
+    await cdp.evalJS("[...document.querySelectorAll('.settings-nav button')].find(function(b){return /^models$/i.test(b.textContent.trim());}).click()");
+    await waitUntil(() => cdp.evalJS("!!document.querySelector('.model-table')"), 10000, 'models table');
+    const row = await cdp.evalJS(`(function(){
+      var r = document.querySelector('.model-table tbody tr');
+      if (!r) return null;
+      return {
+        model: r.querySelector('code') ? r.querySelector('code').textContent.trim() : '',
+        provider: r.querySelector('small') ? r.querySelector('small').textContent.trim() : '',
+        cells: [...r.querySelectorAll('td')].map(function(td){ return td.textContent.trim(); })
+      };
+    })()`);
+    check('models table lists the connected model', !!row && row.model === 'mock-gui' && row.provider === 'Mock', JSON.stringify(row));
+    check('models table says unknown before a probe', !!row && /—/.test(row.cells[1]), JSON.stringify(row));
+    check('models table offers Set as default', !!row && /Set as default/i.test(row.cells[row.cells.length - 1]), JSON.stringify(row));
+
+    // Global settings search: type, get grouped hits, Enter jumps to a control.
+    await cdp.evalJS(`(function(){var i=document.querySelector('.settings-search input');${setReactInput}(i,'cache');})()`);
+    await waitUntil(() => cdp.evalJS("document.querySelectorAll('.settings-result').length > 0"), 8000, 'settings search results');
+    const hits = await cdp.evalJS("[...document.querySelectorAll('.settings-result')].map(function(b){return b.getAttribute('data-id');}).join('|')");
+    check('settings search finds the cache controls',
+      /set-model-table/.test(hits) || /set-usage-totals/.test(hits), hits);
+    await cdp.evalJS("document.querySelector('.settings-search input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))");
+    await waitUntil(() => cdp.evalJS("!document.querySelector('.settings-search input').value"), 5000, 'search cleared');
+    await waitUntil(() => cdp.evalJS("!!document.querySelector('.flash')"), 5000, 'target flashed');
+    check('Enter opens and highlights the matched control', true);
+
+    // Simple → Advanced reveals the Extend group and the sampling controls.
+    check('simple mode hides the Extend group',
+      !(await cdp.evalJS("[...document.querySelectorAll('.settings-group-label')].some(function(g){return /extend/i.test(g.textContent);})")));
+    await cdp.evalJS("document.querySelector('.settings-mode-toggle').click()");
+    await waitUntil(() => cdp.evalJS("[...document.querySelectorAll('.settings-group-label')].some(function(g){return /extend/i.test(g.textContent);})"), 5000, 'extend group');
+    check('advanced mode reveals the Extend group', true);
+    await cdp.evalJS("[...document.querySelectorAll('.settings-nav button')].find(function(b){return /behavior/i.test(b.textContent.trim());}).click()");
+    await waitUntil(() => cdp.evalJS("!!document.getElementById('set-top-p')"), 5000, 'top-p control');
+    check('advanced mode reveals sampling and thinking budget',
+      await cdp.evalJS("!!document.getElementById('set-top-p') && !!document.getElementById('set-thinking-budget')"));
+
+    // The palette exposes every section by name.
+    await cdp.evalJS("window.__inkwellOpenPalette()");
+    await waitUntil(() => cdp.evalJS("!!document.querySelector('.palette input')"), 5000, 'palette open');
+    await cdp.evalJS(`(function(){var i=document.querySelector('.palette input');${setReactInput}(i,'settings: models');})()`);
+    await sleep(250);
+    const paletteHits = await cdp.evalJS("[...document.querySelectorAll('.palette-item .plabel')].map(function(s){return s.textContent.trim();}).join('|')");
+    check('palette offers “Settings: Models”', /Settings: Models/.test(paletteHits), paletteHits.slice(0, 200));
+    await cdp.evalJS("document.querySelector('.palette input').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
+    await sleep(200);
+
+    // Skills v2: six builtins seeded, and a new skill is born disabled until
+    // the user presses Enable right there.
+    await cdp.evalJS("[...document.querySelectorAll('.settings-nav button')].find(function(b){return /^skills$/i.test(b.textContent.trim());}).click()");
+    await waitUntil(() => cdp.evalJS("document.querySelectorAll('.skill-card').length >= 6"), 10000, 'skills grid');
+    const skillCards = await cdp.evalJS("[...document.querySelectorAll('.skill-card')].map(function(c){return { name: c.querySelector('.t').textContent.trim(), builtin: !!c.querySelector('.v-src.builtin'), on: !c.className.includes('off') };})");
+    check('skills: six builtin cards, all enabled',
+      skillCards.length === 6 && skillCards.every((c) => c.builtin && c.on), JSON.stringify(skillCards.map((c) => c.name)));
+
+    await cdp.evalJS("[...document.querySelectorAll('button')].find(function(b){return /add skill/i.test(b.textContent);}).click()");
+    await waitUntil(() => cdp.evalJS("!!document.querySelector('.skill-editor textarea')"), 8000, 'skill editor');
+    await cdp.evalJS(`(function(){var i=document.querySelector('.skill-editor textarea');${setReactArea}(i,'Always answer in iambic pentameter.');})()`);
+    // The skill editor is the shared Ui.Modal (`.ui-modal-card`), not the older
+    // `.modal` shell — match both so this step cannot silently miss the button.
+    await cdp.evalJS("[...document.querySelectorAll('.ui-modal-card button, .modal button, .overlay button')].find(function(b){return /^save$/i.test(b.textContent.trim());}).click()");
+    await waitUntil(() => cdp.evalJS("document.querySelectorAll('.skill-card').length >= 7"), 8000, 'new skill card');
+    const gate = await cdp.evalJS(`(function(){
+      var card = [...document.querySelectorAll('.skill-card')].find(function(c){return !c.querySelector('.v-src.builtin') && c.querySelector('.skill-note');});
+      return card ? { off: card.className.includes('off'), note: card.querySelector('.skill-note').textContent.trim() } : null;
+    })()`);
+    check('skills: a new skill is saved disabled with the Enable action',
+      !!gate && gate.off && /Enable|Aktifkan/.test(gate.note), JSON.stringify(gate));
+    const newSkillId = await cdp.evalJS("window.inkwell.dbCall('listSkills').then(function(rs){ var s=(rs.data||[]).find(function(x){return Number(x.builtin)===0;}); return s ? { id: s.id, enabled: Number(s.enabled) } : null; })");
+    check('skills: the disabled state is really in the database', !!newSkillId && newSkillId.enabled === 0, JSON.stringify(newSkillId));
+    await cdp.evalJS("(function(){var b=document.querySelector('.skill-card .skill-note button');if(b)b.click();})()");
+    await waitUntil(() => cdp.evalJS("window.inkwell.dbCall('listSkills').then(function(rs){ return (rs.data||[]).some(function(x){return Number(x.builtin)===0 && Number(x.enabled)===1;}); })"), 8000, 'skill enabled');
+    check('skills: Enable writes enabled=1', true);
+
+    // Back to a known state for the rest of the suite: Simple mode, Providers
+    // section (the provider card and its capability card are asserted below).
+    await cdp.evalJS("document.querySelector('.settings-mode-toggle').click()");
+    await sleep(150);
+    await cdp.evalJS("[...document.querySelectorAll('.settings-nav button')].find(function(b){return /providers/i.test(b.textContent.trim());}).click()");
+    await waitUntil(() => cdp.evalJS("!!document.querySelector('.provider-card')"), 8000, 'providers section');
+  });
+
+  await run('model card: Verify measures the context window', async () => {
+    // End-to-end click: Verify → IPC probe (tools + SSE + echo ladder) → main
+    // process registry → store reload → re-render. The card must trade
+    // "unknown" for the measured number without a page reload.
+    const clicked = await cdp.evalJS(`(function(){
+      var c = document.querySelector('.provider-card .caps-card');
+      if (!c) return false;
+      var b = [...c.querySelectorAll('button')].find(function(x){ return /verif/i.test(x.textContent); });
+      if (!b) return false;
+      b.click();
+      return true;
+    })()`);
+    check('card Verify button clicked', clicked === true);
+    await waitUntil(() => cdp.evalJS(`(function(){
+      var c = document.querySelector('.provider-card .caps-card');
+      if (!c) return false;
+      var dd = c.querySelectorAll('dd')[0];
+      return !!dd && /~\\d/.test(dd.textContent);
+    })()`), 45000, 'context window on the card');
+    const after = await cdp.evalJS(`(function(){
+      var c = document.querySelector('.provider-card .caps-card');
+      var dds = c.querySelectorAll('dd');
+      return {
+        context: dds[0] ? dds[0].textContent.trim() : '',
+        cache: dds[3] ? dds[3].textContent.trim() : '',
+        summary: c.querySelector('.caps-summary') ? c.querySelector('.caps-summary').textContent.trim() : '',
+        buttons: [...c.querySelectorAll('button')].map(function(b){ return b.textContent.trim(); }).join('|')
+      };
+    })()`);
+    check('card shows the probed context window', /^~131(\.\d)?k tok$/.test(after.context), JSON.stringify(after));
+    check('a local endpoint reports no prompt cache', /not available/.test(after.cache), JSON.stringify(after));
+    check('card summary states the measured window',
+      /Context window 131072 tokens/.test(after.summary), JSON.stringify(after));
+    check('Verify becomes Verify again, Apply appears',
+      /Verify again/.test(after.buttons) && /Apply smart/.test(after.buttons), JSON.stringify(after));
+    // The evidence lives in the main process, not only in React state.
+    const persisted = await cdp.evalJS(`window.inkwell.dbCall('getAllSettings',{}).then(function(r){
+      var rows = (r && r.data) || r || {};
+      var raw = rows['modelCaps'];
+      if (!raw) return 0;
+      var map = JSON.parse(raw);
+      var rec = map[Object.keys(map)[0]];
+      return rec && rec.caps ? rec.caps.contextTokens : 0;
+    })`);
+    check('probe result persisted in settings.modelCaps', Number(persisted) === 131072, String(persisted));
   });
 
   await run('api key encrypted at rest', async () => {
@@ -254,8 +474,11 @@ const setReactSelect = `(function(el,val){var p=Object.getOwnPropertyDescriptor(
     check('raw DB file contains NO plaintext api key', plainIdx === -1, plaintextHit(plainIdx));
     // The app itself must still read the key back correctly (decrypted).
     // Raw dbCall rows use snake_case api_key; the store normalizes to apiKey.
+    // Report the stored shape on failure: an empty key means the UI never
+    // persisted what was typed, while `enc:v1:` here means decrypt returned ''.
+    const stored = await cdp.evalJS("window.inkwell.dbCall('listProviders').then(function(rs){ return JSON.stringify((rs.data||[]).map(function(p){ var k=p.api_key??p.apiKey??''; return { name:p.name, keyLen:String(k).length, ciphertext:String(k).indexOf('enc:v1:')===0 }; })); })");
     const keyRoundtrip = await cdp.evalJS("window.inkwell.dbCall('listProviders').then(rs=>rs.data.some(p=>(p.api_key??p.apiKey)==='sk-test'))");
-    check('key decrypts correctly for the app', keyRoundtrip === true);
+    check('key decrypts correctly for the app', keyRoundtrip === true, stored);
   });
 
   await run('encryption badge shown in Data section', async () => {
@@ -293,8 +516,21 @@ const setReactSelect = `(function(el,val){var p=Object.getOwnPropertyDescriptor(
   });
 
   await run('set default model', async () => {
-    const s = await cdp.evalJS("(function(){var s=document.querySelector('.settings-content .card select');if(!s)return false;var set=Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype,'value').set;set.call(s,'mock-gui');s.dispatchEvent(new Event('change',{bubbles:true}));return true;})()");
-    check('default model select set to mock-gui', s === true);
+    // The default-model picker lives in Settings → Models now; its option values
+    // are `providerId::model`, so pick the option by its visible model id.
+    await cdp.evalJS("[...document.querySelectorAll('.settings-nav button')].find(function(b){return /^models$/i.test(b.textContent.trim());}).click()");
+    await waitUntil(() => cdp.evalJS("!!document.getElementById('set-default-model')"), 8000, 'models section');
+    const s = await cdp.evalJS(`(function(){
+      var sel = document.getElementById('set-default-model').querySelector('select');
+      if (!sel) return 'no-select';
+      var opt = [...sel.options].find(function(o){ return o.textContent.trim() === 'mock-gui'; });
+      if (!opt) return 'no-option';
+      var set = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype,'value').set;
+      set.call(sel, opt.value);
+      sel.dispatchEvent(new Event('change',{bubbles:true}));
+      return 'set:' + opt.value;
+    })()`);
+    check('default model select set to mock-gui', typeof s === 'string' && s.startsWith('set:'), String(s));
   });
 
   await run('new chat via command palette', async () => {

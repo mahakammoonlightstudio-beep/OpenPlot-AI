@@ -1,6 +1,8 @@
 import { create } from 'zustand';
-import { Provider, Project, Folder, Chat, Message, Memory, StoryEntry, Chapter, FlowBeat, PluginRow, SkillRow, AutomationRow, McpRow, AppInfo, UserPrompt, StyleRow } from './types';
+import { Provider, Project, Folder, Chat, Message, Memory, StoryEntry, Chapter, FlowBeat, PluginRow, SkillRow, AutomationRow, McpRow, AppInfo, UserPrompt, StyleRow, ModelCapsRecord } from './types';
 import { readPosition, writePosition } from './lib/uiPosition';
+import { useUnreadStore } from './unreadStore';
+import { useWriteStats } from './writeStats';
 
 // Mahakam Moonlight Studio — official links (v1.0.0 rebrand)
 export const DONATE_URL = 'https://sociabuzz.com/mahakam_moonlight_studio/tribe';
@@ -16,6 +18,8 @@ export const YOUTUBE_URL = 'https://www.youtube.com/@MahakamMoonlightStudio';
 export const LINKEDIN_URL = 'https://www.linkedin.com/in/muhammad-fauzan-raffa-al-habsy-369628411/';
 export const TWITTER_URL = 'https://x.com/MahakamMoocb';
 export const STUDIO_NAME = 'Mahakam Moonlight Studio';
+/** Feedback / security reports. Also published in SECURITY.md and the website. */
+export const FEEDBACK_EMAIL = 'mahakammoonlightstudio@gmail.com';
 
 // ---------- helpers ----------
 
@@ -68,25 +72,77 @@ interface UiState {
   paletteOpen: boolean;
   /** Zen-mode companion: slides the whole sidebar away (chat header toggle). */
   sidebarHidden: boolean;
+  /**
+   * Section the Settings view should show next. The palette sets it before
+   * navigating, and the search results set it after picking a section, so any
+   * control is two keystrokes away (v1.2.3 Task 6).
+   */
+  settingsSection: string | null;
+  /** Control id to scroll to and flash once the section has rendered. */
+  settingsFocus: string | null;
+  /** Global keyboard-shortcuts sheet (F1 / Ctrl+Shift+/). */
+  shortcutsOpen: boolean;
   toast(msg: string, kind?: ToastItem['kind']): void;
   dismiss(id: string): void;
   setPalette(open: boolean): void;
   setSidebarHidden(hidden: boolean): void;
+  setSettingsSection(section: string | null, focusId?: string | null): void;
+  clearSettingsFocus(): void;
+  setShortcuts(open: boolean): void;
 }
 
 export const useUi = create<UiState>((set) => ({
   toasts: [],
   paletteOpen: false,
   sidebarHidden: false,
+  settingsSection: null,
+  settingsFocus: null,
+  shortcutsOpen: false,
   toast(msg, kind = 'info') {
     const id = uid();
     set((s) => ({ toasts: [...s.toasts, { id, msg, kind }] }));
-    setTimeout(() => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), 3800);
+    // Coalesce identical messages: a loop of failures used to stack ten copies.
+    set((s) => ({
+      toasts: s.toasts.filter((t) => t.msg !== msg || t.id === id)
+    }));
+    scheduleToastDismiss(id, 3800, (tid) => useUi.getState().dismiss(tid));
   },
-  dismiss(id) { set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })); },
+  dismiss(id) {
+    cancelToastTimer(id);
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+  },
   setPalette(open) { set({ paletteOpen: open }); },
-  setSidebarHidden(hidden) { set({ sidebarHidden: hidden }); }
+  setSidebarHidden(hidden) { set({ sidebarHidden: hidden }); },
+  setSettingsSection(section, focusId = null) { set({ settingsSection: section, settingsFocus: focusId }); },
+  clearSettingsFocus() { set({ settingsFocus: null }); },
+  setShortcuts(open) { set({ shortcutsOpen: open }); }
 }));
+
+// Toast timers live outside the store state so dismissing a toast (or replacing
+// its text) can cancel the old countdown — previously every toast kept a timer
+// alive for 3.8 s no matter what the user did (Task 11).
+const toastTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** Start (or restart) the dismiss countdown for one toast. */
+export function scheduleToastDismiss(id: string, ms: number, dismiss: (id: string) => void): void {
+  cancelToastTimer(id);
+  toastTimers.set(id, setTimeout(() => {
+    toastTimers.delete(id);
+    dismiss(id);
+  }, ms));
+}
+
+/** Cancel every pending countdown — called on window teardown. */
+export function clearToastTimers(): void {
+  for (const timer of toastTimers.values()) clearTimeout(timer);
+  toastTimers.clear();
+}
+
+function cancelToastTimer(id: string): void {
+  const timer = toastTimers.get(id);
+  if (timer) clearTimeout(timer);
+  toastTimers.delete(id);
+}
 
 // ---------- settings store ----------
 
@@ -130,10 +186,26 @@ interface SettingsState {
   toolsEnabled: boolean;
   thinkingEnabled: boolean;
   thinkingBudget: number;
+  /** auto = expand while streaming, collapse after; expanded/collapsed pin it. */
+  thinkingDisplay: 'auto' | 'expanded' | 'collapsed';
+  /** auto = hide the control for models that cannot expose reasoning. */
+  thinkingUi: 'auto' | 'always';
   autoMemory: boolean;
   /** Active reply style (id in prompt_styles). Persisted globally. */
   defaultStyleId: string | null;
   modelOverrides: Record<string, ModelOverride>;
+  /** Persisted capability probes + observed cache reuse, keyed `${providerId}::${model}`. */
+  modelCaps: Record<string, ModelCapsRecord>;
+  /** simple hides advanced model params and the Extend group; nothing is removed. */
+  settingsMode: 'simple' | 'advanced';
+  /** When on, the app aligns chat defaults with what the chosen model supports. */
+  smartDefaults: boolean;
+  /** Explicit provider+model pair chosen in Settings → Models (`defaultModel` stays for compat). */
+  defaultModelRef: { providerId: string; model: string } | null;
+  /** system follows the OS; full always animates; reduced kills motion. */
+  motion: 'system' | 'full' | 'reduced';
+  /** Last app version whose "What's new" was dismissed (shown once per version). */
+  lastSeenVersion: string;
   set<K extends keyof SettingsState>(key: K, value: SettingsState[K]): void;
   load(): Promise<void>;
 }
@@ -166,9 +238,22 @@ const SETTING_SANITIZERS: Record<string, (v: any) => any> = {
   toolsEnabled: (v) => boolOr(v, true),
   thinkingEnabled: (v) => boolOr(v, true),
   thinkingBudget: (v) => clampNum(v, 4096, 1024, 100000),
+  thinkingDisplay: (v) => (v === 'expanded' || v === 'collapsed' ? v : 'auto'),
+  thinkingUi: (v) => (v === 'always' ? 'always' : 'auto'),
   autoMemory: (v) => boolOr(v, true),
   defaultStyleId: (v) => (typeof v === 'string' ? v : null),
-  modelOverrides: (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {})
+  modelOverrides: (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {}),
+  settingsMode: (v) => (v === 'advanced' ? 'advanced' : 'simple'),
+  smartDefaults: (v) => boolOr(v, true),
+  motion: (v) => (v === 'full' || v === 'reduced' ? v : 'system'),
+  lastSeenVersion: (v) => strOr(v, ''),
+  defaultModelRef: (v) => (v && typeof v === 'object' && typeof v.providerId === 'string' && typeof v.model === 'string'
+    ? { providerId: v.providerId, model: v.model }
+    : null),
+  // Written by the main process (probe results + provider-reported cache hits).
+  // Sanitized to a plain object here so a hand-edited settings row cannot put a
+  // string/array where every consumer expects a map.
+  modelCaps: (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {})
 };
 
 export const useSettings = create<SettingsState>((set, get) => ({
@@ -189,12 +274,21 @@ export const useSettings = create<SettingsState>((set, get) => ({
   memoryEnabled: true,
   toolsEnabled: true,
   // Thinking defaults ON — models that don't return reasoning fields simply
-  // ignore the request, so enabling it globally is safe.
+  // ignore the request, so enabling it globally is safe. The UI hides the
+  // control per model; the request rule still refuses to send it to `no` models.
   thinkingEnabled: true,
   thinkingBudget: 4096,
+  thinkingDisplay: 'auto',
+  thinkingUi: 'auto',
   autoMemory: true,
   defaultStyleId: null,
   modelOverrides: {} as Record<string, ModelOverride>,
+  modelCaps: {} as Record<string, ModelCapsRecord>,
+  settingsMode: 'simple',
+  smartDefaults: true,
+  defaultModelRef: null,
+  motion: 'system',
+  lastSeenVersion: '',
   async load() {
     try {
       const raw = await dbCall<Record<string, string>>('getAllSettings');
@@ -245,6 +339,9 @@ interface DataState {
   activeChatId: string | null;
   activeProjectId: string | null;
   route: string;
+  /** Guide article currently open (route `guide`); deep-linkable. */
+  guideSlug: string;
+  setGuideSlug(slug: string): void;
   load(): Promise<void>;
   reloadChatRelated(): Promise<void>;
   /** Refresh only the Story Bible rows — called after the agent writes an
@@ -281,6 +378,8 @@ export const useData = create<DataState>((set, get) => ({
   activeChatId: savedPosition.activeChatId,
   activeProjectId: savedPosition.activeProjectId,
   route: savedPosition.route,
+  guideSlug: 'getting-started',
+  setGuideSlug(slug) { set({ guideSlug: slug || 'getting-started' }); },
   async load() {
     try {
       const [providers, projects, folders, chats, memories, story, chapters, flowBeats, userPrompts, styles, plugins, skills, automations, mcpServers] = await Promise.all([
@@ -307,6 +406,12 @@ export const useData = create<DataState>((set, get) => ({
       const activeProjectId = current.activeProjectId && projects.some((p) => p.id === current.activeProjectId)
         ? current.activeProjectId : null;
       set({ providers: providers.map(normProvider), projects, folders, chats, memories, story, chapters, flowBeats, userPrompts, styles, plugins, skills, automations, mcpServers, activeChatId, activeProjectId });
+      // Prune persisted per-id maps once per load: rows deleted outside the app
+      // (or by a previous session) used to linger in localStorage forever.
+      try {
+        useUnreadStore.getState().prune(chats.map((c) => c.id));
+        useWriteStats.getState().prune(projects.map((p) => p.id));
+      } catch { /* stats/unread stores are best-effort */ }
       if (activeChatId !== current.activeChatId || activeProjectId !== current.activeProjectId) {
         writePosition({ route: current.route, activeChatId, activeProjectId });
       }

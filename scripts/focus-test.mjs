@@ -38,14 +38,16 @@ async function waitUntil(fn, timeoutMs, label) {
 // ---------- CDP ----------
 async function connectCdp(port) {
   let list = [];
-  for (let i = 0; i < 40; i++) {
+  // An about:blank page target exists before the window navigates; binding to
+  // it makes dbCall work but leaves every DOM query empty.
+  const findAppPage = () => list.find((t) => t.type === 'page' && /^http:\/\/localhost:5173/.test(t.url));
+  for (let i = 0; i < 80; i++) {
     try { list = await (await fetch('http://127.0.0.1:' + port + '/json/list')).json(); } catch { /* not ready */ }
-    const page = list.find((t) => t.type === 'page' && !/devtools/i.test(t.url));
-    if (page) break;
+    if (findAppPage()) break;
     await sleep(250);
   }
-  const page = list.find((t) => t.type === 'page' && !/devtools/i.test(t.url));
-  if (!page) throw new Error('no page target after polling');
+  const page = findAppPage();
+  if (!page) throw new Error('no app page target after polling');
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error('ws error')); });
   let msgId = 0;
@@ -98,7 +100,7 @@ const setReactInput = `(function(el,val){var p=Object.getOwnPropertyDescriptor(w
   const { execSync } = await import('node:child_process');
   try {
     const out = execSync('netstat -ano | findstr :5173 | findstr LISTENING', { shell: 'cmd.exe' }).toString();
-    const pids = [...new Set(out.split('\\n').map((l) => l.trim().split(/\\s+/).pop()).filter(Boolean))];
+    const pids = [...new Set(out.split('\n').map((l) => l.trim().split(/\s+/).pop()).filter((p) => /^\d+$/.test(p || '')))];
     for (const pid of pids) { try { execSync('taskkill /F /PID ' + pid, { shell: 'cmd.exe' }); } catch { /* ignore */ } }
   } catch { /* nothing listening */ }
   try { execSync('taskkill /F /IM electron.exe /T', { shell: 'cmd.exe' }); } catch { /* none */ }
@@ -106,12 +108,17 @@ const setReactInput = `(function(el,val){var p=Object.getOwnPropertyDescriptor(w
   const tmpAppData = fs.mkdtempSync(path.join(os.tmpdir(), 'openplot-focus-'));
   console.log('isolated APPDATA: ' + tmpAppData);
 
-  const vite = spawn('npx', ['vite', '--port', '5173', '--strictPort'], { shell: true, stdio: 'ignore', cwd: PROJ });
+  // Spawn the vite binary directly: killing an `npx` wrapper leaves the node
+  // server orphaned and the next run silently reuses a stale dev server.
+  const vite = spawn(process.execPath, [path.join(PROJ, 'node_modules', 'vite', 'bin', 'vite.js'), '--port', '5173', '--strictPort'], { stdio: 'ignore', cwd: PROJ });
   await waitUntil(async () => { try { return (await fetch('http://localhost:5173/')).ok; } catch { return false; } }, 60000, 'vite ready');
   console.log('vite ready');
 
   const cdpPort = 9750 + Math.floor(Math.random() * 200);
-  const electron = spawn(electronExe, ['--remote-debugging-port=' + cdpPort, '.'], {
+  // Windows resolves %APPDATA% through the known-folder API and ignores the
+  // env override, so every run used to share one Chromium profile (and its
+  // persisted route). --user-data-dir makes the isolation real.
+  const electron = spawn(electronExe, ['--remote-debugging-port=' + cdpPort, '--user-data-dir=' + tmpAppData, '.'], {
     stdio: ['ignore', 'pipe', 'pipe'], cwd: PROJ,
     env: { ...process.env, INKWELL_DEV: '1', APPDATA: tmpAppData, OPENPLOT_DATA_DIR: tmpAppData, ELECTRON_ENABLE_LOGGING: '1' }
   });
@@ -120,7 +127,7 @@ const setReactInput = `(function(el,val){var p=Object.getOwnPropertyDescriptor(w
 
   await waitUntil(async () => { try { return (await fetch('http://127.0.0.1:' + cdpPort + '/json/list')).ok; } catch { return false; } }, 60000, 'CDP endpoint');
   const cdp = await connectCdp(cdpPort);
-  console.log('CDP connected\\n');
+  console.log('CDP connected\n');
 
   const focusIsSane = () => cdp.evalJS(`(() => {
     const ae = document.activeElement;
@@ -138,7 +145,18 @@ const setReactInput = `(function(el,val){var p=Object.getOwnPropertyDescriptor(w
       try { await cdp.evalJS("(async()=>{await window.inkwell.dbCall('resetAll');return 'fresh';})()"); return true; }
       catch { return false; }
     }, 30000, 'renderer ready for eval');
-    await waitUntil(() => cdp.evalJS("!!document.querySelector('.welcome-card')"), 30000, 'welcome screen');
+    try {
+      await waitUntil(() => cdp.evalJS("!!document.querySelector('.welcome-card')"), 30000, 'welcome screen');
+    } catch (e) {
+      const diag = await cdp.evalJS(`(async () => ({
+        route: window.useData?.getState().route,
+        position: localStorage.getItem('openplot.position.v1'),
+        dataPath: (await window.inkwell.appInfo()).dataPath,
+        text: document.body.innerText.slice(0, 120)
+      }))()`);
+      console.error('  boot diag: ' + JSON.stringify(diag));
+      throw e;
+    }
     check('boot: welcome screen', true);
 
     // ---------- Test A1: delete-chat confirm, then typing ----------
@@ -147,7 +165,9 @@ const setReactInput = `(function(el,val){var p=Object.getOwnPropertyDescriptor(w
     await waitUntil(() => cdp.evalJS("!!document.querySelector('.composer2 textarea')"), 20000, 'composer after new chat');
     check('A: chat opened', true);
 
-    const trashBtn = '.nav-section .nav-item .actions button:nth-child(2)';
+    // Chat rows expose pin / rename / delete in that order (folder rows and
+    // loose rows alike), so delete is always the LAST action button.
+    const trashBtn = '.nav-section .nav-item.active .actions button:last-child';
     await cdp.click(trashBtn);
     await waitUntil(confirmModalOpen, 10000, 'delete confirm modal');
     check('A: in-app confirm dialog appeared (no native dialog)', true);
@@ -260,8 +280,10 @@ const setReactInput = `(function(el,val){var p=Object.getOwnPropertyDescriptor(w
       await waitUntil(async () => !(await cdp.evalJS(`!!document.querySelector('.palette-overlay')`)), 6000, 'palette closed by overlay click');
       failures++; console.error('  FAIL: Escape did not close the command palette');
     }
-    await sleep(150);
-    const f4 = await focusIsSane();
+    // The palette re-focuses the app root inside requestAnimationFrame; give the
+    // frame room instead of sampling a fixed 150ms and failing under load.
+    let f4 = '';
+    try { await waitUntil(async () => (f4 = await focusIsSane()).startsWith('sane'), 3000, 'focus rescued after palette'); } catch { /* asserted below */ }
     check('C: focus sane after palette close', f4.startsWith('sane'), f4);
     await cdp.evalJS(`document.querySelector('.sidebar-search input')?.focus()`);
     await cdp.typeText('z');

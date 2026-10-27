@@ -47,12 +47,39 @@ export interface GenResult {
   tokensIn?: number;
   /** Completion tokens actually billed (from provider usage) or estimated. */
   tokensOut?: number;
+  /** Prompt tokens the provider served from its prompt cache (0/undefined when unreported). */
+  tokensCached?: number;
+  /** The provider refused the thinking parameter and the request was retried without it. */
+  thinkingRejected?: boolean;
 }
 
 // ~4 chars per token is a decent cross-model heuristic for the FALLBACK
 // estimate (used when the provider doesn't report usage).
 function estimateTokens(s: string): number {
   return Math.ceil((s || '').length / 4);
+}
+
+/**
+ * Prompt-cache reuse, reported in different shapes across providers:
+ *  - OpenAI / Gemini via OpenAI-compat: `usage.prompt_tokens_details.cached_tokens`
+ *  - DeepSeek: `usage.prompt_cache_hit_tokens`
+ *  - Anthropic: `usage.cache_read_input_tokens`
+ * Returns undefined when the provider reports nothing — never a fabricated 0,
+ * so the UI can say "unknown" instead of "no cache".
+ */
+export function readCachedTokens(usage: any): number | undefined {
+  if (!usage || typeof usage !== 'object') return undefined;
+  const candidates = [
+    usage.prompt_tokens_details?.cached_tokens,
+    usage.input_tokens_details?.cached_tokens,
+    usage.cache_read_input_tokens,
+    usage.prompt_cache_hit_tokens,
+    usage.cached_tokens
+  ];
+  for (const v of candidates) {
+    if (typeof v === 'number' && Number.isFinite(v) && v >= 0) return Math.round(v);
+  }
+  return undefined;
 }
 
 export class AbortedError extends Error {
@@ -223,6 +250,7 @@ async function runOpenAINonStream(
   let thinking = '';
   let tokensIn: number | undefined;
   let tokensOut: number | undefined;
+  let tokensCached: number | undefined;
 
   for (let round = 0; round < 10; round++) {
     if (aborted()) break;
@@ -253,6 +281,7 @@ async function runOpenAINonStream(
     if (json.usage && (json.usage.prompt_tokens != null || json.usage.completion_tokens != null)) {
       tokensIn = json.usage.prompt_tokens ?? tokensIn;
       tokensOut = json.usage.completion_tokens ?? tokensOut;
+      tokensCached = readCachedTokens(json.usage) ?? tokensCached;
     }
     const thinkPiece: string | undefined = msg.reasoning || msg.reasoning_content;
     if (thinkPiece) { thinking += thinkPiece; onChunk({ type: 'thinking', text: thinkPiece }); }
@@ -274,7 +303,7 @@ async function runOpenAINonStream(
     }
     break;
   }
-  return { text, thinking, toolsUsed, tokensIn, tokensOut };
+  return { text, thinking, toolsUsed, tokensIn, tokensOut, tokensCached };
 }
 
 async function runOpenAI(
@@ -305,6 +334,7 @@ async function runOpenAI(
   let thinking = '';
   let tokensIn: number | undefined;
   let tokensOut: number | undefined;
+  let tokensCached: number | undefined;
   const messages = [...opts.messages];
 
   for (let round = 0; round < 10; round++) {
@@ -329,6 +359,7 @@ async function runOpenAI(
             if (json.usage && (json.usage.prompt_tokens != null || json.usage.completion_tokens != null)) {
               tokensIn = json.usage.prompt_tokens ?? tokensIn;
               tokensOut = json.usage.completion_tokens ?? tokensOut;
+              tokensCached = readCachedTokens(json.usage) ?? tokensCached;
             }
             if (json.type === 'error' || json.error) {
               // Capture instead of throwing: this callback runs inside the
@@ -389,6 +420,7 @@ async function runOpenAI(
         if (json.usage && (json.usage.prompt_tokens != null || json.usage.completion_tokens != null)) {
           tokensIn = json.usage.prompt_tokens ?? tokensIn;
           tokensOut = json.usage.completion_tokens ?? tokensOut;
+          tokensCached = readCachedTokens(json.usage) ?? tokensCached;
         }
         const choice = json.choices?.[0];
         if (!choice) continue;
@@ -437,7 +469,8 @@ async function runOpenAI(
   return {
     text, thinking, toolsUsed,
     tokensIn: tokensIn ?? estimateTokens(JSON.stringify(messages)),
-    tokensOut: tokensOut ?? (estimateTokens(text) + estimateTokens(thinking))
+    tokensOut: tokensOut ?? (estimateTokens(text) + estimateTokens(thinking)),
+    tokensCached
   };
 }
 
@@ -473,7 +506,20 @@ async function runAnthropic(
     top_p: opts.topP ?? 1,
     messages: chatMsgs
   };
-  if (systemParts.length) body.system = systemParts.join('\n\n');
+  // Prompt caching: the system block is the stable prefix (agent.md, project,
+  // skills, style, memory) — exactly what should be reused across turns. The
+  // marker is only sent when BOTH hold:
+  //  - the model is a Claude family that documents cache_control (3.5+, 4.x);
+  //    older models / opaque proxy aliases would reject or ignore it,
+  //  - the block clears the provider minimum (~1024 tokens); below that
+  //    Anthropic ignores the marker, so sending it is pure noise.
+  const systemText = systemParts.join('\n\n');
+  const cacheCapable = /claude-(?:3[-.]5|3[-.]7|opus-4|sonnet-4|haiku-4|4)/i.test(opts.model);
+  if (systemText) {
+    body.system = cacheCapable && estimateTokens(systemText) >= 1024
+      ? [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }]
+      : systemText;
+  }
   if (opts.thinkingEnabled && allowThinking) {
     const budget = Math.max(1024, opts.thinkingBudget || 4096);
     body.thinking = { type: 'enabled', budget_tokens: budget };
@@ -490,6 +536,7 @@ async function runAnthropic(
   let thinking = '';
   let tokensIn: number | undefined;
   let tokensOut: number | undefined;
+  let tokensCached: number | undefined;
 
   for (let round = 0; round < 10; round++) {
     if (aborted()) break;
@@ -509,11 +556,14 @@ async function runAnthropic(
             try { json = JSON.parse(payload); } catch { continue; }
             // Anthropic reports usage on message_start (input) and every
             // message_delta (cumulative output).
-            if (json.type === 'message_start' && json.message?.usage?.input_tokens != null) {
-              tokensIn = json.message.usage.input_tokens;
+            if (json.type === 'message_start' && json.message?.usage) {
+              const u = json.message.usage;
+              if (u.input_tokens != null) tokensIn = u.input_tokens;
+              tokensCached = readCachedTokens(u) ?? tokensCached;
             }
-            if (json.type === 'message_delta' && json.usage?.output_tokens != null) {
-              tokensOut = json.usage.output_tokens;
+            if (json.type === 'message_delta' && json.usage) {
+              if (json.usage.output_tokens != null) tokensOut = json.usage.output_tokens;
+              tokensCached = readCachedTokens(json.usage) ?? tokensCached;
             }
             if (json.type === 'error') {
               // Same rationale as the OpenAI path: a throw inside the socket
@@ -542,9 +592,11 @@ async function runAnthropic(
         return runAnthropic(opts, false, onChunk, aborted, allowThinking);
       }
       // Extended thinking unsupported (older Claude models, proxies): retry
-      // once without it so thinking-default-ON never hard-fails a chat.
-      if (allowThinking && opts.thinkingEnabled && /thinking|budget/i.test(msg)) {
-        return runAnthropic(opts, allowTools, onChunk, aborted, false);
+      // once without it so thinking-default-ON never hard-fails a chat. The
+      // flag tells the renderer to stop offering the control for this model.
+      if (allowThinking && opts.thinkingEnabled && /thinking|budget|reasoning/i.test(msg)) {
+        const retry = await runAnthropic(opts, allowTools, onChunk, aborted, false);
+        return { ...retry, thinkingRejected: true };
       }
       throw new Error(statusHint(res.status, msg));
     }
@@ -559,8 +611,15 @@ async function runAnthropic(
         if (!payload || payload === '[DONE]') continue;
         let json: any;
         try { json = JSON.parse(payload); } catch { continue; }
-        if (json.type === 'message_start' && json.message?.usage?.input_tokens != null) tokensIn = json.message.usage.input_tokens;
-        if (json.type === 'message_delta' && json.usage?.output_tokens != null) tokensOut = json.usage.output_tokens;
+        if (json.type === 'message_start' && json.message?.usage) {
+          const u = json.message.usage;
+          if (u.input_tokens != null) tokensIn = u.input_tokens;
+          tokensCached = readCachedTokens(u) ?? tokensCached;
+        }
+        if (json.type === 'message_delta' && json.usage) {
+          if (json.usage.output_tokens != null) tokensOut = json.usage.output_tokens;
+          tokensCached = readCachedTokens(json.usage) ?? tokensCached;
+        }
         if (json.type === 'content_block_start') {
           const i = json.index;
           blocks[i] = {
@@ -630,7 +689,8 @@ async function runAnthropic(
   return {
     text, thinking, toolsUsed,
     tokensIn: tokensIn ?? estimateTokens(JSON.stringify(chatMsgs) + systemParts.join('\n')),
-    tokensOut: tokensOut ?? (estimateTokens(text) + estimateTokens(thinking))
+    tokensOut: tokensOut ?? (estimateTokens(text) + estimateTokens(thinking)),
+    tokensCached
   };
 }
 

@@ -2,6 +2,40 @@
 
 All notable changes to OpenPlot AI are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.3] — 2026-10-26
+
+> **Status: scope locked.** This is the “Studio UX” release: the version number says
+> patch, the payload is a rebuild of the studio’s ergonomics. Implementation plan:
+> [`docs/superpowers/plans/2026-10-26-v1.2.3-studio-ux.md`](docs/superpowers/plans/2026-10-26-v1.2.3-studio-ux.md).
+> Verify each line against the build before tagging.
+
+### Added
+- **Files that live in the chat.** Attaching a file now puts a card with its name and size above the composer; click it to read the content before sending. After send, the cards stay in the transcript, click one for a popup with the full text, copy and download. Files are stored with the message (8 per message, 256 KB each, 1 MB per message), survive restarts, and are deleted with their message or chat.
+- **An in-app guide.** A bundled, searchable handbook (English and Bahasa Indonesia) covering chat, files, models and cache, thinking, skills, `agent.md`, the Story Bible, chapters, flow, stats, export, settings, plugins, MCP, privacy, troubleshooting and every shortcut — reachable from the sidebar, the command palette, `F1` and contextual help buttons. Plus a “What’s new” card on the first launch of a new version.
+- **Thinking only where it exists.** The thinking control is driven by the model’s capability (probed once, remembered): reasoning models show the toggle, budget and their trace with a “thought for…” duration; models without reasoning hide the control (a preference can keep the plain on/off switch) and never receive thinking parameters; unverified models say so instead of guessing.
+- **Smart model configuration that reports memory.** The model card now states context window, max output, reasoning support, and prompt-cache capacity (“up to ~N tokens, automatic / explicit breakpoints / unknown”), plus the cached tokens your last reply actually reused. Anthropic requests use `cache_control`; OpenAI, DeepSeek and Gemini caching is picked up from provider usage. Cached tokens are stored per message and summarized in Settings → Usage.
+- **Skills v2.** Six builtin skills ship with the app (Continuity Guardian, Prose Polisher, Dialogue Coach, Pacing Analyst, Beta Reader, Worldbuilding Architect), seeded idempotently so upgrades never duplicate or overwrite edits. **Adding a skill creates it disabled**: it does nothing until you press **Enable**. Skills get descriptions, a card grid with labelled switches, a template gallery, duplicate, import/export and a reset-to-builtin action, plus a per-chat opt-out in the composer.
+- **A rewritten `agent.md`.** A structured default (instruction priority, tool protocol, memory policy, writing standards, response format, safety) replaces the ten-line persona. Existing edits are never overwritten; only an untouched v1 default upgrades, once, with a notice. The editor gains a compiled-prompt preview, templates, a token counter, unsaved-changes protection and “Restore default”.
+- **Settings that explain themselves.** 14 sections grouped into six areas with a global settings search, a Simple/Advanced switch (advanced reveals top-p, thinking budget, probe details and the Extend group), capability-aware model table, per-section reset, and a guided Smart setup flow (preset → key → fetch models → verify → default).
+- **A motion system.** GPU-only micro-interactions built on shared tokens — route fade, modal and popover entry, toast slide-up, the newest message bubble only, disabled-toggle and nav transitions, file-card hover lift — with a Motion setting (follow the system / always / reduced) and a `prefers-reduced-motion` kill switch. Only opacity and transform animate.
+- **A chat that shows its state.** Model chip with capability dots and a context meter, message actions (copy, edit, regenerate any turn, save to chapter), cached/token chips, localized empty and error states, and a welcome screen with quick starts and recent chats.
+
+### Changed
+- **Versioned database migrations.** `PRAGMA user_version` with an ordered migration list, a one-time `.bak` before the first change, an in-memory rollback snapshot and a refusal to open a database written by a newer app. The new tables and columns (`message_files`, skills v2, `chats.skills_off`, `messages.tokens_cached`) ride on it.
+- **Long chats stay small.** Transcripts load one page at a time from the main process and the renderer keeps at most 200 messages in memory; “load earlier” keeps the scroll position. Views are code-split, hot components subscribe to narrow store slices, and the highlight cache has a byte budget instead of only an entry count.
+- **Docs are versioned with the app.** README, changelog, landing pages, plugin API and the new in-app guide all describe 1.2.3, and the plugin/MCP pages state what is actually shipped: MCP server definitions are stored, the bridge that runs them is not in this release, and only the `chat:new` and `message:new` plugin hooks fire today.
+- The story prompt builder moved into a testable module, and reply-style/skill/attachment/agent.md blocks are labelled with their priority and truncation state.
+
+### Fixed
+- Adding a skill used to save it **enabled** — a new skill could change every reply before the user ever read it. New skills now start disabled and must be enabled explicitly.
+- Builtin skills and styles were seeded only when the table was empty, so new builtins never appeared for existing users; seeding is now idempotent by stable id.
+- Toast timers were never cleared on dismiss, the per-chat scroll map kept ids for deleted chats, highlight results could hold tens of megabytes, and last-read/write-stat records outlived the chats and projects they referenced.
+- Per-chat attachments were only alive in the composer; there was no way to re-read a file after sending it.
+
+### Tests
+- New suites: migrations (fresh, legacy, interrupted, newer-than-app, backup-once, agent.md v1→v2 and custom-text preservation), model capability inference and cache profiles, chat files (limits, lazy read, cascade delete), prompt building (order, gating, truncation, agent.md labelling), guide parsing/parity/search/tokens, a paging + performance suite on a real 5,000-message database (page size, walk-back integrity, write/persist budgets) and bundle-size budgets on the built assets.
+- Not covered yet: the MCP bridge (Task 13) and automations v2 (Task 14) are not part of this release, so there is no suite for them.
+
 ## [1.2.1] — 2026-10-25
 
 A small user-experience patch on top of 1.2.0: one crash fixed, and the Story Bible now stays in sync with the agent.
@@ -120,7 +154,8 @@ Initial public release. A local-first AI chat and story-writing studio for Windo
 - Markdown rendering during streaming is throttled to animation frames.
 - Database persistence debounced to 1200 ms; DevTools no longer open automatically in development (opt-in with `OPENPLOT_DEVTOOLS=1`).
 
-[Unreleased]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.2.3...HEAD
+[1.2.3]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.2.1...v1.2.3
 [1.2.1]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.1.0...v1.1.1

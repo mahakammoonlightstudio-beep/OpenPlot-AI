@@ -18,6 +18,13 @@
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   --font: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
   --mono: 'Cascadia Code', 'JetBrains Mono', Consolas, 'Courier New', monospace;
+  /* Motion tokens (v1.2.3 Task 10). Only opacity/transform animate, and the
+     whole system can be switched off from Settings → Appearance. */
+  --motion-fast: 120ms;
+  --motion: 180ms;
+  --motion-slow: 240ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 [data-theme='dark-classic'] {

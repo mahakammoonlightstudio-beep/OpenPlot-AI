@@ -109,7 +109,22 @@ try {
     jsx: 'automatic',
     loader: { '.css': 'empty' },
     define: { 'process.env.NODE_ENV': '"production"' },
-    logLevel: 'silent'
+    logLevel: 'silent',
+    // Guide articles use Vite's `?raw` suffix; esbuild has no such loader, so
+    // resolve the path without the suffix and return the file text.
+    plugins: [{
+      name: 'raw-md',
+      setup(build) {
+        build.onResolve({ filter: /\?raw$/ }, (args) => ({
+          path: path.resolve(args.resolveDir, args.path.replace(/\?raw$/, '')),
+          namespace: 'raw-md'
+        }));
+        build.onLoad({ filter: /.*/, namespace: 'raw-md' }, (args) => ({
+          contents: fs.readFileSync(args.path, 'utf8'),
+          loader: 'text'
+        }));
+      }
+    }]
   });
 } catch (e) {
   console.error('FAIL  esbuild bundle — ' + (e?.message || e));
@@ -128,7 +143,73 @@ check('story agent renders Plot Smith + all four steps', /Plot Smith/.test(views
 check('story agent renders the option chips (genres + tones)', /Fantasy/.test(views.agent || '') && /Hopeful/.test(views.agent || ''));
 check('story bible renders import + attachment affordances', /Import/.test(views.story || '') && /Story Bible/.test(views.story || ''));
 check('settings data view renders the storage card', /Local database/.test(views.settings || '') || /database/i.test(views.settings || ''));
-check('chat welcome renders without a provider', /New Chat|Welcome/i.test(views.chat || ''));
+const SETTINGS_SECTIONS = [
+  'providers', 'models', 'behavior', 'styles', 'skills', 'agentmd',
+  'appearance', 'memory', 'usage', 'data', 'plugins', 'automations', 'mcp', 'about'
+];
+check('every settings section renders without crashing',
+  SETTINGS_SECTIONS.every((s) => !views['settings-' + s + 'Error']),
+  SETTINGS_SECTIONS.filter((s) => views['settings-' + s + 'Error']).join(','));
+check('settings shell renders grouped nav, search and mode switch',
+  /settings-group-label/.test(views['settings-models'] || '')
+  && /settings-search/.test(views['settings-models'] || '')
+  && /settings-mode-toggle/.test(views['settings-models'] || ''));
+check('simple mode keeps Extend out of the nav',
+  !/settings-group-label[^>]*>Extend</.test(views['settings-models'] || '')
+  && /Show advanced settings/.test(views['settings-models'] || ''));
+check('advanced mode renders the Extend group and sampling controls',
+  /settings-group-label[^>]*>Extend</.test(views['settingsA-models'] || '')
+  && /set-top-p/.test(views['settingsA-behavior'] || '')
+  && /set-thinking-budget/.test(views['settingsA-behavior'] || ''));
+check('models section renders the capability table card',
+  /set-model-table/.test(views['settings-models'] || '')
+  && /set-default-model/.test(views['settings-models'] || '')
+  && /set-smart-defaults/.test(views['settings-models'] || ''));
+check('providers section renders the smart setup card',
+  /set-smart-setup/.test(views['settings-providers'] || '')
+  && /Smart setup/.test(views['settings-providers'] || ''));
+check('about section publishes the feedback address',
+  /set-feedback-email/.test(views['settings-about'] || '')
+  && /mahakammoonlightstudio@gmail\.com/.test(views['settings-about'] || ''));
+check('chat welcome renders without a provider', /Start a story/i.test(views.chat || '')
+  && /Continue the open chapter/i.test(views.chat || ''));
+check('welcome shows exactly four quick-start cards',
+  ((views.chat || '').match(/class="welcome-card[" ]/g) || []).length === 4);
+check('welcome leads with Connect a model when nothing is connected',
+  /welcome-card primary/.test(views.chat || '') && /No model connected yet/.test(views.chat || ''));
+check('composer renders an attachment card with name and size', /file-card/.test(views.composerFiles || '')
+  && /notes\.md/.test(views.composerFiles || '') && /4 B/.test(views.composerFiles || ''));
+check('composer ability row shows tools, thinking and skills',
+  /ability-row/.test(views.composerFiles || '') && /Skills \(0\)/.test(views.composerFiles || '')
+  && /think-btn/.test(views.composerFiles || ''));
+check('composer explains a disabled send', /Type a message or attach a file first/.test(views.composerFiles || ''));
+check('composer estimates draft tokens', /~\d+ tok/.test(views.composerDraft || '') && /\d+ words/.test(views.composerDraft || ''));
+check('plain-text preview renders the body in a <pre>', /fp-pre/.test(views.filePreviewText || '')
+  && /line two/.test(views.filePreviewText || ''));
+check('markdown preview renders formatted prose', /fp-md/.test(views.filePreviewMarkdown || '')
+  && /<h1>Hi<\/h1>/.test(views.filePreviewMarkdown || ''));
+check('thinking control is hidden for a non-reasoning model', !/think-btn/.test(views.composerNoThink || ''));
+check('unverified reasoning shows the ? marker', /think-btn/.test(views.composerUnknownThink || '')
+  && /think-unknown/.test(views.composerUnknownThink || ''));
+check('always mode keeps the switch for a non-reasoning model', /think-btn/.test(views.composerAlwaysThink || '')
+  && /support-no/.test(views.composerAlwaysThink || ''));
+check('model settings explains an unsupported model', /caps-line/.test(views.modelCapsLine || '')
+  && /does not expose reasoning/.test(views.modelCapsLine || ''));
+check('model card shows the four capability rows', /caps-card/.test(views.modelCapCardUnknown || '')
+  && /Context/.test(views.modelCapCardUnknown || '')
+  && /Max output/.test(views.modelCapCardUnknown || '')
+  && /Reasoning/.test(views.modelCapCardUnknown || '')
+  && /Prompt cache/.test(views.modelCapCardUnknown || ''));
+check('model card says unknown instead of inventing a context window',
+  /Context window unknown/.test(views.modelCapCardUnknown || '')
+  && /<dd>unknown<\/dd>/.test(views.modelCapCardUnknown || '')
+  && /Verify/.test(views.modelCapCardUnknown || '')
+  && !/~\d/.test(views.modelCapCardUnknown || ''));
+check('model profile rows read a probe plus a cache observation',
+  /~200k tok/.test(views.modelProfileKnown || '') && /supported/.test(views.modelProfileKnown || '')
+  && /up to ~200k tok · explicit breakpoints/.test(views.modelProfileKnown || '')
+  && /reused 4096 cached tokens/.test(views.modelProfileKnown || '')
+  && /Context window 200000 tokens/.test(views.modelProfileKnown || ''));
 
 // ---------- pure helpers (bundled with esbuild so TS is testable in node) ----------
 async function bundleHelper(entry, outfile) {
@@ -144,10 +225,14 @@ async function bundleHelper(entry, outfile) {
 }
 const storyHelperFile = path.join(outDir, 'story-data.cjs');
 const positionFile = path.join(outDir, 'ui-position.cjs');
+const chatFilesHelperFile = path.join(outDir, 'chat-files.cjs');
+const settingsIndexFile = path.join(outDir, 'settings-index.cjs');
 let helperError = '';
 try {
   await bundleHelper('src/lib/storyData.ts', storyHelperFile);
   await bundleHelper('src/lib/uiPosition.ts', positionFile);
+  await bundleHelper('src/lib/chatFiles.ts', chatFilesHelperFile);
+  await bundleHelper('src/lib/settingsIndex.ts', settingsIndexFile);
 } catch (e) {
   helperError = String(e?.message || e);
 }
@@ -174,6 +259,38 @@ if (!helperError) {
   const sanitized = position.readPosition();
   check('position: unknown route and non-string ids are dropped', sanitized.route === 'chat' && sanitized.activeChatId === null && sanitized.activeProjectId === 'p2', json(sanitized));
   localStorage.removeItem('openplot.position.v1');
+
+  const chatFiles = require(chatFilesHelperFile);
+  check('chat files: formatBytes covers B/KB/MB', chatFiles.formatBytes(4) === '4 B'
+    && chatFiles.formatBytes(1536) === '1.5 KB' && chatFiles.formatBytes(1024 * 1024) === '1.0 MB');
+  check('chat files: no attachments → no prompt block', chatFiles.buildAttachmentPrompt([]) === null);
+  const small = chatFiles.buildAttachmentPrompt([{ name: 'a.txt', kind: 'file', content: 'hello' }]);
+  check('chat files: small file is included verbatim', /=== FILE: a\.txt ===/.test(small) && /hello/.test(small)
+    && !/truncated/.test(small));
+  const long = chatFiles.buildAttachmentPrompt([{ name: 'big.txt', kind: 'file', content: 'a'.repeat(20_000) }]);
+  check('chat files: a long file is truncated at 16k chars with a marker',
+    /truncated: showing the first 16,000 of 20,000 characters/.test(long));
+  const many = chatFiles.buildAttachmentPrompt(
+    Array.from({ length: 4 }, (_, i) => ({ name: `p${i}.txt`, kind: 'file', content: 'b'.repeat(16_000) }))
+  );
+  check('chat files: the 48k total budget omits what does not fit',
+    /omitted/.test(many) && /=== FILE: p3\.txt ===/.test(many) && many.indexOf('omitted') > many.indexOf('p2.txt'));
+
+  // Deep links and search results scroll to a DOM id. If an entry names an id
+  // that no section renders, the user lands on the right page with no target.
+  const settingsIndex = require(settingsIndexFile);
+  const missingIds = settingsIndex.SETTINGS_INDEX.filter(
+    (entry) => !new RegExp('id="' + entry.id + '"').test(views['settingsA-' + entry.section] || '')
+  );
+  check('every settings index entry resolves to a rendered control',
+    missingIds.length === 0, missingIds.map((e) => e.id).join(','));
+
+  // Highlight cache budget (Task 11): 400 distinct code blocks must not be kept
+  // — the cache is bounded by entry count and by bytes.
+  const cache = JSON.parse(views.__cache || '{"entries":0,"bytes":0}');
+  check('highlight cache: stays under its entry cap', cache.entries <= 300, String(cache.entries));
+  check('highlight cache: stays under its byte budget', cache.bytes <= 4 * 1024 * 1024 + 64 * 1024,
+    String(cache.bytes));
 }
 
 fs.rmSync(outDir, { recursive: true, force: true });

@@ -4,6 +4,9 @@ import { useT } from '../i18nReact';
 import { textPrompt } from './TextPrompt';
 import { Icon, IconName } from './Icons';
 import { openPromptLibraryUi } from '../App';
+import { visibleSections } from '../lib/settingsIndex';
+import { GUIDE_DOCS } from '../guide';
+import { articleList as guideArticles } from '../guide/content';
 
 interface Cmd { id: string; label: string; icon: IconName; hint?: string; group: 'actions' | 'chats' | 'projects'; run: () => void }
 
@@ -64,10 +67,35 @@ export function CommandPalette() {
       { id: 'flow', group: 'actions', label: t('app.flow'), icon: 'target', run: () => navigate('flow') },
       { id: 'stats', group: 'actions', label: t('app.stats'), icon: 'target', run: () => navigate('stats') },
       { id: 'settings', group: 'actions', label: t('app.settings'), icon: 'settings', hint: 'Ctrl+,', run: () => navigate('settings') },
-      { id: 'settings-appearance', group: 'actions', label: t('settings.appearance'), icon: 'settings', run: () => navigate('settings-appearance') },
-      { id: 'settings-plugins', group: 'actions', label: t('settings.plugins'), icon: 'plug', run: () => navigate('settings-plugins') },
+      // Every Settings section is one palette entry, so “settings: models” or
+      // “pengaturan: model” lands on the control without clicking through nav.
+      ...visibleSections(settings.settingsMode).map((s) => ({
+        id: 'set-open-' + s,
+        group: 'actions' as const,
+        label: `${t('app.settings')}: ${t('settings.' + s)}`,
+        icon: 'settings' as const,
+        run: () => { useUi.getState().setSettingsSection(s); navigate('settings'); }
+      })),
+      { id: 'settings-mode', group: 'actions', label: settings.settingsMode === 'simple' ? t('settings.showAdvanced') : t('settings.showSimple'), icon: 'settings', run: () => {
+        const next = settings.settingsMode === 'simple' ? 'advanced' : 'simple';
+        useSettings.getState().set('settingsMode', next);
+        ui.toast(next === 'advanced' ? t('settings.showAdvanced') : t('settings.showSimple'), 'ok');
+      } },
+      { id: 'guide', group: 'actions', label: t('guide.title'), icon: 'book', hint: 'F1', run: () => navigate('guide') },
+      { id: 'shortcuts-sheet', group: 'actions', label: t('shortcut.title'), icon: 'cpu', hint: 'Ctrl+Shift+/', run: () => useUi.getState().setShortcuts(true) },
       { id: 'about', group: 'actions', label: t('app.about'), icon: 'file', run: () => navigate('about') }
     ];
+    // Every guide article is reachable by name, so “cache” or “skills” opens
+    // the page instead of a section that merely mentions it.
+    for (const doc of guideArticles(settings.lang, GUIDE_DOCS)) {
+      base.push({
+        id: 'guide-' + doc.slug,
+        group: 'actions',
+        label: `${t('guide.title')}: ${doc.title}`,
+        icon: 'book',
+        run: () => { useData.getState().setGuideSlug(doc.slug); navigate('guide'); }
+      });
+    }
     if (activeChatId) {
       const chat = useData.getState().chats.find((c) => c.id === activeChatId);
       if (chat) {
@@ -93,7 +121,7 @@ export function CommandPalette() {
       run: () => { useData.getState().setActiveProject(p.id); navigate('projects'); }
     }));
     return [...base, ...chatCmds, ...projCmds];
-  }, [chats, projects, t, settings.theme, navigate, ui]);
+  }, [chats, projects, t, settings.theme, settings.settingsMode, navigate, ui]);
 
   const results = useMemo(() => {
     const scored = cmds

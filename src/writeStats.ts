@@ -28,6 +28,8 @@ interface WriteStatsState {
   setGoal(projectId: string, goal: number): void;
   recordStakes(projectId: string, chapterId: string, level: number): void;
   clearStakes(projectId: string): void;
+  /** Drop stats for projects that no longer exist (called once on app load). */
+  prune(existingIds: string[]): void;
 }
 
 const KEY = 'openplot.writeStats.v1';
@@ -73,6 +75,13 @@ export const useWriteStats = create<WriteStatsState>((set, get) => ({
   ...loadPersisted(),
   projectDays: {},
   todayKey: dayKey(),
+  prune(existingIds) {
+    const keep = new Set(existingIds);
+    const projects = Object.fromEntries(Object.entries(get().projects || {}).filter(([id]) => keep.has(id)));
+    const projectDays = Object.fromEntries(Object.entries(get().projectDays || {}).filter(([id]) => keep.has(id)));
+    set({ projects, projectDays });
+    try { localStorage.setItem(KEY, JSON.stringify({ days: get().days, projects, projectDays })); } catch { /* non-fatal */ }
+  },
   recordDelta(projectId, projectTitle, delta, totalWords) {
     const key = dayKey();
     set((s) => {

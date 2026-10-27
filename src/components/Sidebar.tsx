@@ -9,7 +9,17 @@ import { useUnreadStore } from '../unreadStore';
 export function Sidebar() {
   const t = useT();
   const settings = useSettings();
-  const { chats, folders, projects, activeChatId, setActiveChat, navigate, setActiveProject, activeProjectId, route } = useData();
+  // Narrow subscriptions (Task 11): the sidebar no longer re-renders when a
+  // story entry or a chapter is written.
+  const chats = useData((s) => s.chats);
+  const folders = useData((s) => s.folders);
+  const projects = useData((s) => s.projects);
+  const activeChatId = useData((s) => s.activeChatId);
+  const activeProjectId = useData((s) => s.activeProjectId);
+  const route = useData((s) => s.route);
+  const setActiveChat = useData((s) => s.setActiveChat);
+  const setActiveProject = useData((s) => s.setActiveProject);
+  const navigate = useData((s) => s.navigate);
   const [q, setQ] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -258,6 +268,7 @@ export function Sidebar() {
           <button onClick={() => useUiOpenPalette()} title={t('app.palette')}>Ctrl+K</button>
         </div>
         <div className="row">
+          <button onClick={() => navigate('guide')}><Icon name="book" size={14} /> {t('guide.title')}</button>
           <button onClick={() => navigate('about')}><Icon name="file" size={14} /> {t('app.about')}</button>
         </div>
       </div>

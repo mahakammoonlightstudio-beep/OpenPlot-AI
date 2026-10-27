@@ -1,18 +1,26 @@
-import { useEffect } from 'react';
-import { useData, useSettings, useUi, runAutomations, dbCall, createChatUi } from './store';
+import { lazy, Suspense, useEffect } from 'react';
+import { useData, useSettings, useUi, runAutomations, dbCall, createChatUi, clearToastTimers } from './store';
 import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
-import { StoryBibleView } from './components/StoryBibleView';
-import { StoryAgentView } from './components/StoryAgentView';
-import { ChaptersView } from './components/ChaptersView';
-import { FlowView } from './components/FlowView';
-import { SettingsView } from './components/SettingsView';
-import { ProjectsView } from './components/ProjectsView';
-import { StatsView } from './components/StatsView';
-import { AboutView } from './components/AboutView';
+// Route-level code splitting (Task 11): Chat and the sidebar are on the startup
+// path, everything else loads on first visit. The fallback mirrors the page
+// chrome so switching views does not jump the layout.
+const StoryBibleView = lazy(() => import('./components/StoryBibleView').then((m) => ({ default: m.StoryBibleView })));
+const StoryAgentView = lazy(() => import('./components/StoryAgentView').then((m) => ({ default: m.StoryAgentView })));
+const ChaptersView = lazy(() => import('./components/ChaptersView').then((m) => ({ default: m.ChaptersView })));
+const FlowView = lazy(() => import('./components/FlowView').then((m) => ({ default: m.FlowView })));
+const SettingsView = lazy(() => import('./components/SettingsView').then((m) => ({ default: m.SettingsView })));
+const ProjectsView = lazy(() => import('./components/ProjectsView').then((m) => ({ default: m.ProjectsView })));
+const StatsView = lazy(() => import('./components/StatsView').then((m) => ({ default: m.StatsView })));
+const AboutView = lazy(() => import('./components/AboutView').then((m) => ({ default: m.AboutView })));
+const GuideView = lazy(() => import('./components/GuideView').then((m) => ({ default: m.GuideView })));
 import { CommandPalette } from './components/CommandPalette';
+import { ShortcutsSheet } from './components/ShortcutsSheet';
+import { WhatsNewModal } from './components/WhatsNewModal';
 import { textPrompt } from './components/TextPrompt';
 import { useUnreadStore } from './unreadStore';
+import { translate } from './i18n';
+import { SHORTCUTS, matchesCombo } from './lib/shortcuts';
 
 /** Open the Prompt Library slash menu on the active chat (no-op elsewhere). */
 export function openPromptLibraryUi(): void {
@@ -39,6 +47,14 @@ export default function App() {
       if (cancelled) return;
       await useData.getState().load();
       if (cancelled) return;
+      // One-shot: the main process upgraded an untouched agent.md to v2.
+      // The flag is consumed here so the note never shows twice.
+      try {
+        if (await dbCall<boolean>('takeAgentMdUpgrade')) {
+          useUi.getState().toast(translate(useSettings.getState().lang, 'agentmd.upgraded'), 'info');
+        }
+      } catch { /* older main process — nothing to consume */ }
+      if (cancelled) return;
       runAutomations('app:ready', {});
     })();
     return () => { cancelled = true; };
@@ -53,25 +69,65 @@ export default function App() {
     document.documentElement.lang = settings.lang;
   }, [settings.theme, settings.accent, settings.lang]);
 
-  // global shortcuts
+  // Motion preference → one attribute the CSS kill switch reads. `system` asks
+  // the OS directly, so a reduced-motion desktop user gets calm animations
+  // without touching Settings.
   useEffect(() => {
+    const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    const apply = () => {
+      const mode = settings.motion === 'system' ? (mq?.matches ? 'reduced' : 'full') : settings.motion;
+      document.documentElement.setAttribute('data-motion', mode);
+    };
+    apply();
+    if (settings.motion !== 'system' || !mq) return;
+    mq.addEventListener?.('change', apply);
+    return () => mq.removeEventListener?.('change', apply);
+  }, [settings.motion]);
+
+  // Global shortcuts. Only the ones that must work everywhere are handled here;
+  // sending/regenerating stay in ChatView, which owns that state. Combos come
+  // from the registry so the sheet and the guide cannot drift from this code.
+  useEffect(() => {
+    const combos = (id: string) => SHORTCUTS.find((s) => s.id === id)?.keys || [];
+    // Combos are looked up by id so a rebinding only ever happens in the registry.
+    const bindings: Array<[string, () => void]> = [
+      ['palette', () => useUi.getState().setPalette(true)],
+      ['search', () => window.dispatchEvent(new CustomEvent('inkwell:focus-search'))],
+      ['guide', () => useData.getState().navigate('guide')],
+      ['shortcuts', () => useUi.getState().setShortcuts(!useUi.getState().shortcutsOpen)],
+      ['sidebar', () => useUi.getState().setSidebarHidden(!useUi.getState().sidebarHidden)]
+    ];
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'k') {
+      for (const [id, fn] of bindings) {
+        if (!combos(id).some((c) => matchesCombo(e, c))) continue;
         e.preventDefault();
-        useUi.getState().setPalette(true);
-      } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
-        // Focus the sidebar chat search from anywhere (Electron menu or keyboard)
-        e.preventDefault();
-        window.dispatchEvent(new CustomEvent('inkwell:focus-search'));
+        fn();
+        return;
       }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    const openSheet = () => useUi.getState().setShortcuts(true);
+    window.addEventListener('inkwell:shortcuts', openSheet);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('inkwell:shortcuts', openSheet);
+    };
   }, []);
 
   // expose palette opener for Sidebar
   useEffect(() => {
     (window as any).__inkwellOpenPalette = () => useUi.getState().setPalette(true);
+  }, []);
+
+  // Teardown: cancel pending toast countdowns and scroll-memory writes so a
+  // reload/renderer swap leaves no timers running (Task 11).
+  useEffect(() => {
+    const onUnload = () => clearToastTimers();
+    window.addEventListener('beforeunload', onUnload);
+    return () => {
+      window.removeEventListener('beforeunload', onUnload);
+      clearToastTimers();
+    };
   }, []);
 
   // Mirror total unread count into the native window title, messenger-style
@@ -105,6 +161,8 @@ export default function App() {
       else if (action === 'new-project') newProject();
       else if (action === 'focus-search') window.dispatchEvent(new CustomEvent('inkwell:focus-search'));
       else if (action === 'open-prompts') openPrompts();
+      else if (action === 'guide') useData.getState().navigate('guide');
+      else if (action === 'shortcuts') useUi.getState().setShortcuts(true);
     });
     const offToast = window.inkwell.onUi('ui:toast', (msg: string) => {
       if (msg) useUi.getState().toast(msg);
@@ -144,6 +202,17 @@ export default function App() {
     return off;
   }, []);
 
+/** Skeleton that matches the page chrome, so a lazy route never jumps. */
+function RouteFallback() {
+  return (
+    <div className="page route-skeleton" aria-busy="true">
+      <div className="sk-line" style={{ width: 220, height: 18 }} />
+      <div className="sk-line" style={{ width: 320, height: 12, marginTop: 10 }} />
+      <div className="sk-card" />
+    </div>
+  );
+}
+
   let body: React.ReactNode;
   switch (route) {
     case 'story': body = <StoryBibleView />; break;
@@ -155,6 +224,7 @@ export default function App() {
     case 'settings': body = <SettingsView initialSection="providers" />; break;
     case 'settings-plugins': body = <SettingsView initialSection="plugins" />; break;
     case 'settings-appearance': body = <SettingsView initialSection="appearance" />; break;
+    case 'guide': body = <GuideView />; break;
     case 'about': body = <AboutView />; break;
     default: body = <ChatView key={activeChatId || 'none'} />;
   }
@@ -162,8 +232,14 @@ export default function App() {
   return (
     <div className={`app ${sidebarHidden ? 'sidebar-hidden' : ''}`} id="app-root" tabIndex={-1}>
       <Sidebar />
-      <div className="main">{body}</div>
+      <div className="main">
+        {/* Lazy routes: the fallback mirrors the page chrome so a first visit to
+            Settings, the bible or the guide does not jump the layout. */}
+        <Suspense fallback={<RouteFallback />}>{body}</Suspense>
+      </div>
       <CommandPalette />
+      <ShortcutsSheet />
+      <WhatsNewModal />
       <Toasts />
     </div>
   );
