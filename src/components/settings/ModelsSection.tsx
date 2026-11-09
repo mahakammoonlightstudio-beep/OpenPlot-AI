@@ -4,7 +4,7 @@ import { useT } from '../../i18nReact';
 import { Icon } from '../Icons';
 import { Switch } from '../Ui';
 import { ModelSettingsModal } from '../ModelSettingsModal';
-import { resolveModelProfile, smartDefaults } from '../../lib/modelCaps';
+import { modelTier, resolveModelProfile, smartDefaults } from '../../lib/modelCaps';
 import type { Provider } from '../../types';
 
 const keyOf = (providerId: string, model: string) => `${providerId}::${model}`;
@@ -161,6 +161,9 @@ export function ModelsSection() {
                 return (
                   <tr key={key} className={isDefault ? 'is-default' : ''}>
                     <td className="mm">
+                      <span className={`mm-tier t-${modelTier(profile).toLowerCase()}`} title={t('models.sub')}>
+                        {modelTier(profile)}
+                      </span>
                       <code>{model}</code>
                       <small>{provider.name}</small>
                     </td>

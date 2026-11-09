@@ -27,6 +27,12 @@ const api = {
   mcpSync: () => ipcRenderer.invoke('mcp:sync'),
   mcpRestart: (id: string) => ipcRenderer.invoke('mcp:restart', id),
   mcpLogs: (id: string) => ipcRenderer.invoke('mcp:logs', id),
+  // Stored execution approvals (plugins/MCP) — read and revoke from Settings.
+  trustList: () => ipcRenderer.invoke('trust:list'),
+  trustRevoke: (kind: 'plugin' | 'mcp', id: string) => ipcRenderer.invoke('trust:revoke', kind, id),
+  // Markdown images are fetched by the main process, never by the renderer,
+  // so CSP can keep connect-src 'none'. Private hosts are refused there.
+  fetchImage: (url: string) => ipcRenderer.invoke('img:fetch', url),
   // Unwrap the {ok, data} envelope: every consumer (About, Settings, tests)
   // expects the AppInfo object itself — the wrapper used to leak through and
   // made info.version / info.dataPath silently undefined.
@@ -42,6 +48,22 @@ const api = {
     ipcRenderer.invoke('export:epub', name, author, chapters, lang),
   pickFiles: () => ipcRenderer.invoke('dialog:pickFiles'),
   readFiles: (paths: string[], maxBytes?: number) => ipcRenderer.invoke('files:read', paths, maxBytes),
+  // Registers the files the user just dropped, so `files:read` will accept
+  // them. The path comes from webUtils for a real File; a synthetic File (no
+  // filesystem entry) yields '' and grants nothing, so this bridge cannot be
+  // used to widen access to an arbitrary path by name.
+  grantDroppedFiles: (files: File[]) => {
+    const paths: string[] = [];
+    for (const f of Array.isArray(files) ? files.slice(0, 40) : []) {
+      try {
+        const p = webUtils.getPathForFile(f);
+        if (p) paths.push(p);
+      } catch { /* not a real dropped file */ }
+    }
+    return paths.length
+      ? ipcRenderer.invoke('files:grant', paths)
+      : Promise.resolve(false);
+  },
   onAiChunk: (cb: (data: { reqId: string; chunk: any }) => void) => {
     const handler = (_e: unknown, data: any) => cb(data);
     ipcRenderer.on('ai:chunk', handler);

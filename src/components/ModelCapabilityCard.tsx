@@ -29,7 +29,10 @@ export function ModelProfileRows({ profile }: { profile: ModelProfile }) {
         : profile.cache.mode === 'none' ? t('caps.modeNone')
           : t('caps.modeUnknown');
 
-  const contextValue = profile.contextTokens ? `~${fmtTok(profile.contextTokens)} tok` : t('caps.unknown');
+  // `≈` marks a family estimate: readable instantly, never passed off as a probe.
+  const contextValue = profile.contextTokens
+    ? `${profile.contextEstimated ? '≈' : '~'}${fmtTok(profile.contextTokens)} tok`
+    : t('caps.unknown');
   const maxOutValue = profile.maxOutputTokens ? `${fmtTok(profile.maxOutputTokens)} tok` : t('caps.unknown');
   const reasoningValue =
     profile.thinking === 'yes' ? t('caps.reasoningYes')
@@ -39,18 +42,9 @@ export function ModelProfileRows({ profile }: { profile: ModelProfile }) {
     ? `${t('caps.cacheUpTo').replace('{n}', fmtTok(profile.cacheCapacityTokens))} · ${modeLabel}`
     : modeLabel;
 
-  const summary = [
-    profile.thinking === 'yes' ? t('caps.sum.reasoningYes')
-      : profile.thinking === 'no' ? t('caps.sum.reasoningNo')
-        : t('caps.sum.reasoningUnknown'),
-    profile.cache.mode === 'auto' ? t('caps.sum.cacheAuto')
-      : profile.cache.mode === 'explicit' ? t('caps.sum.cacheExplicit')
-        : profile.cache.mode === 'none' ? t('caps.sum.cacheNone')
-          : t('caps.sum.cacheUnknown'),
-    profile.contextTokens
-      ? t('caps.sum.context').replace('{n}', String(profile.contextTokens))
-      : t('caps.sum.contextUnknown'),
-  ].join(' ');
+  // One short line of values: the old sentence repeated "unverified" and
+  // "unknown" three times and read like an error report.
+  const summary = [reasoningValue, cacheValue, contextValue].join(' · ');
 
   return (
     <>
@@ -60,6 +54,7 @@ export function ModelProfileRows({ profile }: { profile: ModelProfile }) {
         <dt>{t('caps.rowMaxOut')}</dt>
         <dd>
           {maxOutValue}
+          {profile.maxOutputEstimated && <span className="caps-badge"> ≈</span>}
           {profile.maxOutputFromDefault && <span className="caps-badge"> {t('caps.fromDefault')}</span>}
         </dd>
         <dt>{t('caps.rowReasoning')}</dt>

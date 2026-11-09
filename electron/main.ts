@@ -2,14 +2,29 @@ import { app, BrowserWindow, ipcMain, dialog, shell, Menu, safeStorage } from 'e
 import * as path from 'path';
 import * as fs from 'fs';
 import * as zlib from 'zlib';
-import { initDb, closeDb, handleDb, setSecretCrypto } from './db';
+import * as crypto from 'crypto';
+import { initDb, closeDb, handleDb, providerSecret, setSecretCrypto } from './db';
 import { runGeneration, fetchModels, verifyModel, validateApiKey, probeCapabilities, ProviderConfig, ChatMessage, GenChunk } from './ai';
 import { PROVIDER_PRESETS, refreshPresets } from './presets';
 import { markThinkingRejected, recordCacheObservation, recordModelCaps } from './caps';
 import { loadPlugins, runPluginCommand, setNotify, listLoadedPlugins, runHook, wireDbHooks, log, getLogs } from './plugins';
 import { startMcpServers, stopAllMcp, restartMcpServer, stopMcpServer, mcpStatuses, mcpLogs } from './mcp';
+import { grantPaths, readTextFiles, setPrivateRoot } from './fileaccess';
+import { fetchRemoteImage } from './images';
+import { isTrusted, listTrust, parseTrust, remember, revoke, trustHash, type ExecKind, type TrustedMap } from './trust';
 
 const DONATE_URL = 'https://sociabuzz.com/mahakam_moonlight_studio/tribe';
+
+/** Dev renderer URL. Overridable so a test harness can serve Vite on its own
+ *  port instead of fighting the default one. */
+const DEV_URL = process.env.OPENPLOT_DEV_URL || 'http://localhost:5173';
+function devOrigin(): string {
+  try { return new URL(DEV_URL).origin; } catch { return ''; }
+}
+
+/** Automation runs on a throwaway profile (OPENPLOT_DATA_DIR); a real user's
+ *  profile never sets it, so the destructive-op dialog still guards them. */
+const ISOLATED_PROFILE = !!process.env.OPENPLOT_DATA_DIR;
 const SAWERIA_URL = 'https://saweria.co/MahakamMoonStudio';
 
 let win: BrowserWindow | null = null;
@@ -18,6 +33,195 @@ const aborts = new Map<string, () => void>();
 // these so an in-flight reply can never be stranded.
 const busyChats = new Set<string>();
 (globalThis as any).__busyChats = busyChats;
+
+// ---------- renderer trust ----------
+
+/**
+ * Only the app's own document may use the bridge. `will-navigate` refuses to
+ * load anything else into this window, and this is the matching IPC check: a
+ * frame that is not the studio's own page gets nothing.
+ */
+function isTrustedFrame(event: Electron.IpcMainInvokeEvent): boolean {
+  try {
+    // A message from another window (or from a destroyed one) is refused
+    // outright, whatever URL it claims.
+    if (!win || win.isDestroyed() || !event?.sender || event.sender.id !== win.webContents.id) {
+      return false;
+    }
+    const url = String(event.senderFrame?.url || '');
+    // Some Electron versions do not expose the frame URL; the channel is only
+    // reachable from this window's bridge anyway.
+    if (!url) return true;
+    if (/^file:\/\//i.test(url)) return /\/dist\/index\.html(?:[?#].*)?$/i.test(url);
+    try {
+      return new URL(url).origin === devOrigin();
+    } catch {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+}
+
+const registerHandler = ipcMain.handle.bind(ipcMain);
+
+/** ipcMain.handle with a sender check, so every channel fails closed. */
+function secureHandle(
+  channel: string,
+  fn: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any
+): void {
+  registerHandler(channel, (event, ...args) => {
+    if (!isTrustedFrame(event)) {
+      console.warn(`[ipc] refused ${channel} from an untrusted frame`);
+      return { ok: false, error: 'untrusted sender' };
+    }
+    return fn(event, ...args);
+  });
+}
+
+// ---------- provider credentials (main-process only) ----------
+
+/**
+ * The renderer names a provider by id; the stored base URL and API key are what
+ * actually get used. Generation therefore cannot be pointed at another host (or
+ * run with a key the user never saved) by editing the IPC payload.
+ */
+function resolveProvider(payload: any): ProviderConfig | null {
+  const stored = payload?.id ? providerSecret(String(payload.id)) : null;
+  if (!stored) return null;
+  return {
+    id: stored.id,
+    name: stored.name,
+    baseUrl: stored.baseUrl,
+    apiKey: stored.apiKey,
+    enabled: stored.enabled,
+    models: stored.models,
+    kind: (stored.kind as ProviderConfig['kind']) || 'auto'
+  };
+}
+
+/**
+ * Discovery (validate / fetch / probe / verify) can run before a provider is
+ * saved, so a form's values are accepted — but for a saved provider the stored
+ * endpoint and key always win.
+ */
+function resolveProviderForProbe(payload: Partial<ProviderConfig>): ProviderConfig {
+  const stored = payload?.id ? providerSecret(String(payload.id)) : null;
+  return {
+    id: String(payload?.id || ''),
+    name: payload?.name || stored?.name || 'provider',
+    baseUrl: stored?.baseUrl || payload?.baseUrl || '',
+    apiKey: stored?.apiKey || payload?.apiKey || '',
+    enabled: payload?.enabled ?? true,
+    models: Array.isArray(payload?.models) ? payload.models : stored?.models || [],
+    kind: (stored?.kind as ProviderConfig['kind']) || payload?.kind || 'auto'
+  };
+}
+
+/** Link-local addresses (cloud metadata) are never a real model provider. */
+function isMetadataHost(rawUrl: string): boolean {
+  try {
+    const raw = String(rawUrl || '');
+    const host = new URL(raw.includes('://') ? raw : `https://${raw}`).hostname.toLowerCase();
+    if (host === 'metadata.google.internal' || host === 'metadata.goog') return true;
+    if (/^169\.254\./.test(host)) return true;
+    if (host === '100.100.100.200') return true;
+    if (host === '[fd00:ec2::254]' || host === 'fd00:ec2::254') return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// ---------- dangerous-execution gate ----------
+
+/**
+ * Plugins and MCP servers run as the user. Approval is per exact payload: the
+ * hash of the code (or the command) is what gets remembered, so editing either
+ * asks again. A stored row on its own never executes anything.
+ */
+let trustedExec: TrustedMap = {};
+
+function readTrust(): TrustedMap {
+  try {
+    return parseTrust((handleDb('getAllSettings', {}) as Record<string, string>)['trustedExec']);
+  } catch {
+    return {};
+  }
+}
+
+function rememberTrust(kind: ExecKind, id: string, hash: string): void {
+  remember(trustedExec, kind, id, hash);
+  try {
+    handleDb('setSetting', { key: 'trustedExec', value: JSON.stringify(trustedExec) });
+  } catch { /* non-fatal: the approval still holds for this session */ }
+}
+
+function confirmExecution(kind: ExecKind, id: string, hash: string, label: string): boolean {
+  if (isTrusted(trustedExec, kind, id, hash)) return true;
+  const detail = kind === 'plugin'
+    ? 'Plugins are JavaScript that runs with your full user privileges — files, network, everything on this machine.'
+    : 'An MCP server is a program that runs with your full user privileges — files, network, everything on this machine.';
+  const opts: Electron.MessageBoxSyncOptions = {
+    type: 'warning',
+    buttons: ['Run', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+    title: 'OpenPlot AI',
+    message: kind === 'plugin' ? `Run plugin "${label}"?` : `Start MCP server "${label}"?`,
+    detail
+  };
+  let choice = 1;
+  try {
+    choice = win && !win.isDestroyed()
+      ? dialog.showMessageBoxSync(win, opts)
+      : dialog.showMessageBoxSync(opts);
+  } catch {
+    return false;
+  }
+  if (choice !== 0) return false;
+  rememberTrust(kind, id, hash);
+  return true;
+}
+
+/** Approval callback handed to loadPlugins for one reload. */
+function pluginGate(interactive: boolean) {
+  return (row: { id: string; name: string; code: string }): boolean => {
+    const hash = trustHash('plugin', [row.code]);
+    if (isTrusted(trustedExec, 'plugin', row.id, hash)) return true;
+    if (interactive) return confirmExecution('plugin', row.id, hash, row.name);
+    send('ui:toast', `Plugin "${row.name}" is not approved — open Settings → Plugins to run it.`);
+    return false;
+  };
+}
+
+/** Enabled MCP servers, minus the ones the user has not approved. */
+function mcpConfigs(interactive: boolean): any[] {
+  let rows: any[] = [];
+  try {
+    rows = (handleDb('listMcpServers', {}) as any[]) || [];
+  } catch {
+    return []; // database not ready yet
+  }
+  const out: any[] = [];
+  for (const row of rows) {
+    if (Number(row.enabled) !== 1) continue;
+    const name = row.name || row.command;
+    const hash = trustHash('mcp', [row.command, row.args, row.env]);
+    const cfg = { id: row.id, name, command: row.command, args: row.args, env: row.env, enabled: 1 };
+    if (isTrusted(trustedExec, 'mcp', row.id, hash)) {
+      out.push(cfg);
+      continue;
+    }
+    if (interactive && confirmExecution('mcp', row.id, hash, name)) {
+      out.push(cfg);
+      continue;
+    }
+    if (!interactive) send('ui:toast', `MCP server "${name}" is not approved — open Settings → MCP to start it.`);
+  }
+  return out;
+}
 
 // Last-resort crash guard: an uncaught exception in the main process used to
 // kill the whole app with no dialog, no log, nothing (Windows Event Log
@@ -88,19 +292,20 @@ function createWindow(): void {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
-  // Block in-app navigation away from the app itself
+  // The studio is one document and never navigates. Refuse every navigation:
+  // a `file:` link used to be allowed, which loaded a local HTML file into a
+  // window that still had the preload bridge attached.
   win.webContents.on('will-navigate', (e, url) => {
     const current = win?.webContents.getURL() || '';
-    if (url !== current && !url.startsWith('http://localhost:5173') && !url.startsWith('file://')) {
-      e.preventDefault();
-      if (/^https?:\/\//i.test(url)) shell.openExternal(url);
-    }
+    if (url === current) return;
+    e.preventDefault();
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
   });
 
   win.once('ready-to-show', () => win?.show());
 
   if (process.env.INKWELL_DEV) {
-    win.loadURL('http://localhost:5173');
+    win.loadURL(DEV_URL);
     // PERF: auto-opening DevTools costs real CPU/RAM on every dev run and
     // Windows feels it the most. Opt back in with OPENPLOT_DEVTOOLS=1.
     if (process.env.OPENPLOT_DEVTOOLS) win.webContents.openDevTools({ mode: 'detach' });
@@ -171,25 +376,53 @@ function buildMenu(): void {
 
 // ---------- IPC ----------
 
-ipcMain.handle('db', (_e, op: string, payload?: any) => {
+secureHandle('db', (_e, op: string, payload?: any) => {
   try {
+    // The most destructive op gets a native confirmation: a renderer dialog can
+    // be dismissed by injected code, an OS dialog cannot. An isolated test
+    // profile is disposable (and headless), so it skips the prompt.
+    if (op === 'resetAll' && !ISOLATED_PROFILE) {
+      const opts: Electron.MessageBoxSyncOptions = {
+        type: 'warning',
+        buttons: ['Delete everything', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+        title: 'OpenPlot AI',
+        message: 'Delete all OpenPlot AI data?',
+        detail: 'Chats, projects, story bible, chapters, settings and providers on this machine will be erased. This cannot be undone.'
+      };
+      const choice = win && !win.isDestroyed()
+        ? dialog.showMessageBoxSync(win, opts)
+        : dialog.showMessageBoxSync(opts);
+      if (choice !== 0) return { ok: true, data: false };
+    }
     return { ok: true, data: handleDb(op, payload ?? {}) };
   } catch (err: any) {
     return { ok: false, error: err?.message || String(err) };
   }
 });
 
-ipcMain.handle('ai:generate', async (_e, req: any) => {
-  const reqId = req.reqId;
+secureHandle('ai:generate', async (_e, req: any) => {
+  const reqId = String(req?.reqId || crypto.randomUUID());
+  // Credentials come from the database, never from this payload: a compromised
+  // renderer cannot redirect a saved provider (or use a key it never had).
+  const provider = resolveProvider(req?.provider);
+  if (!provider) {
+    return { ok: false, error: 'Unknown provider — choose one in Settings → AI Providers first.' };
+  }
+  if (isMetadataHost(provider.baseUrl)) {
+    return { ok: false, error: 'Refusing to contact a link-local/metadata address.' };
+  }
   let aborted = false;
   aborts.set(reqId, () => { aborted = true; });
   const isAborted = () => aborted;
-  if (req.chatId) busyChats.add(req.chatId);
+  if (req?.chatId) busyChats.add(req.chatId);
 
   try {
     const result = await runGeneration(
       {
-        provider: req.provider,
+        provider,
         model: req.model,
         messages: req.messages,
         temperature: req.temperature,
@@ -206,7 +439,7 @@ ipcMain.handle('ai:generate', async (_e, req: any) => {
     // Cache reuse is only knowable from real traffic — fold it into the model
     // registry so Settings can report what the provider actually cached.
     if (result?.tokensCached != null) {
-      recordCacheObservation(req?.provider?.id || '', req?.model || '', result.tokensCached);
+      recordCacheObservation(provider.id, req?.model || '', result.tokensCached);
     }
     return { ok: true, data: result };
   } catch (err: any) {
@@ -216,30 +449,34 @@ ipcMain.handle('ai:generate', async (_e, req: any) => {
     return { ok: false, error: err?.message || String(err) };
   } finally {
     aborts.delete(reqId);
-    if (req.chatId) busyChats.delete(req.chatId);
+    if (req?.chatId) busyChats.delete(req.chatId);
   }
 });
 
-ipcMain.handle('ai:abort', (_e, reqId: string) => {
+secureHandle('ai:abort', (_e, reqId: string) => {
   aborts.get(reqId)?.();
   return true;
 });
 
-ipcMain.handle('ai:models', async (_e, provider: ProviderConfig) => {
+secureHandle('ai:models', async (_e, provider: ProviderConfig) => {
   try {
-    return { ok: true, data: await fetchModels(provider) };
+    const p = resolveProviderForProbe(provider);
+    if (isMetadataHost(p.baseUrl)) return { ok: false, error: 'Refusing to contact a link-local/metadata address.' };
+    return { ok: true, data: await fetchModels(p) };
   } catch (err: any) {
     return { ok: false, error: err?.message || String(err) };
   }
 });
 
-ipcMain.handle('ai:verifyModel', async (_e, provider: ProviderConfig, model: string, reqId?: string) => {
+secureHandle('ai:verifyModel', async (_e, provider: ProviderConfig, model: string, reqId?: string) => {
   // Optional reqId lets the renderer cancel a slow verify via ai:abort —
   // the abort map is shared with ai:generate.
   let aborted = false;
   if (reqId) aborts.set(reqId, () => { aborted = true; });
   try {
-    return { ok: true, data: await verifyModel(provider, model, () => aborted) };
+    const p = resolveProviderForProbe(provider);
+    if (isMetadataHost(p.baseUrl)) return { ok: false, error: 'Refusing to contact a link-local/metadata address.' };
+    return { ok: true, data: await verifyModel(p, model, () => aborted) };
   } catch (err: any) {
     return { ok: false, error: err?.message || String(err) };
   } finally {
@@ -247,9 +484,11 @@ ipcMain.handle('ai:verifyModel', async (_e, provider: ProviderConfig, model: str
   }
 });
 
-ipcMain.handle('ai:validateKey', async (_e, provider: ProviderConfig) => {
+secureHandle('ai:validateKey', async (_e, provider: ProviderConfig) => {
   try {
-    return { ok: true, data: await validateApiKey(provider) };
+    const p = resolveProviderForProbe(provider);
+    if (isMetadataHost(p.baseUrl)) return { ok: false, error: 'Refusing to contact a link-local/metadata address.' };
+    return { ok: true, data: await validateApiKey(p) };
   } catch (err: any) {
     return { ok: false, error: err?.message || String(err) };
   }
@@ -257,7 +496,7 @@ ipcMain.handle('ai:validateKey', async (_e, provider: ProviderConfig) => {
 
 // The renderer reports a refused thinking request; the merge happens here so a
 // cache observation the renderer has not loaded yet is never overwritten.
-ipcMain.handle('ai:markThinkingRejected', (_e, providerId: string, model: string) => {
+secureHandle('ai:markThinkingRejected', (_e, providerId: string, model: string) => {
   try {
     markThinkingRejected(providerId, model);
     return { ok: true };
@@ -266,23 +505,32 @@ ipcMain.handle('ai:markThinkingRejected', (_e, providerId: string, model: string
   }
 });
 
-ipcMain.handle('ai:probeCapabilities', async (_e, provider: ProviderConfig, model: string) => {
+secureHandle('ai:probeCapabilities', async (_e, provider: ProviderConfig, model: string) => {
   try {
-    const caps = await probeCapabilities(provider, model);
+    const p = resolveProviderForProbe(provider);
+    if (isMetadataHost(p.baseUrl)) return { ok: false, error: 'Refusing to contact a link-local/metadata address.' };
+    const caps = await probeCapabilities(p, model);
     // Persist a *successful or failed* probe alike: "this relay cannot do
     // tools" is exactly as useful tomorrow as "it can".
-    recordModelCaps(provider?.id || '', model, caps);
+    recordModelCaps(p.id, model, caps);
     return { ok: true, data: caps };
   } catch (err: any) {
     return { ok: false, error: err?.message || String(err) };
   }
 });
 
-ipcMain.handle('ai:providerPresets', () => ({ ok: true, data: PROVIDER_PRESETS }));
+secureHandle('ai:providerPresets', () => ({ ok: true, data: PROVIDER_PRESETS }));
 
-ipcMain.handle('ai:refreshPresets', async (_e, providers: ProviderConfig[]) => {
+secureHandle('ai:refreshPresets', async () => {
   try {
-    return { ok: true, data: await refreshPresets(providers || []) };
+    // Read the configured providers here: the renderer no longer holds API
+    // keys, and this call needs them to reach the provider's model list.
+    const rows = (handleDb('listProviders', {}) as any[]) || [];
+    const configured = rows
+      .map((r) => providerSecret(r.id))
+      .filter((p): p is NonNullable<typeof p> => !!p)
+      .map((p) => ({ ...p, kind: p.kind as ProviderConfig['kind'] }));
+    return { ok: true, data: await refreshPresets(configured) };
   } catch (err: any) {
     return { ok: false, error: err?.message || String(err) };
   }
@@ -290,28 +538,26 @@ ipcMain.handle('ai:refreshPresets', async (_e, providers: ProviderConfig[]) => {
 
 // ---------- MCP bridge (v1.2.3 Task 13) ----------
 
-/** Start the registry from what the database says is enabled. */
-function syncMcpServers(): Promise<unknown> {
-  let rows: any[] = [];
-  try {
-    rows = (handleDb('listMcpServers', {}) as any[]) || [];
-  } catch { /* database not ready yet */ }
-  return startMcpServers(rows.map((r) => ({
-    id: r.id, name: r.name, command: r.command, args: r.args, env: r.env, enabled: r.enabled
-  })));
+/**
+ * Start the registry from what the database says is enabled. `interactive`
+ * asks the user to approve a server that has no recorded approval; startup
+ * never prompts — it leaves that server stopped and says so.
+ */
+function syncMcpServers(interactive = false): Promise<unknown> {
+  return startMcpServers(mcpConfigs(interactive));
 }
 
-ipcMain.handle('mcp:list', () => ({ ok: true, data: mcpStatuses() }));
+secureHandle('mcp:list', () => ({ ok: true, data: mcpStatuses() }));
 
-ipcMain.handle('mcp:sync', async () => {
+secureHandle('mcp:sync', async () => {
   try {
-    return { ok: true, data: await syncMcpServers() };
+    return { ok: true, data: await syncMcpServers(true) };
   } catch (err: any) {
     return { ok: false, error: err?.message || String(err) };
   }
 });
 
-ipcMain.handle('mcp:restart', async (_e, id: string) => {
+secureHandle('mcp:restart', async (_e, id: string) => {
   try {
     const rows = (handleDb('listMcpServers', {}) as any[]) || [];
     const row = rows.find((r) => r.id === id);
@@ -319,8 +565,19 @@ ipcMain.handle('mcp:restart', async (_e, id: string) => {
       stopMcpServer(id);
       return { ok: true, data: null };
     }
+    // Restart must not be a back door around "disabled": a server the user
+    // switched off stays off until it is enabled again.
+    if (Number(row.enabled) !== 1) {
+      stopMcpServer(id);
+      return { ok: false, error: 'This MCP server is disabled. Enable it first.' };
+    }
+    const label = row.name || row.command;
+    const hash = trustHash('mcp', [row.command, row.args, row.env]);
+    if (!confirmExecution('mcp', row.id, hash, label)) {
+      return { ok: false, error: 'Start cancelled.' };
+    }
     const status = await restartMcpServer({
-      id: row.id, name: row.name, command: row.command, args: row.args, env: row.env, enabled: 1
+      id: row.id, name: label, command: row.command, args: row.args, env: row.env, enabled: 1
     });
     return { ok: true, data: status };
   } catch (err: any) {
@@ -328,9 +585,51 @@ ipcMain.handle('mcp:restart', async (_e, id: string) => {
   }
 });
 
-ipcMain.handle('mcp:logs', (_e, id: string) => ({ ok: true, data: mcpLogs(id) }));
+secureHandle('mcp:logs', (_e, id: string) => ({ ok: true, data: mcpLogs(id) }));
 
-ipcMain.handle('plugins:run', (_e, pluginId: string, command: string, payload?: any) => {
+// ---------- stored execution approvals ----------
+
+/**
+ * What the user has approved so far, joined with the row it belongs to.
+ * `stale` = the code/command changed after approval (it will ask again),
+ * `present:false` = the row was deleted but its hash is still stored.
+ */
+function trustEntries(): any[] {
+  let plugins: any[] = [];
+  let servers: any[] = [];
+  try { plugins = (handleDb('listPlugins', {}) as any[]) || []; } catch { /* db not ready */ }
+  try { servers = (handleDb('listMcpServers', {}) as any[]) || []; } catch { /* db not ready */ }
+  return listTrust(trustedExec, plugins, servers);
+}
+
+secureHandle('trust:list', () => ({ ok: true, data: trustEntries() }));
+
+secureHandle('trust:revoke', (_e, kind: ExecKind, id: string) => {
+  try {
+    if ((kind !== 'plugin' && kind !== 'mcp') || typeof id !== 'string' || !id || id.length > 200) {
+      return { ok: false, error: 'Invalid approval' };
+    }
+    revoke(trustedExec, kind, id);
+    try {
+      handleDb('setSetting', { key: 'trustedExec', value: JSON.stringify(trustedExec) });
+    } catch { /* session-only revoke still takes effect below */ }
+    // Revoking must bite immediately, not at the next restart. No dialogs
+    // here: only already-approved rows may come back up.
+    if (kind === 'mcp') stopMcpServer(id);
+    else loadPlugins({ isTrusted: (row) => isTrusted(trustedExec, 'plugin', row.id, trustHash('plugin', [row.code])) });
+    return { ok: true, data: trustEntries() };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+// ---------- remote images ----------
+
+// The renderer never talks to an image host: the main process fetches the
+// bytes (http/https only, private hosts refused) and returns a data: URL.
+secureHandle('img:fetch', async (_e, url: string) => fetchRemoteImage(String(url || '')));
+
+secureHandle('plugins:run', (_e, pluginId: string, command: string, payload?: any) => {
   try {
     return { ok: true, data: runPluginCommand(pluginId, command, payload) };
   } catch (err: any) {
@@ -338,13 +637,15 @@ ipcMain.handle('plugins:run', (_e, pluginId: string, command: string, payload?: 
   }
 });
 
-ipcMain.handle('plugins:list', () => ({ ok: true, data: listLoadedPlugins() }));
+secureHandle('plugins:list', () => ({ ok: true, data: listLoadedPlugins() }));
 
-ipcMain.handle('plugins:logs', () => ({ ok: true, data: getLogs() }));
+secureHandle('plugins:logs', () => ({ ok: true, data: getLogs() }));
 
-ipcMain.handle('plugins:reload', () => {
+secureHandle('plugins:reload', () => {
   try {
-    loadPlugins();
+    // An explicit reload is the user acting on a plugin: approve anything new
+    // or edited, once per exact code.
+    loadPlugins({ isTrusted: pluginGate(true) });
     return { ok: true, data: listLoadedPlugins() };
   } catch (err: any) {
     return { ok: false, error: err?.message || String(err) };
@@ -354,14 +655,14 @@ ipcMain.handle('plugins:reload', () => {
 // OS-level attention for the `notify` automation action: flash the taskbar/
 // dock icon. Deliberately no sound and no native notification — a flash is
 // visible without stealing focus or interrupting a writing session.
-ipcMain.handle('ui:flashWindow', () => {
+secureHandle('ui:flashWindow', () => {
   if (win && !win.isDestroyed()) win.flashFrame(true);
   return true;
 });
 
 // Unread wins the title (messenger convention). With nothing unread the active
 // chat's name is shown instead, so taskbar/task-switcher previews are useful.
-ipcMain.handle('ui:unreadCount', (_e, count: number, chatTitle?: string) => {
+secureHandle('ui:unreadCount', (_e, count: number, chatTitle?: string) => {
   const n = Math.max(0, Math.min(999, Number(count) || 0));
   if (win && !win.isDestroyed()) {
     const name = String(chatTitle || '').replace(/[\x00-\x1f]/g, ' ').trim().slice(0, 80);
@@ -370,7 +671,7 @@ ipcMain.handle('ui:unreadCount', (_e, count: number, chatTitle?: string) => {
   return true;
 });
 
-ipcMain.handle('app:info', () => ({
+secureHandle('app:info', () => ({
   ok: true,
   data: {
     version: app.getVersion(),
@@ -381,12 +682,12 @@ ipcMain.handle('app:info', () => ({
   }
 }));
 
-ipcMain.handle('shell:openExternal', (_e, url: string) => {
+secureHandle('shell:openExternal', (_e, url: string) => {
   if (/^https?:\/\//i.test(url)) shell.openExternal(url);
   return true;
 });
 
-ipcMain.handle('export:markdown', async (_e, defaultName: string, content: string) => {
+secureHandle('export:markdown', async (_e, defaultName: string, content: string) => {
   if (!win) return { ok: false, error: 'no window' };
   // Strip filesystem-hostile characters from chat titles — Windows silently
   // turns  `title: "foo"`  into `title_ _foo_`  and Linux refuses the path.
@@ -601,7 +902,7 @@ ${spine.join('\n')}
 
 // Save the assembled EPUB through the native save dialog. The renderer sends
 // plain chapter data; the ZIP assembly happens here where zlib lives.
-ipcMain.handle('export:epub', async (_e, defaultName: string, author: string, chapters: EpubChapter[], lang?: string) => {
+secureHandle('export:epub', async (_e, defaultName: string, author: string, chapters: EpubChapter[], lang?: string) => {
   if (!win) return { ok: false, error: 'no window' };
   const safeName = String(defaultName || 'openplot-export.epub')
     .replace(/[\\/:*?"<>|\x00-\x1f]/g, '_')
@@ -628,7 +929,7 @@ ipcMain.handle('export:epub', async (_e, defaultName: string, author: string, ch
 });
 
 // Generic save dialog for plain-text formats (TXT/MD) — one handler, many formats.
-ipcMain.handle('export:file', async (_e, defaultName: string, content: string, kind: 'txt' | 'md' | 'json') => {
+secureHandle('export:file', async (_e, defaultName: string, content: string, kind: 'txt' | 'md' | 'json') => {
   if (!win) return { ok: false, error: 'no window' };
   const ext = kind === 'txt' ? 'txt' : kind === 'json' ? 'json' : 'md';
   const safeName = String(defaultName || `openplot-export.${ext}`)
@@ -649,7 +950,7 @@ ipcMain.handle('export:file', async (_e, defaultName: string, content: string, k
   }
 });
 
-ipcMain.handle('dialog:pickFiles', async () => {
+secureHandle('dialog:pickFiles', async () => {
   if (!win) return [];
   try {
     const res = await dialog.showOpenDialog(win, {
@@ -660,6 +961,9 @@ ipcMain.handle('dialog:pickFiles', async () => {
         { name: 'All files', extensions: ['*'] }
       ]
     });
+    // The picker is the trusted grant: the main process itself produced these
+    // paths, so they become readable for this session.
+    if (!res.canceled) grantPaths(res.filePaths);
     return res.canceled ? [] : res.filePaths;
   } catch {
     return [];
@@ -669,21 +973,14 @@ ipcMain.handle('dialog:pickFiles', async () => {
 // Read text files for attachments / Story Bible import. `maxBytes` is capped
 // at 2 MB so a renderer bug can never ask the main process to slurp a 2 GB
 // blob into memory. Chat attachments keep the historical 300 KB default.
-ipcMain.handle('files:read', async (_e, paths: string[], maxBytes?: number) => {
-  const cap = Math.min(2_000_000, Math.max(1_000, Number(maxBytes) || 300_000));
-  const out: { name: string; content: string; size?: number }[] = [];
-  for (const p of (paths || []).slice(0, 40)) {
-    try {
-      const st = fs.statSync(p);
-      if (!st.isFile() || st.size > cap) continue;
-      // NUL bytes are a reliable tell for binary files (images, archives,
-      // office zip formats). Reading those as UTF-8 would import garbage.
-      const buf = fs.readFileSync(p);
-      if (buf.subarray(0, 256).includes(0)) continue;
-      out.push({ name: path.basename(p), content: buf.toString('utf8'), size: st.size });
-    } catch { /* unreadable file — skip */ }
-  }
-  return out;
+secureHandle('files:read', (_e, paths: string[], maxBytes?: number) => readTextFiles(paths, maxBytes));
+
+// A dropped file is a user gesture the main process never sees. The renderer
+// names the exact paths it dropped and only those become readable (30 minutes),
+// so a compromised renderer cannot read an arbitrary path through files:read.
+secureHandle('files:grant', (_e, paths: string[]) => {
+  grantPaths(paths);
+  return true;
 });
 
 // ---------- lifecycle ----------
@@ -703,6 +1000,8 @@ if (!gotLock) {
     // OPENPLOT_DATA_DIR redirects the whole profile (DB + settings) — used for
     // clean-room test runs and screenshots without touching real user data.
     const dataDir = process.env.OPENPLOT_DATA_DIR || app.getPath('userData');
+    // files:read may never hand the app's own database back to the renderer.
+    setPrivateRoot(dataDir);
     // API keys at rest: encrypt with the OS credential vault when available.
     // Prefix-marked ciphertext keeps keys written by older versions readable.
     if (safeStorage?.isEncryptionAvailable?.()) {
@@ -720,14 +1019,18 @@ if (!gotLock) {
     await initDb(dataDir, 'openplot.db');
     setNotify((msg) => send('ui:toast', msg));
     wireDbHooks(); // plugin hooks fire on chat:create / message:add DB events
-    loadPlugins();
-    // MCP servers start only here, after the window exists, and only if the
-    // user enabled them — a stored definition alone never spawns a process.
-    syncMcpServers().catch((e) => console.error('MCP startup failed:', e));
-    runHook('app:ready', {});
+    trustedExec = readTrust();
     buildMenu();
     rendererCrashGuard();
     createWindow();
+    // Load plugin/MCP work after the window exists: an "not approved" notice
+    // sent to a null window used to be dropped, so the run looked silently
+    // broken. Startup never prompts — unapproved code simply stays unloaded.
+    loadPlugins({ isTrusted: pluginGate(false) });
+    // A stored definition alone never spawns a process: only enabled, approved
+    // servers start.
+    syncMcpServers().catch((e) => console.error('MCP startup failed:', e));
+    runHook('app:ready', {});
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });

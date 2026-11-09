@@ -55,7 +55,8 @@ const server = http.createServer((req, res) => {
     req.on('data', (c) => (body += c));
     req.on('end', () => {
       reqBodies.push(JSON.parse(body));
-      const reply = reqBodies.length === 1 ? 'GUI reply one' : 'GUI reply two';
+      const replies = ['one', 'two', 'three', 'four', 'five', 'six', 'seven'];
+      const reply = 'GUI reply ' + (replies[reqBodies.length - 1] || 'n' + reqBodies.length);
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       const write = (o) => res.write('data: ' + JSON.stringify(o) + '\n\n');
       const words = reply.split(' ');
@@ -70,7 +71,7 @@ const server = http.createServer((req, res) => {
           clearInterval(timer);
           res.end();
         }
-      }, 25);
+      }, 120); // slow enough to observe the streaming state from CDP
       res.on('close', () => clearInterval(timer));
     });
     return;
@@ -114,8 +115,18 @@ async function connectCdp(port) {
     const id = ++msgId; pending.set(id, { res, rej });
     try { ws.send(JSON.stringify({ id, method, params })); } catch (e) { rej(e); }
   });
+  // Page domain must be enabled or Page.captureScreenshot never replies.
+  await send('Page.enable').catch(() => {});
+  // UI_SHOTS=1 keeps PNGs of the real window in .tmp-shots/ for review.
+  const SHOTS = process.env.UI_SHOTS === '1' ? path.join(PROJ, '.tmp-shots') : null;
+  if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
   return {
     send,
+    async shot(file) {
+      if (!SHOTS) return;
+      const r = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false, fromSurface: false });
+      fs.writeFileSync(path.join(SHOTS, file), Buffer.from(r.data, 'base64'));
+    },
     async evalJS(expr) {
       const r = await withTimeout(
         send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true, userGesture: true }),
@@ -221,6 +232,17 @@ const setReactArea = `(function(el,val){var p=Object.getOwnPropertyDescriptor(wi
         };
       })()`);
       check('stores refreshed from the seeded DB', state?.model === 'mock-gui' && state?.providers === 1 && state?.chats === 0, JSON.stringify(state));
+
+      // Fresh profile → the "What's new" card covers the composer and the
+      // screenshots. Dismiss it so the shots show the real UI.
+      const dismissed = await cdp.evalJS(`(() => {
+        const b = [...document.querySelectorAll('button')].find((x) => /start writing|mulai menulis/i.test(x.textContent));
+        if (!b) return false;
+        b.click();
+        return true;
+      })()`);
+      if (dismissed) await waitUntil(async () => !(await cdp.evalJS(`!!document.querySelector('.ui-modal-card')`)), 5000, 'whats-new closed');
+      check('whats-new card dismissed for a clean composer', dismissed === true);
     });
 
     await run('welcome screen', async () => {
@@ -241,36 +263,79 @@ const setReactArea = `(function(el,val){var p=Object.getOwnPropertyDescriptor(wi
       const draft = await cdp.evalJS(`document.querySelector('.comp-box textarea').value`);
       check('card starts a draft prompt', String(draft).trim().length > 10, String(draft).slice(0, 40));
 
-      const row = await cdp.evalJS(`(() => {
-        const r = document.querySelector('.comp-hints.ability-row');
-        if (!r) return null;
+      const bar = await cdp.evalJS(`(() => {
+        const b = document.querySelector('.comp-modes');
+        if (!b) return null;
         return {
-          tools: !!r.querySelector('.ability-toggle'),
-          thinking: !!r.querySelector('.think-btn'),
-          skills: r.querySelector('.ability-btn')?.textContent || ''
+          insideBar: !!b.closest('.comp-box'),
+          agent: !!b.querySelector('.agent-toggle'),
+          agentOn: b.querySelector('.agent-toggle')?.getAttribute('aria-pressed') || '',
+          modes: [...b.querySelectorAll('.mode-btn')].map((x) => x.textContent.trim() + (x.classList.contains('on') ? '*' : '')),
+          thinking: !!b.querySelector('.think-btn'),
+          skills: b.querySelector('.ability-btn')?.textContent.trim() || '',
+          disclaimer: document.querySelector('.composer-disclaimer')?.textContent.trim() || ''
         };
       })()`);
-      check('ability row renders', !!row);
-      check('ability row has tools toggle', row && row.tools === true);
-      check('ability row has thinking control', row && row.thinking === true);
-      check('ability row shows skill count', /\(\d+\)/.test(row?.skills || ''), row?.skills);
+      check('agent, modes, thinking and skills sit inside the chat bar', bar?.insideBar === true, JSON.stringify(bar));
+      check('agent mode starts off', bar?.agentOn === 'false', bar?.agentOn);
+      check('three chat modes, write active by default', bar?.modes?.length === 3 && bar.modes.some((m) => /^Write\*/.test(m)), JSON.stringify(bar?.modes));
+      check('thinking control is in the bar', bar?.thinking === true);
+      check('skills are off by default', /\(0\)/.test(bar?.skills || ''), bar?.skills);
+      check('disclaimer sits under the bar', /AI can be wrong/i.test(bar?.disclaimer || ''), bar?.disclaimer);
+      await cdp.shot('00-composer-modes.png');
 
-      const before = await cdp.evalJS(`document.querySelector('.ability-toggle').className`);
-      await cdp.evalJS(`document.querySelector('.ability-toggle input').click()`);
-      await sleep(150);
-      const after = await cdp.evalJS(`document.querySelector('.ability-toggle').className`);
-      check('tools toggle flips its on state', before !== after, before + ' -> ' + after);
-      await cdp.evalJS(`document.querySelector('.ability-toggle input').click()`);
+      // Plan is persisted on the chat row, not just painted in the UI.
+      await cdp.evalJS(`[...document.querySelectorAll('.comp-modes .mode-btn')].find((b) => /plan/i.test(b.textContent)).click()`);
+      await sleep(500);
+      const planState = await cdp.evalJS(`(async () => {
+        const cs = await window.inkwell.dbCall('listChats').then((r) => r.data);
+        return { mode: cs[0].chat_mode, on: document.querySelector('.comp-modes .mode-btn.on')?.textContent.trim() || '' };
+      })()`);
+      check('choosing Plan writes chat_mode=plan', planState?.mode === 'plan' && /Plan/.test(planState?.on || ''), JSON.stringify(planState));
 
-      await cdp.evalJS(`document.querySelector('.ability-btn').click()`);
+      await cdp.evalJS(`document.querySelector('.comp-modes .agent-toggle').click()`);
+      await sleep(500);
+      const agentState = await cdp.evalJS(`(async () => {
+        const cs = await window.inkwell.dbCall('listChats').then((r) => r.data);
+        return { on: cs[0].agent_mode, pressed: document.querySelector('.comp-modes .agent-toggle')?.getAttribute('aria-pressed') };
+      })()`);
+      check('agent mode toggles on and is stored', agentState?.on === 1 && agentState?.pressed === 'true', JSON.stringify(agentState));
+      await cdp.shot('00b-agent-on.png');
+
+      // "/skill" is skill search now, not the prompt library.
+      await cdp.evalJS(`(function(){var ta=document.querySelector('.comp-box textarea');${setReactArea}(ta, '/skill');})()`);
+      await waitUntil(() => cdp.evalJS(`!!document.querySelector('.prompt-menu .skill-cmd')`), 5000, 'skill menu');
+      const skillMenu = await cdp.evalJS(`document.querySelector('.prompt-menu')?.textContent || ''`);
+      check('typing /skill lists the shipped skills', /Dialogue Coach/.test(skillMenu), skillMenu.slice(0, 120));
+      await cdp.shot('00c-skill-menu.png');
+      await cdp.evalJS(`[...document.querySelectorAll('.prompt-menu .skill-cmd')].find((b) => /Dialogue Coach/.test(b.textContent)).click()`);
+      await sleep(600);
+      const skillOn = await cdp.evalJS(`(async () => {
+        const cs = await window.inkwell.dbCall('listChats').then((r) => r.data);
+        return { ids: JSON.parse(cs[0].skills_on || '[]'), input: document.querySelector('.comp-box textarea').value, label: document.querySelector('.comp-modes .ability-btn')?.textContent || '' };
+      })()`);
+      check('/skill/<name> switches the skill on for the chat', Array.isArray(skillOn?.ids) && skillOn.ids.includes('skill-dialogue'), JSON.stringify(skillOn));
+      check('/skill clears the draft and shows one active skill', skillOn?.input === '' && /\(1\)/.test(skillOn?.label || ''), JSON.stringify(skillOn));
+      await cdp.shot('00d-skill-on.png');
+
+      // The popover still lists every skill and links to Settings.
+      await cdp.evalJS(`document.querySelector('.comp-modes .ability-btn').click()`);
       await waitUntil(() => cdp.evalJS(`!!document.querySelector('.ui-popover')`), 5000, 'skills popover');
       const skills = await cdp.evalJS(`(document.querySelector('.ui-popover')?.textContent || '') + '|' + !!document.querySelector('.skills-manage')`);
-      check('skills popover explains the empty state', /no skills|belum ada skill/i.test(skills), skills.slice(0, 80));
+      check('skills popover lists the shipped skills', /Beta Reader/.test(skills) && /Continuity Guardian/.test(skills), skills.slice(0, 80));
       check('skills popover links to Settings', /\|true$/.test(skills));
       await cdp.pressKey('Escape', { code: 'Escape', vk: 27 });
+
+      // Leave the chat in its normal state for the rest of the suite.
+      await cdp.evalJS(`[...document.querySelectorAll('.comp-modes .mode-btn')].find((b) => /write/i.test(b.textContent)).click()`);
+      await cdp.evalJS(`document.querySelector('.comp-modes .agent-toggle').click()`);
+      await sleep(300);
     });
 
     await run('draft token estimate + context meter', async () => {
+      // The /skill step above deliberately emptied the draft, so seed one.
+      await cdp.evalJS(`(function(){var ta=document.querySelector('.comp-box textarea');${setReactArea}(ta, 'Hello world, this is a draft.');})()`);
+      await sleep(200);
       const est = await cdp.evalJS(`document.querySelector('.composer-words')?.textContent || ''`);
       check('draft shows a token estimate', /~\d[\d.,]*\s*tok/.test(est), est);
       check('draft also shows a word count', /words|kata/.test(est), est);
@@ -327,12 +392,20 @@ const setReactArea = `(function(el,val){var p=Object.getOwnPropertyDescriptor(wi
       check('regenerate button is labelled', !!regen, JSON.stringify(regen));
       check('regenerate label matches its tooltip', regen?.label === regen?.title, JSON.stringify(regen));
 
-      const opacityBefore = await cdp.evalJS(`getComputedStyle(document.querySelector('.msg.assistant .actions')).opacity`);
+      // v1.2.5 keeps the bar faintly visible on purpose (the variant arrows
+      // are navigation, not a secret) and only brightens it on hover/focus,
+      // so "quiet" means clearly dimmed rather than fully transparent.
+      const opacityBefore = Number(await cdp.evalJS(`getComputedStyle(document.querySelector('.msg.assistant .actions')).opacity`));
       await cdp.evalJS(`[...document.querySelectorAll('.msg.assistant .actions button')].find((x) => /regenerate from here/i.test(x.getAttribute('aria-label') || '')).focus()`);
-      await sleep(300);
-      const opacityAfter = await cdp.evalJS(`getComputedStyle(document.querySelector('.msg.assistant .actions')).opacity`);
-      check('action bar is quiet until focused', opacityBefore === '0', opacityBefore);
-      check('action bar appears for keyboard users', opacityAfter === '1', opacityAfter);
+      // The brightening is a 150ms transition; poll instead of assuming an
+      // exact frame, and report the last value if it never settles at 1.
+      let opacityAfter = 0;
+      for (let i = 0; i < 40 && opacityAfter !== 1; i++) {
+        await sleep(50);
+        opacityAfter = Number(await cdp.evalJS(`getComputedStyle(document.querySelector('.msg.assistant .actions')).opacity`));
+      }
+      check('action bar is quiet until focused', opacityBefore > 0 && opacityBefore < 0.75, String(opacityBefore));
+      check('action bar appears for keyboard users', opacityAfter === 1, String(opacityAfter));
     });
 
     await run('regenerate from here', async () => {
@@ -347,10 +420,23 @@ const setReactArea = `(function(el,val){var p=Object.getOwnPropertyDescriptor(wi
       const shape = await cdp.evalJS(`({
         users: document.querySelectorAll('.msg.user').length,
         assistants: document.querySelectorAll('.msg.assistant').length,
-        text: document.querySelector('.msg.assistant .content').textContent
+        text: document.querySelector('.msg.assistant .content').textContent,
+        nav: document.querySelector('.msg.assistant .variant-nav .vn-count')?.textContent || ''
       })`);
-      check('old reply replaced, not appended', shape.users === 1 && shape.assistants === 1, JSON.stringify(shape));
+      check('one bubble per turn — the old reply is hidden, not appended', shape.users === 1 && shape.assistants === 1, JSON.stringify(shape));
       check('regenerated text is the fresh answer', shape.text.includes('GUI reply two'), shape.text);
+      // v1.2.5: the previous answer is kept as a variant instead of deleted.
+      check('variant arrows appear after regenerating', shape.nav === '2/2', shape.nav);
+
+      await cdp.evalJS(`document.querySelector('.msg.assistant .variant-nav .vn-btn')?.click()`);
+      await sleep(300);
+      const restored = await cdp.evalJS(`({
+        text: document.querySelector('.msg.assistant .content').textContent,
+        nav: document.querySelector('.msg.assistant .variant-nav .vn-count')?.textContent || '',
+        users: document.querySelectorAll('.msg.user').length
+      })`);
+      check('previous variant can be shown again', restored.text.includes('GUI reply one') && restored.nav === '1/2', JSON.stringify(restored));
+      check('switching variants does not duplicate the user turn', restored.users === 1, String(restored.users));
 
       const lastSent = reqBodies[reqBodies.length - 1].messages.slice(-1)[0];
       check('regeneration resends the same user turn', lastSent?.role === 'user' && lastSent?.content === 'Hello GUI', JSON.stringify(lastSent).slice(0, 120));
@@ -360,7 +446,200 @@ const setReactArea = `(function(el,val){var p=Object.getOwnPropertyDescriptor(wi
         const ms = await window.inkwell.dbCall('getMessages', { chatId: cs[0].id }).then((r) => r.data);
         return ms.map((m) => m.role).join(',');
       })()`);
-      check('DB holds exactly one user + one assistant row', rows === 'user,assistant', rows);
+      check('DB keeps both replies as variants of one turn', rows === 'user,assistant,assistant', rows);
+    });
+
+    await run('variants across turns + reload', async () => {
+      // Second turn -> reply three.
+      await cdp.evalJS(`(function(){var ta=document.querySelector('.comp-box textarea');${setReactArea}(ta, 'Second GUI');})()`);
+      await cdp.evalJS(`document.querySelector('.send-btn').click()`);
+      await waitUntil(() => cdp.evalJS(`document.querySelectorAll('.msg.assistant').length === 2 && !document.querySelector('.msg.assistant.streaming')`), 30000, 'second reply');
+      await sleep(300);
+
+      const fresh = await cdp.evalJS(`(() => {
+        const ms = [...document.querySelectorAll('.msg.assistant')];
+        return { count: ms.length, first: ms[0].querySelector('.content').textContent, nav: ms[1].querySelector('.variant-nav') ? 'shown' : 'none' };
+      })()`);
+      check('a second turn renders as its own bubble', fresh.count === 2, JSON.stringify(fresh));
+      check('the first turn keeps its chosen variant', fresh.first.includes('GUI reply one'), fresh.first);
+      check('a single reply shows no variant arrows', fresh.nav === 'none', fresh.nav);
+
+      // Regenerate the LAST turn twice -> three answers for that turn only.
+      for (const want of ['GUI reply four', 'GUI reply five']) {
+        const before = reqBodies.length;
+        await cdp.evalJS(`(() => { const m = document.querySelectorAll('.msg.assistant')[1]; [...m.querySelectorAll('.actions button')].find((x) => /regenerate from here/i.test(x.getAttribute('aria-label') || '')).click(); })()`);
+        await waitUntil(async () => reqBodies.length > before, 15000, 'variant request');
+        await waitUntil(() => cdp.evalJS(`(document.querySelectorAll('.msg.assistant')[1]?.textContent || '').includes('${want}')`), 30000, want);
+        // The next click needs the finished bubble (the streaming one has no
+        // action bar), so wait for the turn to settle before going again.
+        await waitUntil(() => cdp.evalJS(`!document.querySelector('.msg.assistant.streaming')`), 30000, 'variant stream end');
+      }
+      await sleep(300);
+
+      const shape = await cdp.evalJS(`(() => {
+        const ms = [...document.querySelectorAll('.msg.assistant')];
+        return {
+          count: ms.length,
+          nav: ms[1].querySelector('.variant-nav .vn-count')?.textContent || '',
+          text: ms[1].querySelector('.content').textContent,
+          firstNav: ms[0].querySelector('.variant-nav .vn-count')?.textContent || ''
+        };
+      })()`);
+      check('three answers still render as one bubble', shape.count === 2, JSON.stringify(shape));
+      check('newest variant is active after regenerating', shape.nav === '3/3' && shape.text.includes('GUI reply five'), JSON.stringify(shape));
+      check('an untouched turn keeps its own variant list', shape.firstNav === '1/2', shape.firstNav);
+
+      await cdp.evalJS(`document.querySelectorAll('.msg.assistant')[1].querySelector('.variant-nav .vn-btn').click()`);
+      await sleep(300);
+      const prev = await cdp.evalJS(`(() => {
+        const m = document.querySelectorAll('.msg.assistant')[1];
+        return { text: m.querySelector('.content').textContent, nav: m.querySelector('.variant-nav .vn-count')?.textContent || '' };
+      })()`);
+      check('older variant can be shown again', prev.text.includes('GUI reply four') && prev.nav === '2/3', JSON.stringify(prev));
+
+      // Reload the transcript from the DB (chat switch) and flip again: the
+      // parent link has to survive the round-trip or arrows die after a restart.
+      await cdp.evalJS(`(async () => {
+        const st = window.useData.getState();
+        const id = st.activeChatId;
+        st.setActiveChat(null);
+        await new Promise((r) => setTimeout(r, 250));
+        st.setActiveChat(id);
+      })()`);
+      await waitUntil(() => cdp.evalJS(`document.querySelectorAll('.msg.assistant').length === 2 && !!document.querySelector('.msg.assistant .variant-nav')`), 15000, 'variants after reload');
+      const after = await cdp.evalJS(`(() => {
+        const ms = [...document.querySelectorAll('.msg.assistant')];
+        return { nav: ms[1].querySelector('.variant-nav .vn-count')?.textContent || '', firstNav: ms[0].querySelector('.variant-nav .vn-count')?.textContent || '' };
+      })()`);
+      check('variants survive reloading the chat', after.nav === '3/3', JSON.stringify(after));
+      await cdp.evalJS(`document.querySelectorAll('.msg.assistant')[1].querySelector('.variant-nav .vn-btn').click()`);
+      await sleep(300);
+      const reloaded = await cdp.evalJS(`document.querySelectorAll('.msg.assistant')[1].querySelector('.content').textContent`);
+      check('arrows still switch after reload', reloaded.includes('GUI reply four'), reloaded);
+
+      // Regenerating an EARLIER turn keeps its variants and drops the turns
+      // that followed it (documented "regenerate from here" behavior).
+      const before = reqBodies.length;
+      await cdp.evalJS(`(() => { const m = document.querySelectorAll('.msg.assistant')[0]; [...m.querySelectorAll('.actions button')].find((x) => /regenerate from here/i.test(x.getAttribute('aria-label') || '')).click(); })()`);
+      await waitUntil(async () => reqBodies.length > before, 15000, 'early-turn request');
+      await waitUntil(() => cdp.evalJS(`document.querySelectorAll('.msg.assistant').length === 1 && !document.querySelector('.msg.assistant.streaming')`), 30000, 'truncated transcript');
+      await sleep(300);
+      const truncated = await cdp.evalJS(`(() => {
+        const ms = [...document.querySelectorAll('.msg.assistant')];
+        return { count: ms.length, nav: ms[0].querySelector('.variant-nav .vn-count')?.textContent || '', text: ms[0].querySelector('.content').textContent };
+      })()`);
+      check('regenerating an early turn drops the later turns', truncated.count === 1, JSON.stringify(truncated));
+      check('the early turn gains the new answer as its newest variant', truncated.nav === '3/3' && truncated.text.includes('GUI reply six'), JSON.stringify(truncated));
+    });
+
+    await run('edit forks a prompt version, restart count resets', async () => {
+      await cdp.shot('01-before-edit.png');
+
+      // Three restarts already exist on this turn. Those belong to the ANSWER
+      // axis; the prompt was never edited, so it has no arrows yet.
+      const beforeEdit = await cdp.evalJS(`(() => ({
+        userText: document.querySelector('.msg.user .content').textContent.trim(),
+        userNav: document.querySelector('.msg.user .variant-nav') ? 'shown' : 'none',
+        aiNav: document.querySelector('.msg.assistant .variant-nav .vn-count')?.textContent || ''
+      }))()`);
+      check('an unedited prompt has no prompt arrows', beforeEdit.userNav === 'none', JSON.stringify(beforeEdit));
+      check('restarts are counted on the reply only', beforeEdit.aiNav === '3/3', JSON.stringify(beforeEdit));
+
+      // Pencil on the user bubble -> rewrite the text -> Save & resend.
+      await cdp.evalJS(`[...document.querySelectorAll('.msg.user .actions button')][1].click()`);
+      await waitUntil(() => cdp.evalJS(`!!document.querySelector('.edit-box textarea')`), 8000, 'edit box');
+      await cdp.evalJS(`(function(){var ta=document.querySelector('.edit-box textarea');${setReactArea}(ta, 'ide cerita bukan bikin project bro?');})()`);
+      await sleep(150);
+      await cdp.evalJS(`document.querySelector('.edit-box .edit-actions .primary').click()`);
+
+      await waitUntil(() => cdp.evalJS(`!!document.querySelector('.msg.assistant.streaming')`), 10000, 'streaming reply');
+      const during = await cdp.evalJS(`(() => ({
+        assistants: document.querySelectorAll('.msg.assistant').length,
+        streaming: document.querySelectorAll('.msg.assistant.streaming').length,
+        users: document.querySelectorAll('.msg.user').length,
+        userText: document.querySelector('.msg.user .content').textContent,
+        stale: /GUI reply/.test(document.querySelector('.messages').textContent)
+      }))()`);
+      await cdp.shot('02-edit-streaming.png');
+      check('the old answers are hidden while the new version streams', during.assistants === 1 && during.streaming === 1, JSON.stringify(during));
+      check('no stale reply leaks in during the resend', during.stale === false, JSON.stringify(during));
+      check('the new prompt version is on screen immediately', during.userText.trim() === 'ide cerita bukan bikin project bro?', during.userText);
+
+      await waitUntil(() => cdp.evalJS(`!document.querySelector('.msg.assistant.streaming') && !!document.querySelector('.msg.user .variant-nav')`), 30000, 'new version settled');
+      await sleep(300);
+      const done = await cdp.evalJS(`(() => {
+        const ms = [...document.querySelectorAll('.msg.assistant')];
+        return {
+          users: document.querySelectorAll('.msg.user').length,
+          assistants: ms.length,
+          userText: document.querySelector('.msg.user .content').textContent.trim(),
+          userNav: document.querySelector('.msg.user .variant-nav .vn-count')?.textContent || '',
+          aiNav: ms[0]?.querySelector('.variant-nav') ? 'shown' : 'none',
+          text: ms[0]?.querySelector('.content').textContent || ''
+        };
+      })()`);
+      await cdp.shot('03-edit-done.png');
+      check('the edit keeps one prompt bubble', done.users === 1, JSON.stringify(done));
+      check('the prompt now carries its own version arrows', done.userNav === '2/2', JSON.stringify(done));
+      check('the new version starts with ONE answer (restart count reset)', done.aiNav === 'none', JSON.stringify(done));
+      check('the new answer is rendered', done.text.includes('GUI reply seven'), JSON.stringify(done));
+
+      // Prompt arrow back: the ORIGINAL text and its three answers survive.
+      await cdp.evalJS(`document.querySelector('.msg.user .variant-nav .vn-btn').click()`);
+      await sleep(300);
+      const first = await cdp.evalJS(`(() => {
+        const m = document.querySelector('.msg.assistant');
+        return {
+          userText: document.querySelector('.msg.user .content').textContent.trim(),
+          userNav: document.querySelector('.msg.user .variant-nav .vn-count')?.textContent || '',
+          aiNav: m?.querySelector('.variant-nav .vn-count')?.textContent || '',
+          text: m?.querySelector('.content').textContent || ''
+        };
+      })()`);
+      await cdp.shot('04-prompt-version-one.png');
+      check('the original prompt is still there', first.userText === 'Hello GUI', JSON.stringify(first));
+      check('its own answers were never reset', first.aiNav === '3/3', JSON.stringify(first));
+      check('its own answer text is back', first.text.includes('GUI reply six'), JSON.stringify(first));
+
+      // A restart inside version 1 must not touch version 2 at all.
+      const before = reqBodies.length;
+      await cdp.evalJS(`(() => { const m = document.querySelector('.msg.assistant'); [...m.querySelectorAll('.actions button')].find((x) => /regenerate from here/i.test(x.getAttribute('aria-label') || '')).click(); })()`);
+      await waitUntil(async () => reqBodies.length > before, 15000, 'v1 restart request');
+      await waitUntil(() => cdp.evalJS(`!document.querySelector('.msg.assistant.streaming')`), 30000, 'v1 restart end');
+      await sleep(300);
+      const v1 = await cdp.evalJS(`(() => ({
+        aiNav: document.querySelector('.msg.assistant .variant-nav .vn-count')?.textContent || '',
+        userNav: document.querySelector('.msg.user .variant-nav .vn-count')?.textContent || '',
+        users: document.querySelectorAll('.msg.user').length
+      }))()`);
+      check("a restart only grows that version's answer list", v1.aiNav === '4/4', JSON.stringify(v1));
+      check('the prompt axis is unaffected by a restart', v1.userNav === '1/2' && v1.users === 1, JSON.stringify(v1));
+
+      // Back to version 2: still exactly one answer, untouched.
+      await cdp.evalJS(`document.querySelectorAll('.msg.user .variant-nav .vn-btn')[1].click()`);
+      await sleep(300);
+      const second = await cdp.evalJS(`(() => ({
+        userText: document.querySelector('.msg.user .content').textContent.trim(),
+        userNav: document.querySelector('.msg.user .variant-nav .vn-count')?.textContent || '',
+        aiNav: document.querySelector('.msg.assistant .variant-nav') ? 'shown' : 'none',
+        text: document.querySelector('.msg.assistant .content').textContent
+      }))()`);
+      await cdp.shot('05-prompt-version-two.png');
+      check('version 2 keeps its own single answer', second.userText === 'ide cerita bukan bikin project bro?' && second.userNav === '2/2' && second.aiNav === 'none', JSON.stringify(second));
+      check('version 2 text is untouched by the restart on version 1', second.text.includes('GUI reply seven'), JSON.stringify(second));
+
+      const stored = await cdp.evalJS(`(async () => {
+        const cs = await window.inkwell.dbCall('listChats').then((r) => r.data);
+        const ms = await window.inkwell.dbCall('getMessages', { chatId: cs[0].id }).then((r) => r.data);
+        const users = ms.filter((m) => m.role === 'user');
+        return {
+          users: users.map((m) => m.content),
+          linked: users.length === 2 && users[1].parent_id === users[0].id,
+          replies: ms.filter((m) => m.role === 'assistant').length
+        };
+      })()`);
+      check('both prompt versions are stored and linked', stored.linked === true && stored.users[0] === 'Hello GUI', JSON.stringify(stored));
+      check('every answer is still stored', stored.replies === 5, JSON.stringify(stored));
     });
 
     await run('drop overlay + file drop', async () => {
@@ -390,6 +669,69 @@ const setReactArea = `(function(el,val){var p=Object.getOwnPropertyDescriptor(wi
       await cdp.evalJS(`document.querySelector('.attach-cards .fc-x').click()`);
       await waitUntil(async () => !(await cdp.evalJS(`!!document.querySelector('.attach-cards')`)), 5000, 'attachment removed');
       check('attachment can be removed again', true);
+    });
+
+    // Narrow-window About (Settings → About). A card that pushes the pane
+    // sideways is a real bug that no typecheck can see, so this measures the
+    // rendered rectangles and keeps a screenshot of the actual window.
+    await run('about: narrow window, nothing overflows', async () => {
+      await cdp.evalJS(`window.useData.getState().navigate('settings')`);
+      await waitUntil(() => cdp.evalJS(`!!document.querySelector('.settings-nav')`), 15000, 'settings nav');
+      await cdp.evalJS(`[...document.querySelectorAll('.settings-nav button')].find((b) => /about/i.test(b.textContent))?.click()`);
+      await waitUntil(() => cdp.evalJS(`!!document.querySelector('.about-settings .about-grid')`), 10000, 'about section');
+
+      for (const width of [820, 560]) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width, height: 760, deviceScaleFactor: 1, mobile: false });
+        await sleep(450);
+        const box = await cdp.evalJS(`(() => {
+          const pane = document.querySelector('.settings-content');
+          const escapes = [...document.querySelectorAll('.about-settings *')]
+            .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && (r.right > window.innerWidth + 1 || r.left < -1); })
+            .map((el) => (typeof el.className === 'string' && el.className) || el.tagName)
+            .slice(0, 6);
+          return {
+            innerW: window.innerWidth,
+            docW: document.documentElement.scrollWidth,
+            paneW: pane ? pane.clientWidth : 0,
+            paneScrollW: pane ? pane.scrollWidth : 0,
+            escapes
+          };
+        })()`);
+        check(`about fits at ${width}px (nothing escapes the window)`, box.escapes.length === 0 && box.docW <= box.innerW + 1, JSON.stringify(box));
+        check(`about pane does not scroll sideways at ${width}px`, box.paneScrollW <= box.paneW + 1, JSON.stringify(box));
+        await cdp.shot(`05-about-${width}.png`);
+      }
+      await cdp.send('Emulation.clearDeviceMetricsOverride');
+    });
+
+    // The sidebar About page renders from a different component (AboutView),
+    // so it needs the same measurement — a fix in Settings → About does not
+    // reach it.
+    await run('about page: narrow window, nothing clips', async () => {
+      await cdp.evalJS(`[...document.querySelectorAll('.nav-item, .sidebar-footer button')].find((b) => /about/i.test(b.textContent))?.click()`);
+      await waitUntil(() => cdp.evalJS(`!!document.querySelector('.about-page')`), 15000, 'about page');
+      for (const width of [820, 560]) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width, height: 760, deviceScaleFactor: 1, mobile: false });
+        await sleep(450);
+        const box = await cdp.evalJS(`(() => {
+          const page = document.querySelector('.about-page');
+          const escapes = [...document.querySelectorAll('.about-page *')]
+            .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && (r.right > window.innerWidth + 1 || r.left < -1); })
+            .map((el) => (typeof el.className === 'string' && el.className) || el.tagName)
+            .slice(0, 8);
+          return {
+            innerW: window.innerWidth,
+            docW: document.documentElement.scrollWidth,
+            pageW: page ? page.clientWidth : 0,
+            pageScrollW: page ? page.scrollWidth : 0,
+            escapes
+          };
+        })()`);
+        check(`about page fits at ${width}px (nothing escapes the window)`, box.escapes.length === 0 && box.docW <= box.innerW + 1, JSON.stringify(box));
+        check(`about page does not scroll sideways at ${width}px`, box.pageScrollW <= box.pageW + 1, JSON.stringify(box));
+        await cdp.shot(`06-about-page-${width}.png`);
+      }
+      await cdp.send('Emulation.clearDeviceMetricsOverride');
     });
   } catch (e) {
     failures++;

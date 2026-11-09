@@ -93,6 +93,15 @@ export function DataSection({ appInfo }: { appInfo: AppInfo | null }) {
           await useSettings.getState().load(); // in-memory settings must match wiped DB
           ui.toast(t('data.resetDone'), 'ok');
         }}>{t('data.reset')}</button>
+        {/* Say exactly what a reset destroys before the confirm dialog appears. */}
+        <div className="reset-note">
+          <div className="rn-title"><Icon name="bolt" size={13} /> {t('data.resetIncludes')}</div>
+          <div className="rn-body">
+            {stats
+              ? `${stats.messages.toLocaleString()} ${t('data.msgUnit')} · ${stats.chats.toLocaleString()} ${t('data.chatUnit')} · ${stats.chapters.toLocaleString()} ${t('data.chapterUnit')} · ${stats.story.toLocaleString()} ${t('data.entryUnit')}`
+              : t('data.resetHint')}
+          </div>
+        </div>
       </div>
       <div className="card">
         <h3>{t('about.donate')}</h3>

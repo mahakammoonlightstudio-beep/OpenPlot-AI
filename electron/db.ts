@@ -76,6 +76,16 @@ export function storyJsonArray(value: unknown): string {
   return fromText(raw);
 }
 
+/**
+ * A provider row as the renderer may see it: identity and whether a key exists,
+ * never the key. The only reader of the secret is `providerSecret` below, which
+ * is imported by the main process and deliberately not an IPC op.
+ */
+function publicProviderRow(row: any): any {
+  if (!row) return row;
+  return { ...row, api_key: '', has_key: String(row.api_key || '') ? 1 : 0 };
+}
+
 /** Every story row leaving the DB has array-shaped tags/links and text fields. */
 function normalizeStoryRow(row: any): any {
   if (!row) return row;
@@ -123,14 +133,16 @@ CREATE TABLE IF NOT EXISTS chats (
   id TEXT PRIMARY KEY, title TEXT DEFAULT 'New chat', folder_id TEXT DEFAULT NULL,
   project_id TEXT DEFAULT NULL, model TEXT DEFAULT NULL,
   system_prompt TEXT DEFAULT NULL, pinned INTEGER DEFAULT 0,
-  skills_off TEXT DEFAULT '[]',
+  skills_off TEXT DEFAULT '[]', skills_on TEXT DEFAULT '[]',
+  agent_mode INTEGER DEFAULT 0, chat_mode TEXT DEFAULT 'write',
+  think_level TEXT DEFAULT 'auto',
   created_at INTEGER, updated_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, role TEXT NOT NULL,
   content TEXT DEFAULT '', thinking TEXT DEFAULT NULL,
   model TEXT DEFAULT NULL, tokens_in INTEGER, tokens_out INTEGER,
-  tokens_cached INTEGER, created_at INTEGER
+  tokens_cached INTEGER, parent_id TEXT, created_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS memories (
   id TEXT PRIMARY KEY, content TEXT NOT NULL, source TEXT DEFAULT 'manual',
@@ -224,7 +236,7 @@ CREATE INDEX IF NOT EXISTS idx_message_files_chat ON message_files(chat_id);
  * A column/table that already exists is skipped, so partially-migrated and
  * pre-1.2 databases (user_version = 0 with a modern shape) both upgrade safely.
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 9;
 
 function readUserVersion(): number {
   try {
@@ -260,6 +272,50 @@ function addColumn(table: string, column: string, ddl: string): void {
   if (hasColumn(table, column)) return;
   if (!db) throw new Error('DB not ready');
   db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+}
+
+/**
+ * Tool detail is stored next to the reply so a reopened chat can still explain
+ * what the run did. Bounded on every axis: a runaway agent loop must not turn a
+ * message row into megabytes.
+ */
+const TOOL_STEPS_MAX = 40;
+const TOOL_DETAIL_MAX = 200;
+
+function sanitizeToolSteps(input: unknown): string | null {
+  if (!Array.isArray(input) || !input.length) return null;
+  const rows = input.slice(0, TOOL_STEPS_MAX).map((s: any) => ({
+    name: String(s?.name ?? '').slice(0, 80),
+    kind: String(s?.kind ?? 'other').slice(0, 20),
+    detail: String(s?.detail ?? '').slice(0, TOOL_DETAIL_MAX),
+    ok: s?.ok !== false
+  }));
+  return JSON.stringify(rows);
+}
+
+/**
+ * Text that is safe to store. A NUL byte cannot be read back through the SQLite
+ * string API (the row comes back truncated), so it is removed on the way in
+ * instead of silently corrupting the message.
+ */
+function cleanText(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value.replace(/\u0000/g, '');
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  // Never call a caller-supplied `toString`: an object whose method is missing
+  // or throws would crash the write instead of storing something sensible.
+  try { return JSON.stringify(value).replace(/\u0000/g, ''); } catch { return ''; }
+}
+
+/** Stored JSON → rows the chat panels render. Never throws on bad data. */
+function toolStepsOf(row: any): any[] {
+  if (!row?.tools_json) return [];
+  try {
+    const parsed = JSON.parse(String(row.tools_json));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 function execRaw(sql: string): void {
@@ -332,6 +388,59 @@ const MIGRATIONS: { version: number; run: () => void }[] = [
       // least one (an API key, a root folder), and storing them per server is
       // what makes the bridge usable without shell wrappers.
       addColumn('mcp_servers', 'env', "TEXT DEFAULT '{}'");
+    }
+  },
+  {
+    version: 6,
+    run() {
+      // Reply variants (v1.2.5). Resending or regenerating used to DELETE the
+      // previous answer, so there was nothing to compare or go back to. An
+      // assistant row now points at the user turn it answers; rows sharing that
+      // parent are the variants the transcript can flip through.
+      addColumn('messages', 'parent_id', 'TEXT');
+      // Backfill existing transcripts: pair every assistant reply with the
+      // user turn just before it in the same chat, so old chats get the arrow
+      // navigation too (one variant = no arrows).
+      const rows = all('SELECT id, chat_id, role FROM messages ORDER BY chat_id, created_at, rowid');
+      let chatId = '';
+      let lastUser: string | null = null;
+      for (const row of rows) {
+        if (row.chat_id !== chatId) { chatId = row.chat_id; lastUser = null; }
+        if (row.role === 'user') lastUser = row.id;
+        else if (row.role === 'assistant' && lastUser) run('UPDATE messages SET parent_id=? WHERE id=?', [lastUser, row.id]);
+      }
+      execRaw('CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_id)');
+    }
+  },
+  {
+    version: 7,
+    run() {
+      // Chat modes + on-demand skills (v1.2.5). Agent mode and the three chat
+      // modes belong to the chat, and a skill is activated per chat with
+      // /skill/<name> instead of being globally on.
+      addColumn('chats', 'skills_on', "TEXT DEFAULT '[]'");
+      addColumn('chats', 'agent_mode', 'INTEGER DEFAULT 0');
+      addColumn('chats', 'chat_mode', "TEXT DEFAULT 'write'");
+      // Skills now ship off: the composer's /skill command is the way in.
+      // Scoped to builtins so a custom skill the user enabled stays enabled.
+      execRaw('UPDATE skills SET enabled = 0 WHERE builtin = 1');
+    }
+  },
+  {
+    version: 8,
+    run() {
+      // Thinking level is a per-chat choice (auto/off/low/medium/high/max), so
+      // it survives a restart instead of resetting with the session.
+      addColumn('chats', 'think_level', "TEXT DEFAULT 'auto'");
+    }
+  },
+  {
+    version: 9,
+    run() {
+      // Tool calls used to be reconstructed from memory only, so a reloaded
+      // chat showed "Tools used · 3" with no detail. The rows keep the readable
+      // step (what it created, whether it worked) next to the reply.
+      addColumn('messages', 'tools_json', 'TEXT');
     }
   }
 ];
@@ -503,7 +612,9 @@ function seedDefaults(): void {
         }
         continue;
       }
-      run('INSERT INTO skills (id, name, description, content, enabled, builtin) VALUES (?,?,?,?,1,1)', [s.id, s.name, s.description, s.content]);
+      // Skills ship OFF: they are switched on per chat with /skill, so a
+      // fresh install never injects six instruction blocks nobody asked for.
+      run('INSERT INTO skills (id, name, description, content, enabled, builtin) VALUES (?,?,?,?,0,1)', [s.id, s.name, s.description, s.content]);
     }
   } catch (e) {
     console.error('seedDefaults failed:', e);
@@ -663,6 +774,24 @@ export const DEFAULT_SKILLS: Array<{ id: string; name: string; description: stri
     name: 'Worldbuilding Architect',
     description: 'Builds settings from consequences, not decoration.',
     content: 'When inventing a place, culture or system, start from one constraint (geography, scarcity, magic cost, power structure) and derive the consequences people would actually live with: work, food, etiquette, taboos, slang. Store durable facts as story bible entries; keep flavour text out of canon.'
+  },
+  {
+    id: 'skill-voice',
+    name: 'Voice Keeper',
+    description: 'Keeps every POV voice consistent across chapters.',
+    content: 'Track the current point of view, tense and register. Before writing, sample one paragraph of that POV\'s existing prose and match its sentence rhythm, vocabulary and level of interiority. If a new passage drifts into another character\'s diction or the wrong tense, fix it before returning the text, and say in one line what you corrected.'
+  },
+  {
+    id: 'skill-hook',
+    name: 'Hook Doctor',
+    description: 'Sharpens openings and chapter endings.',
+    content: 'For an opening: state in one line what the reader wants to know by the end of the first paragraph, then rewrite so a concrete image or a live problem creates that question immediately — no weather, no waking up, no summary. For a chapter ending: end on a decision, a reversal or an unanswered cost, never on a tidy resolution. Offer two alternatives and name which one you would keep.'
+  },
+  {
+    id: 'skill-line-editor',
+    name: 'Line Editor',
+    description: 'Copyedits without flattening the author\u2019s voice.',
+    content: 'Do a line edit, not a rewrite: fix grammar, punctuation, repeated words, filter verbs (saw, felt, noticed), dangling modifiers and unintentional echoes. Preserve the author\u2019s diction, dialect and deliberate fragments. Return the corrected passage, then list only the categories of change with one example each.'
   }
 ];
 
@@ -792,6 +921,9 @@ const fileMeta = (row: any) => ({ id: row.id, name: row.name, kind: row.kind, by
 // ---------- generic handlers ----------
 
 export function handleDb(op: string, payload: any): any {
+  // IPC can deliver null/undefined (a cancelled call, a renderer bug). Every op
+  // reads fields off `payload`, so a single guard here replaces a crash per op.
+  if (payload === null || payload === undefined || typeof payload !== 'object') payload = {};
   const now = Date.now();
   switch (op) {
     // settings
@@ -899,7 +1031,18 @@ export function handleDb(op: string, payload: any): any {
         ['skills_off', payload.skills_off === undefined
           ? undefined
           : JSON.stringify(Array.isArray(payload.skills_off) ? payload.skills_off : [])],
+        // Skills switched on for this chat (the /skill command writes here).
+        ['skills_on', payload.skills_on === undefined
+          ? undefined
+          : JSON.stringify(Array.isArray(payload.skills_on) ? payload.skills_on : [])],
+        ['chat_mode', payload.chat_mode],
+        // Persisted thinking level; anything unknown falls back to 'auto'.
+        ['think_level', payload.think_level === undefined
+          ? undefined
+          : (['auto', 'off', 'low', 'medium', 'high', 'max'].includes(String(payload.think_level))
+            ? String(payload.think_level) : 'auto')],
         // Booleans are normalized to 0/1 so SQLite keeps them comparable.
+        ['agent_mode', payload.agent_mode === undefined ? undefined : (payload.agent_mode ? 1 : 0)],
         ['pinned', payload.pinned === undefined ? undefined : (payload.pinned ? 1 : 0)]
       ];
       for (const [col, val] of fields) {
@@ -930,7 +1073,10 @@ export function handleDb(op: string, payload: any): any {
         list.push(fileMeta(f));
         byMessage.set(f.message_id, list);
       }
-      for (const r of rows) r.files = byMessage.get(r.id) || [];
+      for (const r of rows) {
+        r.files = byMessage.get(r.id) || [];
+        r.toolSteps = toolStepsOf(r);
+      }
       return rows;
     }
     // Paged transcript (v1.2.3 Task 11). `getMessages` still loads a whole chat
@@ -969,7 +1115,10 @@ export function handleDb(op: string, payload: any): any {
           byMessage.set(f.message_id, list);
         }
       }
-      for (const r of page) r.files = byMessage.get(r.id) || [];
+      for (const r of page) {
+        r.files = byMessage.get(r.id) || [];
+        r.toolSteps = toolStepsOf(r);
+      }
       return { rows: page, hasMore };
     }
     case 'listMessageFiles':
@@ -993,8 +1142,8 @@ export function handleDb(op: string, payload: any): any {
       try {
         // tokens_in/out ride along when provided (assistant rows from a real
         // generation). NULL for older rows — Usage views treat NULL as unknown.
-        run('INSERT INTO messages (id, chat_id, role, content, thinking, model, tokens_in, tokens_out, tokens_cached, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-          [id, payload.chatId, payload.role, payload.content, payload.thinking ?? null, payload.model ?? null, payload.tokens_in ?? null, payload.tokens_out ?? null, payload.tokens_cached ?? null, now]);
+        run('INSERT INTO messages (id, chat_id, role, content, thinking, model, tokens_in, tokens_out, tokens_cached, parent_id, tools_json, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+          [id, payload.chatId, payload.role, cleanText(payload.content), payload.thinking == null ? null : cleanText(payload.thinking), payload.model ?? null, payload.tokens_in ?? null, payload.tokens_out ?? null, payload.tokens_cached ?? null, payload.parentId ?? null, sanitizeToolSteps(payload.toolSteps), now]);
         for (const f of files) {
           run('INSERT INTO message_files (id, chat_id, message_id, name, kind, bytes, content, created_at) VALUES (?,?,?,?,?,?,?,?)',
             [f.id, payload.chatId, id, f.name, f.kind, f.bytes, f.content, now]);
@@ -1015,8 +1164,8 @@ export function handleDb(op: string, payload: any): any {
       // clearing impossible — e.g. erasing a bad thinking trace).
       const sets: string[] = [];
       const vals: any[] = [];
-      if (payload.content !== undefined) { sets.push('content=?'); vals.push(payload.content); }
-      if (payload.thinking !== undefined) { sets.push('thinking=?'); vals.push(payload.thinking); }
+      if (payload.content !== undefined) { sets.push('content=?'); vals.push(cleanText(payload.content)); }
+      if (payload.thinking !== undefined) { sets.push('thinking=?'); vals.push(cleanText(payload.thinking)); }
       if (payload.tokens_in !== undefined) { sets.push('tokens_in=?'); vals.push(payload.tokens_in); }
       if (payload.tokens_out !== undefined) { sets.push('tokens_out=?'); vals.push(payload.tokens_out); }
       if (payload.tokens_cached !== undefined) { sets.push('tokens_cached=?'); vals.push(payload.tokens_cached); }
@@ -1399,7 +1548,12 @@ export function handleDb(op: string, payload: any): any {
       return get('SELECT * FROM chapters WHERE id = ?', [id]);
     }
     case 'updateChapter': {
-      run('UPDATE chapters SET title=COALESCE(?,title), content=COALESCE(?,content), status=COALESCE(?,status), updated_at=? WHERE id=?', [payload.title ?? null, payload.content ?? null, payload.status ?? null, now, payload.id]);
+      // Normalised before binding: a non-string title/content (a renderer bug,
+      // or an object whose toString throws) used to break the whole write.
+      const chTitle = payload.title == null ? null : cleanText(payload.title);
+      const chContent = payload.content == null ? null : cleanText(payload.content);
+      const chStatus = payload.status == null ? null : String(payload.status);
+      run('UPDATE chapters SET title=COALESCE(?,title), content=COALESCE(?,content), status=COALESCE(?,status), updated_at=? WHERE id=?', [chTitle, chContent, chStatus, now, payload.id]);
       return get('SELECT * FROM chapters WHERE id = ?', [payload.id]);
     }
     case 'deleteChapter':
@@ -1413,18 +1567,23 @@ export function handleDb(op: string, payload: any): any {
       return true;
     // providers
     case 'listProviders':
-      // api_key is decrypted for the app; only the DB file itself holds ciphertext
-      return all('SELECT * FROM providers ORDER BY created_at').map((r: any) => ({ ...r, api_key: unprotectKey(r.api_key) }));
+      // The key never leaves the main process: the renderer gets identity plus
+      // a has_key flag. Generation and discovery resolve the secret by id.
+      return all('SELECT * FROM providers ORDER BY created_at').map(publicProviderRow);
     case 'createProvider': {
       const id = uid();
       run('INSERT INTO providers (id, name, base_url, api_key, enabled, models, kind, created_at) VALUES (?,?,?,?,?,?,?,?)', [id, payload.name, payload.baseUrl, protectKey(payload.apiKey || ''), payload.enabled === false ? 0 : 1, JSON.stringify(payload.models || []), payload.kind || 'auto', now]);
-      return get('SELECT * FROM providers WHERE id = ?', [id]);
+      return publicProviderRow(get('SELECT * FROM providers WHERE id = ?', [id]));
     }
     case 'updateProvider': {
       // Partial-payload safe: undefined fields keep their stored value (the
       // old direct-SET version threw on undefined bindings or silently reset
       // name/baseUrl when a caller sent only the changed field).
-      const encKey = payload.apiKey === undefined ? null : protectKey(String(payload.apiKey));
+      // undefined and null both mean "keep the stored key" — the UI sends null
+      // when the user has not typed a replacement.
+      const encKey = payload.apiKey === undefined || payload.apiKey === null
+        ? null
+        : protectKey(String(payload.apiKey));
       run(
         'UPDATE providers SET name=COALESCE(?,name), base_url=COALESCE(?,base_url), '
         + 'api_key=CASE WHEN ? IS NOT NULL THEN ? ELSE api_key END, '
@@ -1439,7 +1598,7 @@ export function handleDb(op: string, payload: any): any {
           payload.id
         ]
       );
-      return get('SELECT * FROM providers WHERE id = ?', [payload.id]);
+      return publicProviderRow(get('SELECT * FROM providers WHERE id = ?', [payload.id]));
     }
     case 'deleteProvider':
       run('DELETE FROM providers WHERE id=?', [payload.id]);
@@ -1529,7 +1688,7 @@ export function handleDb(op: string, payload: any): any {
           stmt.free();
         }
         for (const s of DEFAULT_SKILLS) {
-          run('INSERT INTO skills (id, name, description, content, enabled, builtin) VALUES (?,?,?,?,1,1)', [s.id, s.name, s.description, s.content]);
+          run('INSERT INTO skills (id, name, description, content, enabled, builtin) VALUES (?,?,?,?,0,1)', [s.id, s.name, s.description, s.content]);
         }
         dirty = true;
         persistNow();
@@ -1577,6 +1736,43 @@ export function handleDb(op: string, payload: any): any {
     default:
       throw new Error('Unknown db op: ' + op);
   }
+}
+
+/**
+ * The stored credentials for one provider. Main-process only: this is the one
+ * place a decrypted API key is read, so the renderer never holds one.
+ */
+export function providerSecret(id: string): {
+  id: string;
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+  kind: string;
+  models: string[];
+  enabled: boolean;
+} | null {
+  if (!id) return null;
+  let row: any;
+  try {
+    row = get('SELECT * FROM providers WHERE id = ?', [String(id)]);
+  } catch {
+    return null;
+  }
+  if (!row) return null;
+  let models: string[] = [];
+  try {
+    const parsed = JSON.parse(String(row.models || '[]'));
+    if (Array.isArray(parsed)) models = parsed.map((m) => String(m));
+  } catch { /* legacy or hand-edited row */ }
+  return {
+    id: String(row.id),
+    name: String(row.name || 'provider'),
+    baseUrl: String(row.base_url || ''),
+    apiKey: unprotectKey(String(row.api_key || '')),
+    kind: String(row.kind || 'auto'),
+    models,
+    enabled: Number(row.enabled) === 1
+  };
 }
 
 export function closeDb(): void {

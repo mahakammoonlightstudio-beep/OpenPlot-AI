@@ -148,24 +148,73 @@ export function sanitizeHtml(html: string): string {
   return DOMPurify.sanitize(html, PURIFY_CFG);
 }
 
-// Post-process sanitized HTML: external links open in OS browser
+// Post-process sanitized HTML: external links open in OS browser, every other
+// scheme stops being clickable. A `file:` link used to navigate the app window
+// to a local document, which then kept the preload bridge — one click on model
+// output was enough to run a local file inside the trusted window.
 function hardenLinks(container: HTMLElement): void {
   container.querySelectorAll('a[href]').forEach((a) => {
     const href = a.getAttribute('href') || '';
     if (/^https?:\/\//i.test(href)) {
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener noreferrer');
+      return;
+    }
+    // In-page anchors stay useful; anything else loses its href.
+    if (!href.startsWith('#')) {
+      a.removeAttribute('href');
+      a.setAttribute('role', 'text');
     }
   });
 }
 
-function parseAndSanitize(text: string): string {
-  try {
-    const html = marked.parse(text || '', { async: false }) as string;
-    return sanitizeHtml(html);
-  } catch {
-    return sanitizeHtml(text);
+// The same message is parsed again every time its bubble mounts: switching
+// chat, coming back to a tab, stepping between reply versions. marked +
+// DOMPurify (+ hljs inside code blocks) costs ~0.1 ms per message, which is a
+// visible pause on a 200-message transcript. Finished HTML is cached by source
+// text, with the same bounded-budget discipline as code highlighting so a long
+// session cannot grow the cache without limit.
+const MD_CACHE = new Map<string, string>();
+const MD_CACHE_MAX = 240;
+const MD_CACHE_BYTES_MAX = 6 * 1024 * 1024;
+const MD_CACHE_SKIP = 64 * 1024;
+let mdCacheBytes = 0;
+
+/** Introspection for the perf bench — never used by the app. */
+export function markdownCacheStats(): { entries: number; bytes: number } {
+  return { entries: MD_CACHE.size, bytes: mdCacheBytes };
+}
+
+function mdCachePut(key: string, value: string): void {
+  MD_CACHE.set(key, value);
+  mdCacheBytes += key.length + value.length;
+  while ((MD_CACHE.size > MD_CACHE_MAX || mdCacheBytes > MD_CACHE_BYTES_MAX) && MD_CACHE.size) {
+    const oldest = MD_CACHE.keys().next().value as string;
+    const val = MD_CACHE.get(oldest) || '';
+    mdCacheBytes -= oldest.length + val.length;
+    MD_CACHE.delete(oldest);
   }
+  if (mdCacheBytes < 0) mdCacheBytes = 0;
+}
+
+function parseAndSanitize(text: string): string {
+  const key = text || '';
+  const hit = MD_CACHE.get(key);
+  if (hit !== undefined) {
+    // Touch for LRU: the coldest transcript is evicted first.
+    MD_CACHE.delete(key);
+    MD_CACHE.set(key, hit);
+    return hit;
+  }
+  let out: string;
+  try {
+    const html = marked.parse(key, { async: false }) as string;
+    out = sanitizeHtml(html);
+  } catch {
+    out = sanitizeHtml(key);
+  }
+  if (key.length <= MD_CACHE_SKIP) mdCachePut(key, out);
+  return out;
 }
 
 export function useMarkdown(text: string): string {

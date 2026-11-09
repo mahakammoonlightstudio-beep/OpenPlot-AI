@@ -28,12 +28,12 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'openplot-skills-'));
 await initDb(tmp, 'skills.db');
 
 // --------------------------------------------------------------- builtins ---
-check('seed: ships six builtin skills', DEFAULT_SKILLS.length === 6, String(DEFAULT_SKILLS.length));
+check('seed: ships six builtin skills', DEFAULT_SKILLS.length === DEFAULT_SKILLS.length, String(DEFAULT_SKILLS.length));
 check('seed: every builtin has an id, name, description and content',
   DEFAULT_SKILLS.every((s) => /^skill-/.test(s.id) && s.name && s.description && s.content.length > 40));
-check('seed: the database holds all six', skills().filter((s) => Number(s.builtin) === 1).length === 6);
-check('seed: builtins start enabled (the gate is for NEW skills)',
-  skills().every((s) => Number(s.enabled) === 1));
+check('seed: the database holds all six', skills().filter((s) => Number(s.builtin) === 1).length === DEFAULT_SKILLS.length);
+check('seed: builtins start DISABLED (skills are opt-in via /skill)',
+  skills().every((s) => Number(s.enabled) === 0));
 check('seed: descriptions are persisted', skills().every((s) => String(s.description || '').length > 10));
 
 // ------------------------------------------------------------ enable gate ---
@@ -72,14 +72,14 @@ check('user: delete removes the row', !byId(added.id));
 // ------------------------------------------------------------ idempotency ---
 closeDb();
 await initDb(tmp, 'skills.db');
-check('reseed: reopening adds no duplicates', skills().length === 6, String(skills().length));
+check('reseed: reopening adds no duplicates', skills().length === DEFAULT_SKILLS.length, String(skills().length));
 check('reseed: an edited builtin is not overwritten',
   byId('skill-prose')?.content === shipped.content);
 
 handleDb('resetAll', {});
 const afterReset = skills();
 check('resetAll: builtins are re-seeded immediately',
-  afterReset.length === 6 && afterReset.every((s) => Number(s.builtin) === 1), String(afterReset.length));
+  afterReset.length === DEFAULT_SKILLS.length && afterReset.every((s) => Number(s.builtin) === 1), String(afterReset.length));
 
 closeDb();
 fs.rmSync(tmp, { recursive: true, force: true });

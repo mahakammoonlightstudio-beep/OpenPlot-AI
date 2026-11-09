@@ -56,7 +56,9 @@ export function normProvider(p: any): Provider {
   return {
     ...p,
     baseUrl: p.baseUrl ?? p.base_url ?? '',
+    // listProviders never sends the key itself — only whether one is stored.
     apiKey: p.apiKey ?? p.api_key ?? '',
+    hasKey: !!(p.hasKey ?? p.has_key),
     kind: p.kind || 'auto',
     enabled: normBool(p.enabled),
     models: providerList(p.models)
@@ -180,6 +182,11 @@ interface SettingsState {
   agentMd: string;
   /** Author name written into EPUB metadata on export. */
   authorName: string;
+  /** Search provider behind the agent's web_search tool (bring-your-own key). */
+  webSearchProvider: 'exa' | 'serper' | 'brave';
+  webSearchApiKey: string;
+  /** How many links one web_search returns. */
+  webSearchResults: number;
   defaultProviderId: string | null;
   defaultModel: string | null;
   memoryEnabled: boolean;
@@ -232,6 +239,9 @@ const SETTING_SANITIZERS: Record<string, (v: any) => any> = {
   defaultSystem: (v) => strOr(v, ''),
   agentMd: (v) => strOr(v, ''),
   authorName: (v) => strOr(v, ''),
+  webSearchProvider: (v) => (v === 'serper' || v === 'brave' ? v : 'exa'),
+  webSearchApiKey: (v) => strOr(v, ''),
+  webSearchResults: (v) => clampNum(v, 5, 1, 10),
   defaultProviderId: (v) => (typeof v === 'string' ? v : null),
   defaultModel: (v) => (typeof v === 'string' ? v : null),
   memoryEnabled: (v) => boolOr(v, true),
@@ -269,6 +279,9 @@ export const useSettings = create<SettingsState>((set, get) => ({
   defaultSystem: '',
   agentMd: '',
   authorName: '',
+  webSearchProvider: 'exa',
+  webSearchApiKey: '',
+  webSearchResults: 5,
   defaultProviderId: null,
   defaultModel: null,
   memoryEnabled: true,
@@ -377,7 +390,10 @@ export const useData = create<DataState>((set, get) => ({
   mcpServers: [],
   activeChatId: savedPosition.activeChatId,
   activeProjectId: savedPosition.activeProjectId,
-  route: savedPosition.route,
+  // v1.2.5: the app opens on Home instead of dropping you back into whatever
+  // chat was open last time. Every other saved route is still restored; only a
+  // saved `chat` route is redirected, so closing the app mid-chat is fine.
+  route: savedPosition.route && savedPosition.route !== 'chat' ? savedPosition.route : 'home',
   guideSlug: 'getting-started',
   setGuideSlug(slug) { set({ guideSlug: slug || 'getting-started' }); },
   async load() {
@@ -435,7 +451,13 @@ export const useData = create<DataState>((set, get) => ({
       console.error('reload failed', e);
     }
   },
-  setActiveChat(id) { set({ activeChatId: id }); persistPosition(get()); },
+  // Opening a chat always means looking at it. Since v1.2.5 the app can sit on
+  // Home with a chat selected, so a bare setActiveChat (test harnesses, palette,
+  // automations) used to change the id while the screen stayed on Home.
+  setActiveChat(id) {
+    set(id ? { activeChatId: id, route: 'chat' } : { activeChatId: id });
+    persistPosition(get());
+  },
   setActiveProject(id) { set({ activeProjectId: id }); persistPosition(get()); },
   navigate(route) { set({ route }); persistPosition(get()); }
 }));
@@ -457,7 +479,7 @@ export const useData = create<DataState>((set, get) => ({
 //   runSkill      -> skill id (or name) to apply to the next message
 
 /** Routes a navigate automation may switch to (kept in sync with SettingsView). */
-export const NAVIGABLE_ROUTES = ['chat', 'story', 'flow', 'chapters', 'projects', 'stats', 'settings', 'about'];
+export const NAVIGABLE_ROUTES = ['home', 'chat', 'story', 'flow', 'chapters', 'projects', 'stats', 'settings', 'about'];
 
 // ---------- automations v2 (Task 14) ----------
 

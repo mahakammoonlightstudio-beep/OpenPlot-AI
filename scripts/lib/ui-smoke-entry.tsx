@@ -73,8 +73,10 @@ export function smoke(): Record<string, string> {
     <Composer
       input="" setInput={() => {}} onSend={() => {}} streaming={false} onAbort={() => {}}
       effModel="mock-model" effProvider={null} allModels={['mock-model']} onPickModel={() => {}}
-      thinkOn={false} setThinkOn={() => {}} thinkSupport="yes" thinkingUi="auto"
-      thinkBudget={4096} setThinkBudget={() => {}} maxThinkBudget={50000} toolsOn={false} setToolsOn={() => {}}
+      thinkOn={false} setThinkOn={() => {}} thinkSupport="yes" thinkingUi="auto" thinkLevelMode="auto"
+      thinkBudget={4096} setThinkBudget={() => {}} maxThinkBudget={50000}
+      agentMode={false} onToggleAgent={() => {}} mode="write" onPickMode={() => {}}
+      skillsOn={[]} onRunSkillCommand={() => {}}
       chatProjectId={null} onPickProject={() => {}} onDetachProject={() => {}}
       goal={null} setGoal={() => {}} wordCount={0}
       styles={[]} activeStyleId={null} onPickStyle={() => {}}
@@ -87,7 +89,9 @@ export function smoke(): Record<string, string> {
       input={input} setInput={() => {}} onSend={() => {}} streaming={false} onAbort={() => {}}
       effModel="mock-model" effProvider={null} allModels={['mock-model']} onPickModel={() => {}}
       thinkOn setThinkOn={() => {}} thinkSupport={support} thinkingUi={ui}
-      thinkBudget={4096} setThinkBudget={() => {}} maxThinkBudget={50000} toolsOn={false} setToolsOn={() => {}}
+      thinkBudget={4096} setThinkBudget={() => {}} maxThinkBudget={50000}
+      agentMode={false} onToggleAgent={() => {}} mode="write" onPickMode={() => {}}
+      skillsOn={[]} onRunSkillCommand={() => {}}
       chatProjectId={null} onPickProject={() => {}} onDetachProject={() => {}}
       goal={null} setGoal={() => {}} wordCount={(input.trim().match(/\S+/g) || []).length}
       styles={[]} activeStyleId={null} onPickStyle={() => {}}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, ReactNode } from 'react';
 import { Icon, IconName } from './Icons';
 
 /**
@@ -155,16 +155,49 @@ export function Modal({
   // app randomly stops accepting keystrokes (the Electron native-dialog bug
   // has the same symptom).
   const cardRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const t = setTimeout(() => {
-      const root = cardRef.current;
-      if (!root) return;
-      const target = root.querySelector<HTMLElement>('input, textarea, select, button:not([aria-label="Close"])');
-      (target || root).focus();
-    }, 30);
-    return () => clearTimeout(t);
+  // Focus on COMMIT, not after a timeout: a dialog that leaves focus on the
+  // page behind it lets keystrokes reach the editor while it is open (and
+  // screen readers announce an open dialog whose focus is outside it). The
+  // ref callback runs before the first paint, so there is no moment where a
+  // visible dialog still has focus behind it.
+  const attachCard = useCallback((el: HTMLDivElement | null) => {
+    cardRef.current = el;
+    if (el) el.focus();
   }, []);
-  useEffect(() => {
+  // Then hand focus to the first real control. The close button is skipped:
+  // Enter on it would dismiss the dialog. Disabled controls are skipped too,
+  // because .focus() on them is a no-op and focus would stay outside.
+  useLayoutEffect(() => {
+    const root = cardRef.current;
+    if (!root) return;
+    const target = root.querySelector<HTMLElement>(
+      'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]):not([aria-label="Close"])'
+    );
+    (target || root).focus();
+  }, []);
+  // A modal owns focus while it is open. Background editors use autoFocus on
+  // remount (a chapter save reloads the row), and that used to pull focus out
+  // of an already-open dialog — keystrokes then landed in the editor behind
+  // it. Only the TOPMOST card enforces this, so stacked dialogs don't fight.
+  useLayoutEffect(() => {
+    const root = cardRef.current;
+    if (!root) return;
+    const onFocusIn = (e: FocusEvent) => {
+      const cards = document.querySelectorAll('.ui-modal-card');
+      if (cards[cards.length - 1] !== root) return;
+      if (root.contains(e.target as Node)) return;
+      const target = root.querySelector<HTMLElement>(
+        'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])'
+      );
+      (target || root).focus();
+    };
+    document.addEventListener('focusin', onFocusIn);
+    return () => document.removeEventListener('focusin', onFocusIn);
+  }, []);
+  // Layout effect, not useEffect: passive effects run after paint, and a
+  // dialog that is already visible but not yet listening would swallow the
+  // first Escape a user presses on it.
+  useLayoutEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
       if (e.key === 'Tab') {
@@ -192,7 +225,7 @@ export function Modal({
   }, []);
   return (
     <div className="ui-modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div ref={cardRef} className="ui-modal-card" style={{ maxWidth: width }} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
+      <div ref={attachCard} className="ui-modal-card" style={{ maxWidth: width }} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
         <div className="ui-modal-head">
           <h3>{title}</h3>
           <button className="small ghost" onClick={onClose} aria-label="Close"><Icon name="x" size={15} /></button>

@@ -49,18 +49,24 @@ const GROUPS = {
     'bundle-budget.mjs',     // built asset sizes: chunk/total JS + CSS caps (skips without dist/)
     'ai-parser-test.mjs', // baseUrlCandidates, SseParser, dataLines, extractError, statusHint
     'tools-test.mjs',     // agent tools vs a real temp DB
+    'agent-e2e-test.mjs', // one agent run: project + 12 bible entries + chapter (15 rounds)
+    'tool-progress-test.mjs', // tool result → readable progress step (kind, title, ok)
     'story-import-test.mjs', // story-bible file import parser (markdown/json/csv/txt)
     'story-agent-test.mjs',  // Plot Smith prompts, JSON recovery, plan → project
     'story-vault-test.mjs',  // attachments, saved plans, stats + compaction (temp DB)
     'ui-render-test.mjs',    // server-renders every main view (no display needed)
     'url-fix-test.mjs',   // provider URL recovery + readable HTML errors (mock http)
     'engine-test.mjs',    // streaming, tool-call ordering, abort (mock SSE server)
-    'stress-test.mjs'     // hostile-relay scenarios vs the engine
+    'stress-test.mjs',    // hostile-relay scenarios vs the engine
+    'security-test.mjs',  // SSRF/protocol guards, injection + pollution, hostile input, storage growth
+    'trust-test.mjs',     // plugin/MCP approvals: hashing, stale/orphan detection, revoke
+    'fuzz-test.mjs'       // deterministic fuzz of the story parsers (junk, deep nesting, huge docs)
   ],
   'e2e-local': [
     'gui-test.mjs',       // boots vite+electron, drives the real UI (chat, tools, prompts)
     'focus-test.mjs',     // boots vite+electron, keyboard-focus regression suite
-    'ui-task5-test.mjs'   // boots vite+electron, Task 5 studio UX (ability row, meter, drop, regen)
+    'ui-task5-test.mjs',  // boots vite+electron, Task 5 studio UX (ability row, meter, drop, regen)
+    'xss-test.mjs'        // boots vite+electron, injects hostile markdown, asserts the live DOM
   ],
   'e2e-attach': [
     'e2e-flow-test.mjs',  // full story-flow flow on the running app

@@ -4,7 +4,7 @@ import { useT } from '../i18nReact';
 import { Icon } from './Icons';
 import { Modal, Switch } from './Ui';
 import { Provider } from '../types';
-import { thinkingSupport } from '../lib/modelCaps';
+import { replyBudget, thinkingSupport } from '../lib/modelCaps';
 
 const CONTEXT_PRESETS = [8192, 16384, 32768, 65536, 131072, 200000, 1000000];
 
@@ -35,6 +35,10 @@ export function ModelSettingsModal({
   // otherwise the family table speaks (possibly `unknown`).
   const support = thinkingSupport(model, { kind: (provider as any).kind || 'auto', record: settings.modelCaps[key] });
   const supportLabel = support === 'yes' ? t('think.capYes') : support === 'no' ? t('think.capNo') : t('think.capUnknown');
+  // What an empty field actually means now: Settings → Behavior 0 = "follow the
+  // model's own ceiling", so the placeholder names the number instead of
+  // showing a bare `0` that reads like "no output".
+  const autoMax = replyBudget(settings.maxTokens, model);
 
   const [smart, setSmart] = useState(savedSmart);
   const [ctx, setCtx] = useState<number | ''>(saved.context ?? '');
@@ -131,12 +135,16 @@ export function ModelSettingsModal({
           type="number"
           min={16}
           step={16}
-          placeholder={t('model.autoFromSettings').replace('{n}', String(settings.maxTokens))}
+          placeholder={t('model.autoModelMax').replace('{n}', autoMax.toLocaleString())}
           disabled={smart}
           value={maxTok}
           onChange={(e) => setMaxTok(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
         />
-        <div className="hint">{t('model.maxOutHint').replace('{n}', String(settings.maxTokens))}</div>
+        <div className="hint">
+          {settings.maxTokens > 0
+            ? t('model.maxOutHint').replace('{n}', String(settings.maxTokens))
+            : t('model.maxOutHintZero').replace('{n}', autoMax.toLocaleString())}
+        </div>
       </div>
 
       <button className="adv-toggle" onClick={() => setAdvanced(!advanced)} aria-expanded={advanced}>

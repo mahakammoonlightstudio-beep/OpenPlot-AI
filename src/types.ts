@@ -4,7 +4,12 @@ export interface Provider {
   id: string;
   name: string;
   baseUrl: string;
+  /** Empty unless the user typed a replacement here; the stored key stays in
+   *  the main process (see providerSecret in electron/db.ts). */
   apiKey: string;
+  /** 1 when a key is stored for this provider, so the UI can say so without
+   *  ever receiving the secret. */
+  hasKey?: boolean;
   enabled: boolean | number;
   models: string | string[];
   created_at?: number;
@@ -26,10 +31,13 @@ export interface Project {
   updated_at?: number;
 }
 export interface Folder { id: string; name: string; project_id: string | null; expanded: number; position: number; created_at?: number }
-export interface Chat { id: string; title: string; folder_id: string | null; project_id: string | null; model: string | null; system_prompt: string | null; /** 1/0 (DB) or boolean after normalize — pinned chats float to the top. */ pinned?: number | boolean; /** JSON string in the DB; parsed to skill ids this chat opted out of. */ skills_off?: string | string[]; created_at?: number; updated_at?: number }
+export interface Chat { id: string; title: string; folder_id: string | null; project_id: string | null; model: string | null; system_prompt: string | null; /** 1/0 (DB) or boolean after normalize — pinned chats float to the top. */ pinned?: number | boolean; /** JSON string in the DB; parsed to skill ids this chat opted out of. */ skills_off?: string | string[]; /** JSON string in the DB; skill ids switched on for this chat (/skill). */ skills_on?: string | string[]; /** 1/0 — agent mode (tool loop) for this chat. */ agent_mode?: number | boolean;  /** 'auto' | 'off' | 'low' | 'medium' | 'high' | 'max' — persisted per chat (v8). */
+  think_level?: string | null;
+  /** 'plan' | 'brainstorm' | 'write' — the chat's working mode. */ chat_mode?: string | null; created_at?: number; updated_at?: number }
 /** Metadata for one file stored with a sent message (no body — see readMessageFile). */
 export interface MessageFileMeta { id: string; name: string; kind: 'file' | 'story' | 'chapter'; bytes: number }
-export interface Message { id: string; chat_id: string; role: 'user' | 'assistant' | 'system'; content: string; thinking: string | null; model: string | null; tokens_in?: number | null; tokens_out?: number | null; /** Prompt tokens served from the provider's prompt cache (null = unknown). */ tokens_cached?: number | null; /** Files attached when this message was sent (metadata only). */ files?: MessageFileMeta[]; created_at?: number }
+export interface Message { id: string; chat_id: string; role: 'user' | 'assistant' | 'system'; content: string; thinking: string | null; model: string | null; /** Assistant rows only: the user turn this reply answers. Replies sharing it are variants of one turn. */ parent_id?: string | null; tokens_in?: number | null; tokens_out?: number | null; /** Prompt tokens served from the provider's prompt cache (null = unknown). */ tokens_cached?: number | null; /** Files attached when this message was sent (metadata only). */ files?: MessageFileMeta[]; /** Tool calls with their readable detail, persisted with the reply. */ toolSteps?: ToolStep[]; created_at?: number }
+import type { ToolStep } from './lib/toolProgress';
 /** One reply style (persona/tone injected as a system fragment). */
 export interface StyleRow { id: string; name: string; content: string; builtin: number; created_at?: number; updated_at?: number }
 export interface Memory { id: string; content: string; source: string; created_at?: number }
@@ -191,6 +199,16 @@ export interface AppInfo {
   encryption?: boolean;
 }
 
+export interface TrustEntry {
+  kind: 'plugin' | 'mcp';
+  id: string;
+  label: string;
+  /** The plugin/MCP row still exists (false = deleted, hash left behind). */
+  present: boolean;
+  /** Code or command changed after the approval — it will ask again. */
+  stale: boolean;
+}
+
 export interface InkwellApi {
   platform: string;
   /** Absolute filesystem path of a dragged-in File (Electron webUtils). */
@@ -215,6 +233,11 @@ export interface InkwellApi {
   mcpSync(): Promise<{ ok: boolean; data?: McpServerStatus[]; error?: string }>;
   mcpRestart(id: string): Promise<{ ok: boolean; data?: McpServerStatus | null; error?: string }>;
   mcpLogs(id: string): Promise<{ ok: boolean; data?: string[] }>;
+  /** Stored plugin/MCP execution approvals, for review and revocation. */
+  trustList(): Promise<{ ok: boolean; data?: TrustEntry[]; error?: string }>;
+  trustRevoke(kind: 'plugin' | 'mcp', id: string): Promise<{ ok: boolean; data?: TrustEntry[]; error?: string }>;
+  /** Fetch a remote image through the main process → a data: URL. */
+  fetchImage(url: string): Promise<{ ok: boolean; data?: string; error?: string }>;
   appInfo(): Promise<AppInfo>;
   /** Unread badge for the window title; `chatTitle` is used when nothing is unread. */
   setUnreadCount(count: number, chatTitle?: string): Promise<boolean>;
@@ -231,6 +254,9 @@ export interface InkwellApi {
   /** Read text files picked via pickFiles. Defaults to 300 KB per file; pass
    *  a higher cap (max 2 MB) for Story Bible imports. Binary files are skipped. */
   readFiles(paths: string[], maxBytes?: number): Promise<{ name: string; content: string; size?: number }[]>;
+  /** Grant the exact files the user dropped (paths come from webUtils, so a
+   *  synthetic File can never widen access). */
+  grantDroppedFiles(files: File[]): Promise<boolean>;
   onAiChunk(cb: (data: { reqId: string; chunk: GenChunk }) => void): () => void;
   onUi(channel: string, cb: (payload: any) => void): () => void;
 }
@@ -239,7 +265,9 @@ export interface GenerateRequest {
   reqId: string;
   /** Lets the main process guard the chat against message deletes mid-run. */
   chatId?: string;
-  provider: { id: string; name: string; baseUrl: string; apiKey: string; enabled: boolean; models: string[]; kind?: string };
+  /** The renderer names the provider; the main process resolves the stored
+   *  base URL and API key itself, so neither is trusted from this payload. */
+  provider: { id: string; name?: string; baseUrl?: string; apiKey?: string; enabled?: boolean; models?: string[]; kind?: string };
   model: string;
   messages: { role: 'system' | 'user' | 'assistant' | 'tool'; content: string; tool_calls?: any[]; tool_call_id?: string }[];
   temperature?: number;

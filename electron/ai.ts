@@ -252,7 +252,7 @@ async function runOpenAINonStream(
   let tokensOut: number | undefined;
   let tokensCached: number | undefined;
 
-  for (let round = 0; round < 10; round++) {
+  for (let round = 0; round < 24; round++) { // 24, not 10: project + bible + chapters
     if (aborted()) break;
     const body: any = {
       model: opts.model,
@@ -337,7 +337,7 @@ async function runOpenAI(
   let tokensCached: number | undefined;
   const messages = [...opts.messages];
 
-  for (let round = 0; round < 10; round++) {
+  for (let round = 0; round < 24; round++) { // 24, not 10: project + bible + chapters
     if (aborted()) break;
     body.messages = messages;
     const parser = new SseParser();
@@ -443,7 +443,9 @@ async function runOpenAI(
     text += accText;
     thinking += accThink;
 
-    if (finish === 'tool_calls' && Object.keys(toolAcc).length) {
+    // Some relays report finish_reason "stop" even when tool calls arrived;
+    // trusting the finish reason alone dropped the call and stalled the run.
+    if (Object.keys(toolAcc).length) {
       // Order matters for the OpenAI API: first the assistant message that
       // requested the calls, THEN the tool results.
       const tcMessages: any[] = [];
@@ -538,7 +540,7 @@ async function runAnthropic(
   let tokensOut: number | undefined;
   let tokensCached: number | undefined;
 
-  for (let round = 0; round < 10; round++) {
+  for (let round = 0; round < 24; round++) { // 24, not 10: project + bible + chapters
     if (aborted()) break;
     body.messages = chatMsgs;
     const parser = new SseParser();

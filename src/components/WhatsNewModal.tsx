@@ -10,7 +10,9 @@ const CARDS: Array<{ id: string; guide?: string; route?: string }> = [
   { id: 'guide', guide: 'getting-started' },
   { id: 'thinking', guide: 'thinking' },
   { id: 'settings', guide: 'settings' },
-  { id: 'skills', guide: 'skills' }
+  { id: 'skills', guide: 'skills' },
+  { id: 'trust', guide: 'privacy' },
+  { id: 'images', guide: 'chat' }
 ];
 
 /**

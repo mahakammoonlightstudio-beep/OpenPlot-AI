@@ -11,6 +11,10 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
+// The web-tool fixtures run a mock server on 127.0.0.1, which the SSRF guard
+// refuses by design. This flag is the documented test-only opt-in; it is read
+// once when webtools loads, so the app itself can never enable it.
+process.env.OPENPLOT_WEB_ALLOW_LOCAL = '1';
 const { executeTool } = require('../dist-electron/tools.js');
 const { initDb, closeDb } = require('../dist-electron/db.js');
 
@@ -116,10 +120,69 @@ check('read_story_file truncates huge attachments for the context window', longF
 const projectRead = parse(executeTool({ name: 'read_project', input: { projectId: projA.id } }));
 check('read_project lists files', projectRead.files.some((f) => f.name === 'kael-notes.md') && projectRead.files.some((f) => f.name === 'style-guide.txt'));
 
+// ---------- 4c. agent builds a whole project on its own ----------
+const madeProj = parse(executeTool({ name: 'create_project', input: { name: 'Agent Novel', format: 'novel', rating: 'teen' } }));
+check('create_project returns a usable id', madeProj.ok === true && !!madeProj.id && madeProj.name === 'Agent Novel', JSON.stringify(madeProj));
+const madeEntry = parse(executeTool({ name: 'create_story_entry', input: { kind: 'character', title: 'Mira', content: 'the lead', projectId: madeProj.id } }));
+const madeChapter = parse(executeTool({ name: 'create_chapter', input: { title: 'Opening', content: 'It began.', projectId: madeProj.id } }));
+const madeRow = dbCall('listStory', {}).find((e) => e.id === madeEntry.id);
+const madeChapters = dbCall('listChapters', { projectId: madeProj.id });
+check('entries and chapters created with the new id land in that project',
+  madeRow?.project_id === madeProj.id && madeChapters.length === 1 && madeChapters[0].title === 'Opening',
+  JSON.stringify({ project: madeRow?.project_id, chapters: madeChapters.length }));
+
 // ---------- 5. truly empty workspace → friendly error, not a crash ----------
 for (const p of dbCall('listProjects', {})) dbCall('deleteProject', { id: p.id });
 const noProj = parse(executeTool({ name: 'create_chapter', input: { title: 'Orphan' } }));
 check('create_chapter with zero projects returns error JSON', !!noProj.error, JSON.stringify(noProj));
+check('the zero-project error tells the model to call create_project', /create_project/.test(noProj.error), noProj.error);
+const reboot = parse(executeTool({ name: 'create_project', input: { name: 'Fresh' } }));
+const afterCreate = parse(executeTool({ name: 'create_chapter', input: { title: 'Ch 1', projectId: reboot.id } }));
+check('a project created mid-run unblocks chapter writes', afterCreate.ok === true, JSON.stringify(afterCreate));
+
+// ---------- 4d. web tools: fetch a real page, search a real endpoint ----------
+const { executeToolCall } = require('../dist-electron/tools.js');
+const http = await import('node:http');
+const webServer = http.createServer((req, res) => {
+  if (req.url === '/page') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end('<html><head><title>Field Notes</title><style>.x{color:red}</style></head><body><h1>Kaer</h1><p>Born during the &amp; Storm.</p><script>bad()</script></body></html>');
+    return;
+  }
+  let body = '';
+  req.on('data', (c) => (body += c));
+  req.on('end', () => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ results: [{ title: 'Kaer wiki', url: 'https://example.com/kaer', text: 'Kaer is the lead.' }] }));
+  });
+});
+await new Promise((r) => webServer.listen(0, '127.0.0.1', r));
+const webPort = webServer.address().port;
+
+const noKey = parse(await executeToolCall({ name: 'web_search', input: { query: 'kaer' } }));
+check('web_search without a key explains where to add one',
+  /Settings/.test(noKey.error || '') && /web_fetch/.test(noKey.error || ''), JSON.stringify(noKey));
+
+dbCall('setSetting', { key: 'webSearchProvider', value: JSON.stringify('exa') });
+dbCall('setSetting', { key: 'webSearchApiKey', value: JSON.stringify('test-key') });
+dbCall('setSetting', { key: 'webSearchBaseUrl', value: JSON.stringify('http://127.0.0.1:' + webPort + '/search') });
+
+const fetched = parse(await executeToolCall({ name: 'web_fetch', input: { url: 'http://127.0.0.1:' + webPort + '/page' } }));
+check('web_fetch returns readable text without scripts or styles',
+  /Born during the & Storm/.test(fetched.text || '') && !/bad\(\)|color:red/.test(fetched.text || ''),
+  JSON.stringify(fetched).slice(0, 140));
+check('web_fetch reports the page title', fetched.title === 'Field Notes', fetched.title);
+const badScheme = parse(await executeToolCall({ name: 'web_fetch', input: { url: 'file:///etc/passwd' } }));
+check('web_fetch refuses non-http URLs', /http/.test(badScheme.error || ''), JSON.stringify(badScheme));
+
+const found = parse(await executeToolCall({ name: 'web_search', input: { query: 'kaer' } }));
+check('web_search maps provider results to title/url/snippet',
+  found.results?.[0]?.url === 'https://example.com/kaer' && /lead/.test(found.results[0].snippet || ''),
+  JSON.stringify(found).slice(0, 160));
+check('web_search passes the query and limit to the provider',
+  found.query === 'kaer' && found.results.length === 1, JSON.stringify(found).slice(0, 120));
+
+webServer.close();
 
 // cleanup
 closeDb();

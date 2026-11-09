@@ -118,9 +118,25 @@ async function connectCdp(port) {
       return r.result?.value;
     },
     async shot(file) {
-      // fromSurface:false works even when the OS window is hidden/backgrounded
-      const r = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false, fromSurface: false });
-      fs.writeFileSync(path.join(OUT, file), Buffer.from(r.data, 'base64'));
+      // fromSurface:false works even when the OS window is hidden/backgrounded.
+      // A throttled window still times a capture out now and then; one retry
+      // keeps a flaky frame from failing a whole review (a real hang still
+      // throws after the second attempt).
+      let lastErr;
+      // Two capture paths: `fromSurface:false` (works on a hidden window) and
+      // `fromSurface:true` (composites the visible surface). When one stalls,
+      // the other usually answers, so a flaky frame no longer fails the run.
+      for (const fromSurface of [false, true, false]) {
+        try {
+          const r = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false, fromSurface });
+          fs.writeFileSync(path.join(OUT, file), Buffer.from(r.data, 'base64'));
+          return;
+        } catch (err) {
+          lastErr = err;
+          await new Promise((res) => setTimeout(res, 500));
+        }
+      }
+      throw lastErr;
     },
     close: () => { try { ws.close(); } catch {} }
   };
@@ -232,7 +248,18 @@ const PROBE = `(() => {
   await run('seed realistic data', async () => {
     // The CDP connection can be ready before the React bundle finishes —
     // wait for real UI instead of assuming.
-    await waitUntil(() => cdp.evalJS("!!document.querySelector('.welcome-card')"), 30000, 'welcome screen');
+    // Wait for the shell, not for one page's markup: the app opens on Home and
+    // a slow first paint used to blow the whole seed budget.
+    await waitUntil(() => cdp.evalJS("!!document.querySelector('.app')"), 90000, 'app shell');
+    // A fresh profile opens "What's new" over Home. Stamp it through the store
+    // (markup-independent) so it cannot cover the screenshots — but only after
+    // settings report a version, otherwise the stamp is '' and the modal opens
+    // again the moment load() finishes.
+    await waitUntil(() => cdp.evalJS("!!window.useSettings.getState().version"), 30000, 'settings loaded');
+    await cdp.evalJS("window.useSettings.getState().set('lastSeenVersion', window.useSettings.getState().version)");
+    await cdp.evalJS("window.useData.getState().navigate('home')");
+    await waitUntil(() => cdp.evalJS("!!document.querySelector('.welcome-card')"), 30000, 'home cards');
+    await sleep(300);
     await cdp.evalJS("(async()=>{await window.inkwell.dbCall('resetAll');return 1;})()");
     // dbCall resolves to an {ok,data} envelope — rows must be unwrapped via
     // .data or every downstream id becomes the string "undefined".
@@ -248,10 +275,20 @@ const PROBE = `(() => {
     }
     const chat = await cdp.evalJS(`(async()=>{return (await window.inkwell.dbCall('createChat',{title:'Plotting the ledger twist',project_id:'${proj.id}'})).data;})()`);
     await cdp.evalJS(`(async()=>{await window.inkwell.dbCall('addMessage',{chatId:'${chat.id}',role:'user',content:'What if the ledger numbers are coordinates?'});return 1;})()`);
-    await cdp.evalJS(`(async()=>{await window.inkwell.dbCall('addMessage',{chatId:'${chat.id}',role:'assistant',content:'Then the harbor itself becomes a cipher — every manifest a map. **Nice.**',model:'mock-visual'});return 1;})()`);
+    // Seeded WITH tool detail so the screenshots exercise the persisted panels
+    // (web research box + agent tool log) instead of empty transcript.
+    await cdp.evalJS(`(async()=>{await window.inkwell.dbCall('addMessage',{chatId:'${chat.id}',role:'assistant',content:'Then the harbor itself becomes a cipher — every manifest a map. **Nice.**',model:'mock-visual',toolSteps:[{name:'web_search',kind:'web',detail:'5 results',ok:true},{name:'web_fetch',kind:'web',detail:'Port authority ledger · 12.4k chars',ok:true},{name:'create_story_entry',kind:'entry',detail:'Sari Winata',ok:true},{name:'create_chapter',kind:'chapter',detail:'Chapter 1 — Low Tide',ok:false}]});return 1;})()`);
     await cdp.evalJS(`(async()=>{await window.inkwell.dbCall('addMemory',{content:'Prefers terse chapter endings.',source:'manual'});return 1;})()`);
     await cdp.evalJS("window.useData.getState().load()");
     await cdp.evalJS(`window.useData.getState().setActiveChat('${chat.id}')`);
+    // Open both panels once the reply is on screen: a closed panel would hide
+    // the very rows these screenshots exist to show.
+    try {
+      await waitUntil(() => cdp.evalJS("!!document.querySelector('.search-log')"), 15000, 'search panel');
+      await cdp.evalJS("document.querySelector('.search-log .sl-bar').click()");
+      await cdp.evalJS("document.querySelector('.tool-log .tl-head')?.click()");
+      await sleep(250);
+    } catch { /* the modal pages still capture fine without it */ }
     await cdp.evalJS(`window.useData.getState().setActiveProject('${proj.id}')`);
     // React needs a render tick after setActiveChat before the composer exists
     try {
@@ -269,8 +306,20 @@ const PROBE = `(() => {
 
   // ---------- per-page screenshots + audits ----------
   const nav = (route) => cdp.evalJS(`window.useData.getState().navigate('${route}')`);
+  // Both tool panels start folded; expand them so the shots show real rows.
+  const openPanels = async () => {
+    await sleep(250);
+    await cdp.evalJS("document.querySelector('.search-log .sl-bar[aria-expanded=\"false\"]')?.click()");
+    await cdp.evalJS("document.querySelector('.tool-log .tl-head[aria-expanded=\"false\"]')?.click()");
+    // Payload: nothing focused, so a later capture is not waiting on a focused
+    // control's focus ring / caret.
+    await cdp.evalJS("document.activeElement && document.activeElement.blur && document.activeElement.blur()");
+    await sleep(250);
+  };
   await run('pages', async () => {
-    await nav('chat');     await audit('chat', '01-chat.png');
+    // Home is the landing screen in v1.2.5 — capture it before any chat opens.
+    await nav('home');     await audit('home', '14-home.png');
+    await nav('chat');     await openPanels(); await audit('chat', '01-chat.png');
     await nav('story');    await audit('story bible', '02-story.png');
     await nav('chapters'); await audit('chapters', '03-chapters.png');
     await nav('flow');     await audit('flow', '04-flow.png');
@@ -283,7 +332,7 @@ const PROBE = `(() => {
     await nav('settings');
     await sleep(400);
     for (const s of ['providers', 'appearance', 'styles', 'usage', 'memory', 'behavior', 'agentmd', 'skills', 'plugins', 'automations', 'mcp', 'data']) {
-      await cdp.evalJS(`[...document.querySelectorAll('.settings-nav button')].find(b=>b.textContent.toLowerCase().includes('${s.slice(0, 5)}')).click()`);
+      await cdp.evalJS(`(function(){var btn=[...document.querySelectorAll('.settings-nav button')].find(b=>b.textContent.toLowerCase().includes('${s.slice(0, 5)}'));if(btn)btn.click();return !!btn;})()`);
       await sleep(350);
       const issues = await cdp.evalJS(PROBE);
       check('settings/' + s + ': clean', issues.length === 0, issues.slice(0, 3).join(' | '));
@@ -353,6 +402,12 @@ const PROBE = `(() => {
   await run('themes', async () => {
     await nav('chat');
     await sleep(400);
+    // A leftover overlay from an earlier step would be audited as if it were
+    // the page: dismiss anything floating before measuring contrast.
+    await cdp.evalJS("(function(){for(let i=0;i<2;i++)document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));return 1;})()");
+    await sleep(200);
+    // Navigating back remounts the transcript, which folds the panels again.
+    await openPanels();
     for (const th of ['midnight-ink', 'nord', 'sepia', 'light-paper']) {
       // (window.useSettings exposed by src/main.tsx for test harnesses)
       await cdp.evalJS(`window.useSettings.getState().set('theme', '${th}')`);
@@ -362,6 +417,64 @@ const PROBE = `(() => {
       await cdp.shot('11-theme-' + th + '.png');
     }
     await cdp.evalJS(`window.useSettings.getState().set('theme', 'dark-classic')`);
+  });
+
+  // Overlays are audited on their own surface: a menu floating over the chat has
+  // its own background, so a chip that passes on the page can fail in the menu.
+  await run('overlay contrast', async () => {
+    await nav('chat');
+    await sleep(400);
+    for (const th of ['dark-classic', 'midnight-ink', 'nord', 'sepia', 'light-paper']) {
+      await cdp.evalJS(`window.useSettings.getState().set('theme', '${th}')`);
+      await sleep(350);
+      // Escape does not dismiss every overlay (the prompt menu has its own close
+      // button), and an overlay left open would be measured by the next check.
+      const closeAll = async () => {
+        await cdp.evalJS("(function(){var b=[...document.querySelectorAll('.prompt-menu-head button')].pop();if(b)b.click();return 1;})()");
+        await cdp.evalJS("(function(){for(let i=0;i<2;i++)document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));return 1;})()");
+        await sleep(250);
+      };
+
+      // 1. Prompt library menu
+      await cdp.evalJS("window.dispatchEvent(new CustomEvent('inkwell:open-prompts'))");
+      await waitUntil(() => cdp.evalJS("!!document.querySelector('.prompt-menu')"), 5000, 'prompt menu overlay');
+      await sleep(250);
+      let issues = await cdp.evalJS(PROBE);
+      check('overlay prompt-menu · ' + th, issues.length === 0, issues.slice(0, 3).join(' | '));
+      if (th === 'nord') await cdp.shot('15-overlay-prompt-nord.png');
+      await closeAll();
+
+      // 2. Model switcher popover
+      const modelOpened = await cdp.evalJS("(function(){var b=document.querySelector('.model-btn');if(b){b.click();return 1;}return 0;})()");
+      if (modelOpened) {
+        await sleep(300);
+        issues = await cdp.evalJS(PROBE);
+        check('overlay model-menu · ' + th, issues.length === 0, issues.slice(0, 3).join(' | '));
+        if (th === 'light-paper') await cdp.shot('16-overlay-model-light.png');
+        await closeAll();
+      }
+
+      // 3. Skills popover in the composer (its rows carry accent text)
+      const skillsOpened = await cdp.evalJS("(function(){var b=document.querySelector('.ability-btn');if(b){b.click();return 1;}return 0;})()");
+      if (skillsOpened) {
+        await sleep(300);
+        issues = await cdp.evalJS(PROBE);
+        check('overlay skills-menu · ' + th, issues.length === 0, issues.slice(0, 3).join(' | '));
+        await closeAll();
+      }
+
+      // 4. Command palette
+      const paletteOpened = await cdp.evalJS("(function(){if(!window.__inkwellOpenPalette)return 0;window.__inkwellOpenPalette();return 1;})()");
+      if (paletteOpened) {
+        await waitUntil(() => cdp.evalJS("!!document.querySelector('.palette input')"), 5000, 'palette overlay');
+        await sleep(250);
+        issues = await cdp.evalJS(PROBE);
+        check('overlay palette · ' + th, issues.length === 0, issues.slice(0, 3).join(' | '));
+        if (th === 'sepia') await cdp.shot('17-overlay-palette-sepia.png');
+        await closeAll();
+      }
+    }
+    await cdp.evalJS("window.useSettings.getState().set('theme', 'dark-classic')");
   });
 
   // ---------- verdict ----------

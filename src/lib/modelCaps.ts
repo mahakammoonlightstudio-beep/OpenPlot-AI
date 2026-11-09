@@ -104,6 +104,36 @@ export function inferModelCaps(
 }
 
 /**
+ * Instant family numbers, used ONLY while nothing has measured the model.
+ *
+ * The capability card used to show "Context unknown / Max output 4.1k tok
+ * global default" until the user waited for a probe. Users read that as broken.
+ * These are the documented windows of each family (Claude 4.x 200k, Gemini 2.5/3
+ * 1M, GPT-5 400k, DeepSeek/Qwen 128k …), rendered with a `≈` so an estimate is
+ * never mistaken for evidence. An override or a successful probe always wins.
+ */
+export function inferFamilyCaps(model: string): { context: number; maxOutput: number } {
+  const id = String(model || '').toLowerCase();
+  const out = { context: 0, maxOutput: 0 };
+  if (/gemini-(2\.5|3)/.test(id)) { out.context = 1_000_000; out.maxOutput = 65_536; }
+  else if (/gemini-(1\.5|1)/.test(id)) { out.context = 1_000_000; out.maxOutput = 8_192; }
+  else if (/claude-(opus|sonnet|haiku)-4|claude-4/.test(id)) { out.context = 200_000; out.maxOutput = 32_000; }
+  else if (/claude-3[-.]?(5|7)/.test(id)) { out.context = 200_000; out.maxOutput = 8_192; }
+  else if (/claude/.test(id)) { out.context = 200_000; out.maxOutput = 4_096; }
+  else if (/gpt-5/.test(id)) { out.context = 400_000; out.maxOutput = 64_000; }
+  else if (/^o[1-9](?:[-.]|$)/.test(id)) { out.context = 200_000; out.maxOutput = 32_000; }
+  else if (/gpt-4\.1/.test(id)) { out.context = 1_000_000; out.maxOutput = 32_000; }
+  else if (/gpt-4o|gpt-4-turbo/.test(id)) { out.context = 128_000; out.maxOutput = 16_384; }
+  else if (/deepseek/.test(id)) { out.context = 128_000; out.maxOutput = 8_192; }
+  else if (/qwen3|qwq/.test(id)) { out.context = 128_000; out.maxOutput = 8_192; }
+  else if (/kimi/.test(id)) { out.context = 128_000; out.maxOutput = 8_192; }
+  else if (/glm-4/.test(id)) { out.context = 128_000; out.maxOutput = 4_096; }
+  else if (/grok-4/.test(id)) { out.context = 256_000; out.maxOutput = 16_384; }
+  else if (/mistral|mixtral|ministral/.test(id)) { out.context = 128_000; out.maxOutput = 8_192; }
+  return out;
+}
+
+/**
  * How much prompt input can actually sit in the cache: the whole input up to
  * the context window. 0 means "unknown / not applicable" — never a fake number.
  */
@@ -113,6 +143,37 @@ export function cacheCapacity(cache: ModelCacheProfile, contextTokens: number | 
   if (context <= 0) return 0;
   if (cache.maxTokens > 0) return Math.min(cache.maxTokens, context);
   return context;
+}
+
+/**
+ * How many output tokens to ask for.
+ *
+ * A configured number is obeyed. `0` / unset means "let the model go": the app
+ * asks for the family's own output ceiling instead of cutting every reply at
+ * one global default (4k used to end long chapters mid-sentence). The hard cap
+ * only exists so a runaway generation cannot bill indefinitely.
+ */
+export const REPLY_HARD_CEILING = 32_000;
+
+export function replyBudget(configured: number | null | undefined, model: string): number {
+  const n = Math.round(Number(configured) || 0);
+  if (n > 0) return n;
+  const family = inferFamilyCaps(model).maxOutput;
+  return Math.min(family || 8_192, REPLY_HARD_CEILING);
+}
+
+/**
+ * A one-letter read-out of what the resolved numbers mean for real work.
+ * It summarises `ModelProfile` only — an unknown context never earns a high
+ * tier, so the badge cannot flatter a model the app knows nothing about.
+ */
+export function modelTier(profile: ModelProfile): 'S' | 'A' | 'B' | 'C' {
+  const ctx = profile.contextTokens || 0;
+  const thinks = profile.thinking === 'yes';
+  if (thinks && ctx >= 200_000) return 'S';
+  if (thinks || ctx >= 200_000) return 'A';
+  if (ctx >= 32_000) return 'B';
+  return 'C';
 }
 
 /** True when the model is not a reasoning model and has no cache we can name. */
@@ -132,10 +193,14 @@ export function isPlainModel(inference: ModelInference): boolean {
 export interface ModelProfile {
   /** Largest prompt the model accepts, or null when nothing knows it. */
   contextTokens: number | null;
+  /** True when contextTokens came from the family table, not a probe/override. */
+  contextEstimated: boolean;
   /** Output cap the app will request (override, else the global default). */
   maxOutputTokens: number;
   /** True when maxOutputTokens came from the global default, not this model. */
   maxOutputFromDefault: boolean;
+  /** True when maxOutputTokens came from the family table (a ceiling). */
+  maxOutputEstimated: boolean;
   thinking: ThinkingSupport;
   cache: ModelCacheProfile;
   /** Prompt tokens that can sit in cache; 0 = unknown or not applicable. */
@@ -163,10 +228,21 @@ export function resolveModelProfile(opts: {
 
   const overrideContext = Math.round(Number(opts.override?.context) || 0);
   const probedContext = caps?.ok ? Math.round(Number(caps.contextTokens) || 0) : 0;
-  const contextTokens = overrideContext > 0 ? overrideContext : probedContext > 0 ? probedContext : null;
+  // The family table fills the row INSTANTLY so the card is readable without
+  // waiting on a probe. Estimates render with `≈`, never as a measurement.
+  const family = inferFamilyCaps(opts.model);
+  const contextTokens = overrideContext > 0 ? overrideContext
+    : probedContext > 0 ? probedContext
+      : family.context > 0 ? family.context : null;
+  const contextEstimated = overrideContext <= 0 && probedContext <= 0 && family.context > 0;
 
   const overrideMax = Math.round(Number(opts.override?.maxTokens) || 0);
   const globalMax = Math.max(0, Math.round(Number(opts.defaultMaxTokens) || 0));
+  // A family output cap is a ceiling: the app default still wins when smaller.
+  const familyMax = overrideMax > 0 ? 0 : family.maxOutput;
+  const effectiveMax = overrideMax > 0 ? overrideMax
+    : familyMax > 0 ? Math.min(globalMax > 0 ? globalMax : familyMax, familyMax)
+      : globalMax;
 
   // An observation older than the registry TTL is re-checked rather than
   // trusted (matches electron/caps.ts pruning).
@@ -179,8 +255,10 @@ export function resolveModelProfile(opts: {
 
   return {
     contextTokens,
-    maxOutputTokens: overrideMax > 0 ? overrideMax : globalMax,
-    maxOutputFromDefault: overrideMax <= 0,
+    contextEstimated,
+    maxOutputTokens: effectiveMax,
+    maxOutputFromDefault: overrideMax <= 0 && familyMax <= 0,
+    maxOutputEstimated: familyMax > 0,
     thinking: thinkingSupport(opts.model, { kind: opts.kind || 'auto', record, now }),
     cache,
     cacheCapacityTokens: cacheCapacity(cache, contextTokens),

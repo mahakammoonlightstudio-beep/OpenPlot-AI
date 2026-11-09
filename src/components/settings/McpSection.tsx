@@ -5,6 +5,7 @@ import { Icon } from '../Icons';
 import { Modal } from '../Ui';
 import { confirmDialog } from '../TextPrompt';
 import type { McpRow, McpServerStatus } from '../../types';
+import { TrustList } from './TrustList';
 
 // ---------------- MCP ----------------
 const MCP_RECOMMENDATIONS = [
@@ -184,6 +185,8 @@ export function McpSection() {
           );
         })}
       </div>
+
+      <TrustList kind="mcp" version={mcpServers} />
 
       {logOpen && (
         <Modal title={t('mcp.logs')} onClose={() => setLogOpen(null)} width={620}>

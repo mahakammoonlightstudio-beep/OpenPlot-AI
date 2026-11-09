@@ -118,6 +118,25 @@
 .msg:hover .actions, .msg:focus-within .actions { opacity: 1; }
 .msg .actions button { padding: 2px 8px; font-size: 11px; }
 
+/* Reply variants: keeps one answer per turn, with ‹ 1/2 › to flip through
+   the others (resend/regenerate never deletes the previous answer). */
+.variant-nav {
+  display: inline-flex; align-items: center; gap: 1px;
+  padding: 1px 3px; border-radius: 999px;
+  background: var(--accent-soft); border: 1px solid var(--accent);
+  box-shadow: 0 0 0 1px var(--bg-panel) inset;
+}
+.variant-nav .vn-btn {
+  border: none; background: transparent; color: var(--accent); cursor: pointer;
+  display: inline-flex; align-items: center; padding: 3px 4px; border-radius: 6px; line-height: 1;
+}
+.variant-nav .vn-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
+.variant-nav .vn-btn:disabled { opacity: 0.3; cursor: default; }
+.variant-nav .vn-count {
+  font-size: 11px; font-weight: 600; color: var(--text); padding: 0 3px;
+  font-variant-numeric: tabular-nums; letter-spacing: 0.2px;
+}
+
 .thinking-block {
   border: 1px dashed var(--border); border-radius: 8px;
   margin-bottom: 8px; overflow: hidden; background: var(--bg-panel-2);

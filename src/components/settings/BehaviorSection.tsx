@@ -23,7 +23,8 @@ export function BehaviorSection({ mode }: { mode?: 'simple' | 'advanced' }) {
         </div>
         <div className="grid-2">
           <div className="field" id="set-max-tokens"><label>{t('behavior.maxTokens')}</label>
-            <input type="number" min={64} max={200000} value={settings.maxTokens} onChange={(e) => settings.set('maxTokens', Math.max(64, Number(e.target.value) || 4096))} /></div>
+            <input type="number" min={0} max={200000} value={settings.maxTokens} onChange={(e) => settings.set('maxTokens', Math.max(0, Number(e.target.value) || 0))} />
+            <div className="hint">{t('behavior.maxTokensHint')}</div></div>
           {advanced && (
             <div className="field" id="set-top-p"><label>{t('behavior.topP')}</label>
               <input type="number" step={0.05} min={0} max={1} value={settings.topP} onChange={(e) => settings.set('topP', Math.min(1, Math.max(0, Number(e.target.value) || 1)))} /></div>
@@ -65,6 +66,32 @@ export function BehaviorSection({ mode }: { mode?: 'simple' | 'advanced' }) {
               <option value="always">{t('think.ui.always')}</option>
             </select>
             <div className="hint">{t('think.uiHint')}</div></div>
+        </div>
+      </div>
+
+      {/* Web tools: the agent can read a page without any key; search needs one. */}
+      <div className="card" id="set-web-research">
+        <div className="grid-2">
+          <div className="field" id="set-web-search-provider">
+            <label>{t('web.provider')}</label>
+            <select value={settings.webSearchProvider} onChange={(e) => settings.set('webSearchProvider', e.target.value as any)}>
+              <option value="exa">Exa</option>
+              <option value="serper">Serper (Google)</option>
+              <option value="brave">Brave Search</option>
+            </select>
+          </div>
+          <div className="field" id="set-web-search-results">
+            <label>{t('web.results')}</label>
+            <input type="number" min={1} max={10} value={settings.webSearchResults}
+              onChange={(e) => settings.set('webSearchResults', Math.min(10, Math.max(1, Number(e.target.value) || 5)))} />
+          </div>
+        </div>
+        <div className="field" id="set-web-search-key">
+          <label>{t('web.key')}</label>
+          <input type="password" value={settings.webSearchApiKey}
+            placeholder={t('web.keyPh')}
+            onChange={(e) => settings.set('webSearchApiKey', e.target.value)} />
+          <div className="hint">{t('web.hint')}</div>
         </div>
       </div>
     </div>

@@ -48,7 +48,7 @@ function ModelTagList({ provider, onRemove, onVerify }: {
   );
 }
 
-function KeyValidation({ provider }: { provider: Provider }) {
+function KeyValidation({ provider, onBefore }: { provider: Provider; onBefore?: () => Promise<boolean> }) {
   const t = useT();
   const ui = useUi();
   const [checking, setChecking] = useState(false);
@@ -58,6 +58,14 @@ function KeyValidation({ provider }: { provider: Provider }) {
     setChecking(true);
     setResult(null);
     try {
+      // Save first: validating used to run against the LAST persisted key, so a
+      // freshly typed key was never tested — and the next store refresh put the
+      // old (often empty) value back in the input, which looked like the key
+      // had been wiped by the button.
+      if (onBefore) {
+        const saved = await onBefore();
+        if (!saved) { setResult({ ok: false, message: t('providers.baseUrl') + ' is required', method: '' }); return; }
+      }
       const res = await window.inkwell.validateKey({ ...provider, kind: (provider as any).kind || 'auto' });
       if (res.ok && res.data) {
         setResult({ ok: res.data.ok, message: res.data.message, method: res.data.method });
@@ -109,7 +117,22 @@ export function ProvidersSection() {
   const [presets, setPresets] = useState<ProviderPreset[]>([]);
   const [selectedPreset, setSelectedPreset] = useState('');
 
-  useEffect(() => setList(providers.map((p) => ({ ...p }))), [providers]);
+  useEffect(() => setList((cur) => providers.map((p) => {
+    const local = cur.find((x) => x.id === p.id);
+    if (!local) return { ...p };
+    // Keep what the user is typing. A store refresh (validation, fetch models,
+    // a health sweep) used to overwrite an unsaved key, name or endpoint with
+    // the stored row, which made the API key look like it vanished.
+    return {
+      ...p,
+      name: local.name,
+      baseUrl: local.baseUrl,
+      // The stored key never reaches the renderer; `local.apiKey` is only what
+      // the user has typed here since the card mounted.
+      apiKey: local.apiKey || '',
+      kind: local.kind
+    };
+  })), [providers]);
 
   useEffect(() => {
     window.inkwell.providerPresets().then((r) => setPresets(r.data || [])).catch(() => {});
@@ -132,7 +155,9 @@ export function ProvidersSection() {
       return false;
     }
     await dbCall('updateProvider', {
-      id: p.id, name: p.name, baseUrl: p.baseUrl.trim(), apiKey: p.apiKey,
+      // null means "keep the stored key" — an empty string would wipe it.
+      id: p.id, name: p.name, baseUrl: p.baseUrl.trim(),
+      apiKey: p.apiKey && p.apiKey.trim() ? p.apiKey : null,
       enabled: p.enabled === true || p.enabled === 1, models: Array.isArray(p.models) ? p.models : [],
       kind: (p as any).kind || 'auto'
     });
@@ -147,7 +172,9 @@ export function ProvidersSection() {
     if (res.ok && res.data) {
       setList((ls) => ls.map((x) => (x.id === p.id ? { ...x, models: res.data! } : x)));
       await dbCall('updateProvider', {
-        id: p.id, name: p.name, baseUrl: p.baseUrl.trim(), apiKey: p.apiKey,
+        // null means "keep the stored key" — an empty string would wipe it.
+      id: p.id, name: p.name, baseUrl: p.baseUrl.trim(),
+      apiKey: p.apiKey && p.apiKey.trim() ? p.apiKey : null,
         enabled: p.enabled === true || p.enabled === 1, models: res.data, kind: (p as any).kind || 'auto'
       });
       await useData.getState().load();
@@ -300,7 +327,14 @@ export function ProvidersSection() {
             </div>
             <div>
               <label>{t('providers.apiKey')}</label>
-              <input type="password" value={p.apiKey} onChange={(e) => setList((ls) => ls.map((x) => (x.id === p.id ? { ...x, apiKey: e.target.value } : x)))} />
+              <input
+                type="password"
+                value={p.apiKey}
+                placeholder={p.hasKey ? '•••••••• saved' : ''}
+                autoComplete="off"
+                onChange={(e) => setList((ls) => ls.map((x) => (x.id === p.id ? { ...x, apiKey: e.target.value } : x)))}
+              />
+              {p.hasKey && !p.apiKey && <div className="hint">{t('providers.keyStored')}</div>}
             </div>
             <div className="full">
               <label>{t('providers.kind')}</label>
@@ -311,7 +345,7 @@ export function ProvidersSection() {
               </select>
             </div>
           </div>
-          <KeyValidation provider={p} />
+          <KeyValidation provider={p} onBefore={() => persist(p)} />
           {(Array.isArray(p.models) ? p.models : []).length > 0 && (
             <ModelCapabilityCard provider={p} preferredModel={settings.defaultModel} />
           )}

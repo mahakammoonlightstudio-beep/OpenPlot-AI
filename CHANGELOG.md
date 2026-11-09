@@ -2,6 +2,47 @@
 
 All notable changes to OpenPlot AI are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.5] — 2026-11-02
+
+> The “quiet studio” patch: the app opens on Home, tools stop pushing the answer
+> around, and the two switches people asked for (web research, version arrows)
+> finally behave the way they look.
+
+### Added
+- **Stored approvals you can see and revoke.** Settings → Plugins and Settings → MCP now list every plugin/MCP approval with what it belongs to, flag approvals whose code or command changed since the approval and rows that no longer exist, and revoke one in place. Revoking takes effect immediately: the plugin is unloaded and the MCP server is stopped, and the next run asks again.
+- **Remote Markdown images are fetched by the main process.** `img-src` stays `'self' data: blob:` and `connect-src` stays `'none'`: the renderer swaps a remote `src` for a `data:` URL returned by the main process, which accepts only public http(s) hosts, refuses loopback/private/metadata addresses and credentials, re-checks every redirect, rejects SVG, and caps a fetch at 5 MB / 15 s.
+- **Home instead of your last chat.** Launching the app lands on Home — a greeting that follows the clock, a rotating opener, recent chats, project progress and the live model-health strip — instead of reopening whatever chat was last active.
+- **Web research without agent mode.** A **Web** switch in the composer gives the open chat the `web_search` and `web_fetch` tools. It is independent of agent mode, so a plain chat can look something up without handing the model the whole create-everything loop.
+- **A tool log under every reply.** Tool calls became one collapsed line (`Tools used · 4`) that opens into stacked, readable steps with the created titles and any failures — no more chips above the answer, no sideways growth, and the panel folds away when the run ends.
+- **Web research has its own terminal.** `web_search` and `web_fetch` no longer share the agent panel: they get a separate box with a title bar, a `$` gutter and one line per call, so a reply that both searched and created chapters shows two distinct panels.
+- **Tool detail survives a reload.** Each reply stores its tool steps (bounded: 40 rows, 200 characters each) in a new `messages.tools_json` column, so reopening a chat explains what the run did instead of only counting it.
+- **Chapters got a progress strip.** Percentage finished, draft / revising / done counts, total words and the average per chapter, using the same strip as the Story Bible.
+- **A tier next to every model.** Settings → Models shows S/A/B/C beside each model, derived from the resolved context window and reasoning support; an unknown context never earns a high tier.
+- **Replies are no longer cut at 4k.** Setting **Max tokens** to 0 means "follow the model's own ceiling" (family table, hard-capped at 32k), and the Edit-model modal spells that out.
+- **A security suite inside `npm test`.** `scripts/security-test.mjs` attacks the compiled main-process code: address and protocol guards, SQL identifier injection, prototype pollution, hostile payload types, NUL bytes, a 10,000-row tool-step flood, and storage growth over 2,000 messages including compaction.
+- **Attachment reads are grant-based.** `files:read` only accepts paths the app's own picker returned or the user just dropped (30 minutes), and refuses secret shapes — `.ssh`, `.aws`, `.gnupg`, `.kube`, `.env`, credential stores, `id_*` keys, `.pem`/`.key`/`.pfx`/`.kdbx` — even when granted. A single XSS can no longer read a private key through the attachment path.
+- **A real XSS test that boots the app.** `scripts/xss-test.mjs` writes hostile markdown (script tags, `onerror`, `javascript:` links, iframes, SVG handlers, inline styles) straight into the database, opens the chat, and asserts against the live DOM: nothing executed, no handlers or unknown attributes survived, no `javascript:` URLs, no iframes, styles stripped, legitimate links hardened with `target=_blank rel=noopener`, and hostile tool-step detail escaped as text.
+- **Deterministic fuzz for the importers.** `scripts/fuzz-test.mjs` throws 400 random documents plus hostile JSON/CSV/markdown at the Story Bible parsers with a time budget and a result contract. It found two real bugs, both fixed: `normalizeKind('__proto__')` returned an inherited member instead of `null`, and deeply nested JSON overflowed the stack instead of yielding no entries.
+- **`web_fetch` refuses your own network.** Loopback, private ranges, CGNAT, link-local metadata (169.254.169.254), decimal/hex/shorthand IP spellings and single-label intranet hosts are rejected before a socket opens — and every redirect is re-checked, so a public URL cannot bounce to `127.0.0.1`. The only bypass is the test-only `OPENPLOT_WEB_ALLOW_LOCAL=1`, read once at load so the app can never enable it.
+- **Story-bible context without tools.** A chat bound to a project now receives that project's canon even with agent mode off, capped with an explicit “N more entries” marker so the model asks instead of inventing.
+- **Three more themes** — Gruvbox, Catppuccin and Sandstone — and the Plan / Brainstorm / Write switch got its own framed box.
+- **A reset that explains itself.** Settings → Data now lists what a reset destroys and the current row counts before you reach the confirm dialog.
+
+### Changed
+- Version arrows for prompt edits and reply restarts moved **below** the bubble and use theme surfaces instead of the accent colour; the message actions stay faintly visible instead of only on hover.
+- **Each working mode owns a fixed colour** that survives an appearance change: Plan is gold, Brainstorm drifts through a soft rainbow (`hue-rotate`, composited, off under reduced motion), Write is deep emerald. The active label paints its own mode colour, so the text is always read against the colour it actually sits on.
+- **Markdown is cached.** Re-rendering a transcript (switching chat, returning to a tab, stepping between reply versions) reuses parsed HTML — 220 messages dropped from ~22–34 ms to ~0.1 ms after the first pass, in a bounded LRU (240 entries / 6 MB).
+- **Long agent runs stay cheap.** The tool panels render the newest 40 steps with a `+N` marker instead of every row, so a 400-call run no longer builds 480 rows on each stream update.
+- **Accent is a fill, not a text colour.** A new `--accent-ink` token carries accent-coloured labels: 6.76:1 on a dark panel and 6.72:1 on light paper, where the raw accent measured 4.24:1 and 4.35:1. Fills, icons, borders and focus rings keep the original accent.
+- **Overlays are audited on their own surface** — prompt menu, model popover, skills popover and command palette across five themes (20 checks), because a chip that passes on the page can fail on a menu.
+- **Hostile input cannot crash the database layer.** `handleDb` accepts a null payload, NUL bytes are stripped on write instead of truncating the row, and junk or 10k-row tool-step arrays are bounded and never throw on read.
+- Welcome refreshes relative times and the health strip in place once a minute — no reload, no flash.
+
+### Fixed
+- **The first Escape on a dialog is no longer swallowed.** Dialog focus and its Escape/Tab handling moved from passive effects to layout effects, so the window is listening as soon as the dialog paints; focus is also placed on commit instead of after a 30 ms timeout, and a dialog keeps focus when a background editor remounts.
+- **Pressing Validate no longer wipes the API key.** Validation saves the provider first, and a store refresh preserves the name, endpoint and key you are still typing.
+- Dense settings cards gained breathing room (provider cards, key validation, model status rows).
+
 ## [1.2.3] — 2026-10-27
 
 > This is the “Studio UX” release: the version number says patch, the payload is a

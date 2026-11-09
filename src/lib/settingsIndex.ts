@@ -79,6 +79,9 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { id: 'set-smart-defaults', section: 'models', labelKey: 'models.smartDefaults', keywords: ['smart', 'auto tune', 'pintar', 'otomatis'] },
   { id: 'set-model-table', section: 'models', labelKey: 'models.table', keywords: ['context', 'max output', 'reasoning', 'cache', 'capability', 'token', 'konteks', 'penalaran'] },
   { id: 'set-author-name', section: 'behavior', labelKey: 'behavior.authorName', keywords: ['author', 'name', 'epub', 'penulis', 'nama'] },
+  { id: 'set-web-search-provider', section: 'behavior', labelKey: 'web.label', keywords: ['web', 'search', 'research', 'exa', 'serper', 'brave', 'internet', 'riset', 'pencarian'] },
+  { id: 'set-web-search-key', section: 'behavior', labelKey: 'web.key', keywords: ['api key', 'search key', 'web', 'kunci', 'exa', 'brave', 'serper'] },
+  { id: 'set-web-search-results', section: 'behavior', labelKey: 'web.results', keywords: ['results', 'limit', 'count', 'hasil', 'jumlah'], advancedOnly: true },
   { id: 'set-temperature', section: 'behavior', labelKey: 'behavior.temperature', keywords: ['temperature', 'creativity', 'suhu', 'kreativitas'] },
   { id: 'set-max-tokens', section: 'behavior', labelKey: 'behavior.maxTokens', keywords: ['max tokens', 'output', 'length', 'panjang'] },
   { id: 'set-top-p', section: 'behavior', labelKey: 'behavior.topP', keywords: ['top p', 'nucleus', 'sampling'], advancedOnly: true },
@@ -124,14 +127,19 @@ export const SECTION_DEFAULTS: Partial<Record<SettingsSection, Record<string, un
   appearance: { theme: 'dark-classic', accent: '#7c5cff', chatFontSize: 14 },
   behavior: {
     temperature: 0.7,
-    maxTokens: 4096,
+    // 0 = the model's own ceiling (see `replyBudget`). A 4k default truncated
+    // long replies on models that can emit far more.
+    maxTokens: 0,
     topP: 1,
     defaultSystem: '',
     thinkingEnabled: true,
     thinkingBudget: 4096,
     thinkingDisplay: 'auto',
     thinkingUi: 'auto',
-    authorName: ''
+    authorName: '',
+    webSearchProvider: 'exa',
+    webSearchApiKey: '',
+    webSearchResults: 5
   },
   models: { smartDefaults: true, defaultModelRef: null, modelOverrides: {}, defaultModel: null },
   styles: { defaultStyleId: null },

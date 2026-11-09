@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from './Ui';
 import { Icon } from './Icons';
 import { formatBytes } from '../lib/chatFiles';
 import { renderMarkdownSync } from '../markdown';
+import { hydrateRemoteImages } from '../lib/remoteImages';
 import { useT } from '../i18nReact';
 
 /**
@@ -38,6 +39,12 @@ export function FilePreviewModal({
     [content]
   );
   const ready = !loading && !error && typeof content === 'string';
+  // Markdown previews are a Markdown surface too: remote images go through
+  // the same main-process proxy as the chat transcript.
+  const mdRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (mdRef.current) hydrateRemoteImages(mdRef.current);
+  }, [html]);
 
   const copy = async () => {
     if (typeof content !== 'string') return;
@@ -92,7 +99,7 @@ export function FilePreviewModal({
         {loading && <div className="fp-state">{t('file.loading')}</div>}
         {!loading && error && <div className="fp-state error">{error}</div>}
         {ready && isMarkdown && (
-          <div className="fp-md" dangerouslySetInnerHTML={{ __html: html }} />
+          <div className="fp-md" ref={mdRef} dangerouslySetInnerHTML={{ __html: html }} />
         )}
         {ready && !isMarkdown && (
           <pre className="fp-pre">{content}</pre>

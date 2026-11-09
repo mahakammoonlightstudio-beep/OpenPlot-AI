@@ -23,3 +23,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+.refs/
+
+# local screenshot scratch (not shipped)
+.tmp-shots/

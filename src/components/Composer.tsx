@@ -14,6 +14,7 @@ import { FilePreviewModal } from './FilePreviewModal';
 import { MentionCandidate, mentionToken, buildCandidates } from '../mentions';
 import { formatBytes, attachmentBytes } from '../lib/chatFiles';
 import { thinkingSupport } from '../lib/modelCaps';
+import { CHAT_MODES, ChatMode, matchSkills } from '../lib/prompt';
 
 /**
  * The bottom composer:
@@ -27,7 +28,8 @@ import { thinkingSupport } from '../lib/modelCaps';
 export function Composer({
   input, setInput, onSend, streaming, onAbort,
   effModel, effProvider, allModels, onPickModel,
-  thinkOn, setThinkOn,  thinkSupport, thinkingUi, thinkBudget, setThinkBudget, maxThinkBudget, toolsOn, setToolsOn,
+  thinkOn, setThinkOn,  thinkSupport, thinkingUi, thinkBudget, setThinkBudget, maxThinkBudget, onPickThinkLevel, thinkLevelMode,
+  agentMode, onToggleAgent, webSearchOn, onToggleWebSearch, mode, onPickMode, skillsOn, onRunSkillCommand,
   chatProjectId, onPickProject, onDetachProject,
   goal, setGoal,
   wordCount,
@@ -53,9 +55,23 @@ export function Composer({
   /** Per-chat reasoning budget, already bounded by the context window. */
   thinkBudget: number;
   setThinkBudget: (v: number) => void;
+  /** Persists the picked level on the chat row (v8). */
+  onPickThinkLevel?: (level: 'auto' | 'off' | 'low' | 'medium' | 'high' | 'max') => void;
+  /** The level stored on the chat row; 'auto' = follow Settings. */
+  thinkLevelMode?: 'auto' | 'off' | 'low' | 'medium' | 'high' | 'max';
   maxThinkBudget: number;
-  toolsOn: boolean;
-  setToolsOn: (v: boolean) => void;
+  /** Agent mode: the model may call tools in a loop. */
+  agentMode: boolean;
+  onToggleAgent: (v: boolean) => void;
+  /** Web research for this chat: search + fetch without the agent loop. */
+  webSearchOn: boolean;
+  onToggleWebSearch: (v: boolean) => void;
+  /** Working mode — prompt-level, works with any model, agent mode or not. */
+  mode: ChatMode;
+  onPickMode: (m: ChatMode) => void;
+  /** Skill ids switched on for this chat (/skill). */
+  skillsOn: string[];
+  onRunSkillCommand: (cmd: { all: true } | { name: string }) => void;
   chatProjectId: string | null;
   onPickProject: (id: string) => void;
   onDetachProject: () => void;
@@ -91,7 +107,18 @@ export function Composer({
   // Skills that actually reach the prompt: enabled in Settings AND not muted
   // for this chat. The popover toggles the per-chat half.
   const offSkills = chatSkillsOff || [];
-  const enabledSkills = skills.filter((s) => Number(s.enabled) === 1 && !offSkills.includes(s.id));
+  // Skills that actually reach the prompt: on globally OR switched on for this
+  // chat with /skill, and not muted here.
+  const onSkills = skillsOn || [];
+  const enabledSkills = skills.filter(
+    (s) => (Number(s.enabled) === 1 || onSkills.includes(s.id)) && !offSkills.includes(s.id)
+  );
+  // "/skill" opens skill search instead of the prompt library.
+  const skillCmd = /^\/skill\b\s*\/?\s*(.*)$/i.exec(input);
+  const skillCmdQuery = skillCmd ? (skillCmd[1] || '').trim() : null;
+  const skillCmdItems = skillCmdQuery === null
+    ? []
+    : (skillCmdQuery ? matchSkills(skills, skillCmdQuery) : skills).slice(0, 8);
   const draftTokens = Math.ceil((input || '').length / 4);
   // Hide the thinking control entirely when the model cannot expose reasoning;
   // the `always` preference keeps the familiar On/Off switch (with a hint that
@@ -192,6 +219,12 @@ export function Composer({
     detectMention(v);
     if (v.startsWith('/')) setPromptOpen(true);
     else if (promptOpen) setPromptOpen(false);
+  }
+
+  /** A click in the /skill list runs the command instead of inserting text. */
+  function runSkill(name?: string) {
+    onRunSkillCommand(name ? { name } : { all: true });
+    setPromptOpen(false);
   }
 
   function insertPrompt(p: LibraryPrompt) {
@@ -309,26 +342,66 @@ export function Composer({
 
   const hasProject = !!chatProject;
 
+  // Thinking levels: the budget prop stays the source of truth, the level is
+  // just the friendlier way to set it. Off/Low/Medium/High/Max covers what
+  // providers actually accept (a plain model simply gets Off/On semantics
+  // because anything above Off is a preference it may ignore).
+  const THINK_LEVELS: Array<{ id: 'auto' | 'off' | 'low' | 'medium' | 'high' | 'max'; budget: number }> = [
+    { id: 'auto', budget: 0 },
+    { id: 'off', budget: 0 },
+    { id: 'low', budget: 2048 },
+    { id: 'medium', budget: 8192 },
+    { id: 'high', budget: 16384 },
+    { id: 'max', budget: 32768 }
+  ];
+  const derivedLevel = !thinkOn ? 'off'
+    : thinkBudget <= 2048 ? 'low'
+      : thinkBudget <= 8192 ? 'medium'
+        : thinkBudget <= 16384 ? 'high' : 'max';
+  // A stored per-chat level wins over the derivation: 'auto' must read as
+  // "following Settings", not as whatever budget Settings happens to hold.
+  const thinkLevel = thinkLevelMode ?? derivedLevel;
+  const pickLevel = (id: 'auto' | 'off' | 'low' | 'medium' | 'high' | 'max', budget: number) => {
+    setThinkOpen(false);
+    // 'auto' hands control back to Settings; the chat row stores the intent.
+    if (id === 'auto') { onPickThinkLevel?.('auto'); return; }
+    if (id === 'off') { setThinkOn(false); onPickThinkLevel?.('off'); return; }
+    setThinkOn(true);
+    setThinkBudget(Math.min(maxThinkBudget, Math.max(1024, budget)));
+    onPickThinkLevel?.(id);
+  };
+
   // Thinking lives in the ability row (tools / thinking / skills) instead of
   // the send toolbar; the popover keeps the per-chat budget for `yes` models.
   const thinkingControl = showThink ? (
     <div className="comp-menu-wrap">
       <button
-        className={`think-btn ${thinkOn && thinkSupport !== 'no' ? 'on' : ''} support-${thinkSupport}`}
+        className={`think-btn lvl-${thinkLevel} ${thinkOn && thinkSupport !== 'no' ? 'on' : ''} support-${thinkSupport}`}
         onClick={() => setThinkOpen(!thinkOpen)}
         aria-expanded={thinkOpen}
         title={thinkTitle}
       >
-        <Icon name="brain" size={14} /> {thinkOn ? t('composer.on') : t('composer.off')}
+        <Icon name="brain" size={14} /> {t('think.level.' + thinkLevel)}
         {thinkSupport === 'unknown' && <span className="think-unknown" aria-label={t('think.unverifiedTitle')}>?</span>}
         <Icon name="chevronDown" size={12} />
       </button>
       <Popover open={thinkOpen} onClose={() => setThinkOpen(false)} align="right" width={250}>
         {thinkSupport === 'no' && <div className="ui-menu-empty">{t('think.mayIgnore')}</div>}
         {thinkSupport === 'unknown' && <div className="ui-menu-empty">{t('think.unverifiedTitle')}</div>}
-        <MenuItem label={t('composer.off')} active={!thinkOn} onClick={() => { setThinkOpen(false); setThinkOn(false); }} />
-        <MenuItem label={t('composer.on')} active={thinkOn} onClick={() => { setThinkOpen(false); setThinkOn(true); }} />
-        {thinkSupport === 'yes' && (
+        {THINK_LEVELS.map((lv) => (
+          <MenuItem
+            key={lv.id}
+            label={t('think.level.' + lv.id)}
+            desc={lv.id === 'auto'
+              ? t('think.autoHint')
+              : lv.id === 'off'
+                ? t('composer.off')
+                : t('think.budgetShort').replace('{n}', String(Math.round(Math.min(maxThinkBudget, lv.budget) / 1024)))}
+            active={thinkLevel === lv.id}
+            onClick={() => pickLevel(lv.id, lv.budget)}
+          />
+        ))}
+        {thinkSupport === 'yes' && thinkOn && (
           <div className="think-budget">
             <label>{t('think.budgetLabel')}</label>
             <input
@@ -406,8 +479,9 @@ export function Composer({
         <div className="prompt-menu" role="menu" aria-label={t('prompt.menuTitle')}>
           <div className="prompt-menu-head">
             <Icon name="sparkle" size={13} />
-            <span>{t('prompt.menuTitle')}</span>
+            <span>{skillCmdQuery !== null ? t('skill.cmdTitle') : t('prompt.menuTitle')}</span>
             <span className="spacer" />
+            {skillCmdQuery === null && (<>
             <button className="small ghost" data-testid="prompt-import" title={t('prompt.importTitle')} aria-label={t('prompt.importTitle')}
               onClick={() => { setPromptOpen(false); void importPrompts(); }}>
               <Icon name="folderOpen" size={13} />
@@ -420,11 +494,12 @@ export function Composer({
               onClick={() => setEditorState({ mode: 'new' })}>
               <Icon name="plus" size={13} />
             </button>
+            </>)}
             <button className="small ghost" aria-label={t('file.close')} onClick={() => setPromptOpen(false)}>
               <Icon name="x" size={13} />
             </button>
           </div>
-          <div className="prompt-menu-cats">
+          {skillCmdQuery === null && <div className="prompt-menu-cats">
             <button className={`chip ${promptCat === null ? 'active' : ''}`} onClick={() => setPromptCat(null)}>
               {t('prompt.all')}
             </button>
@@ -438,9 +513,32 @@ export function Composer({
                 {t('prompt.category.' + c)}
               </button>
             ))}
-          </div>
+          </div>}
           <div className="prompt-menu-list">
-            {promptCat === null && promptQuery === '' && userOnly.length > 0 && (
+            {skillCmdQuery !== null && (
+              <div className="prompt-cat">
+                {skillCmdItems.map((s) => (
+                  <button key={s.id} className="prompt-item skill-cmd" role="menuitem"
+                    onClick={() => runSkill(s.name)}>
+                    <span className="pi-text">
+                      <span className="pi-label">{s.name}</span>
+                      {s.description ? <span className="pi-desc">{s.description}</span> : null}
+                    </span>
+                    <span className="pi-insert">{((Number(s.enabled) === 1 || onSkills.includes(s.id)) && !offSkills.includes(s.id)) ? t('skill.active') : t('skill.enable')}</span>
+                  </button>
+                ))}
+                {skillCmdItems.length === 0 && <div className="prompt-empty">{t('palette.noResults')}</div>}
+                <button className="prompt-item skill-cmd" role="menuitem" onClick={() => runSkill()}>
+                  <span className="pi-text">
+                    <span className="pi-label">/skill/all</span>
+                    <span className="pi-desc">{t('skill.allHint')}</span>
+                  </span>
+                  <span className="pi-insert">{t('skill.enable')}</span>
+                </button>
+                <div className="prompt-foot">{t('skill.cmdHint')}</div>
+              </div>
+            )}
+            {skillCmdQuery === null && promptCat === null && promptQuery === '' && userOnly.length > 0 && (
               <div className="prompt-cat">
                 <div className="prompt-cat-label">{t('prompt.mine')}</div>
                 {userOnly.map((p) => (
@@ -461,7 +559,7 @@ export function Composer({
                 ))}
               </div>
             )}
-            {renderCats.map((cat) => {
+            {skillCmdQuery === null && renderCats.map((cat) => {
               const list = promptItems.filter((p) => p.category === cat);
               if (!list.length) return null;
               return (
@@ -481,8 +579,8 @@ export function Composer({
                 </div>
               );
             })}
-            {promptItems.length === 0 && <div className="prompt-empty">{t('palette.noResults')}</div>}
-            {previewPrompt && (
+            {skillCmdQuery === null && promptItems.length === 0 && <div className="prompt-empty">{t('palette.noResults')}</div>}
+            {skillCmdQuery === null && previewPrompt && (
               <div className="prompt-preview">
                 <div className="pp-head">
                   <span className="pp-label">{previewPrompt.label}</span>
@@ -580,6 +678,11 @@ export function Composer({
             }
             if (e.key === 'Enter' && !e.shiftKey && !(e.nativeEvent as any).isComposing) {
               e.preventDefault();
+              // A complete /skill command is executed, not typed into the draft.
+              if (promptOpen && skillCmdQuery !== null) {
+                if (skillCmdQuery) onSend(); // bare "/skill" keeps the picker open
+                return;
+              }
               if (promptOpen) { setPromptOpen(false); return; }
               onSend();
             }
@@ -697,54 +800,86 @@ export function Composer({
             )}
           </div>
         </div>
+
+        <div className="comp-modes">
+          <button className={`agent-toggle ${agentMode ? 'on' : ''}`} onClick={() => onToggleAgent(!agentMode)}
+            aria-pressed={agentMode} title={t('agentMode.hint')}>
+            <Icon name="tools" size={13} /> {t('agentMode.label')}
+            <span className="ag-state">{agentMode ? t('composer.on') : t('composer.off')}</span>
+          </button>
+
+          <button className={`web-toggle ${webSearchOn ? 'on' : ''}`} onClick={() => onToggleWebSearch(!webSearchOn)}
+            aria-pressed={webSearchOn} title={t('composer.webHint')}>
+            <Icon name="search" size={13} /> {t('composer.web')}
+            <span className="wb-state">{webSearchOn ? t('composer.on') : t('composer.off')}</span>
+          </button>
+
+          {/* The three working modes get their own framed box so they read as
+              one control instead of three loose pills next to agent mode. */}
+          <div className="mode-box">
+          <div
+            className={`mode-seg mode-${mode}`}
+            role="group"
+            aria-label={t('mode.label')}
+            style={{ ['--mi' as any]: String(Math.max(0, CHAT_MODES.indexOf(mode))) }}
+          >
+            <span className="mode-thumb" aria-hidden="true" />
+            {CHAT_MODES.map((m) => (
+              <button key={m} className={`mode-btn mode-${m} ${mode === m ? 'on' : ''}`}
+                aria-pressed={mode === m} onClick={() => onPickMode(m)} title={t('mode.' + m + 'Hint')}>
+                <Icon name={m === 'plan' ? 'target' : m === 'brainstorm' ? 'sparkle' : 'pencil'} size={12} />
+                {t('mode.' + m)}
+              </button>
+            ))}
+          </div>
+          </div>
+
+          {thinkingControl}
+
+          <div className="comp-menu-wrap">
+            <button className={`ability-btn ${enabledSkills.length ? 'on' : ''}`}
+              onClick={() => setSkillsOpen(!skillsOpen)} aria-expanded={skillsOpen}
+              title={t('composer.skillsHint')}>
+              <Icon name="sparkle" size={13} /> {t('composer.skills').replace('{n}', String(enabledSkills.length))}
+              <Icon name="chevronDown" size={11} />
+            </button>
+            <Popover open={skillsOpen} onClose={() => setSkillsOpen(false)} width={320}>
+              {skills.length === 0 && <div className="ui-menu-empty">{t('composer.skillsNone')}</div>}
+              {skills.map((s) => {
+                const globallyOn = Number(s.enabled) === 1;
+                const muted = offSkills.includes(s.id);
+                const active = (globallyOn || onSkills.includes(s.id)) && !muted;
+                return (
+                  <label
+                    key={s.id}
+                    className={`skill-toggle ${active ? '' : 'off'} ${muted ? 'muted' : ''}`}
+                    title={s.description || s.content.slice(0, 120)}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={active}
+                      disabled={!onToggleSkill}
+                      onChange={() => onToggleSkill?.(s.id)}
+                    />
+                    <span className="skill-toggle-text">
+                      <span className="t">{s.name}</span>
+                      {s.description ? <small>{s.description}</small> : null}
+                    </span>
+                    {!active && <span className="badge">{t('composer.skillOff')}</span>}
+                  </label>
+                );
+              })}
+              <div className="skill-cmd-hint">{t('skill.cmdHint')}</div>
+              <button className="link skills-manage" onClick={() => { setSkillsOpen(false); useData.getState().navigate('settings'); }}>
+                {t('composer.manageSkills')}
+              </button>
+            </Popover>
+          </div>
+        </div>
       </div>
 
-      <div className="comp-hints ability-row">
-        <label className={`ability-toggle ${toolsOn ? 'on' : ''}`} title={t('composer.toolsHint')}>
-          <input type="checkbox" checked={toolsOn} onChange={(e) => setToolsOn(e.target.checked)} />
-          <Icon name="tools" size={13} /> {t('chat.tools')}
-        </label>
-
-        {thinkingControl}
-
-        <div className="comp-menu-wrap">
-          <button className={`ability-btn ${enabledSkills.length ? 'on' : ''}`}
-            onClick={() => setSkillsOpen(!skillsOpen)} aria-expanded={skillsOpen}
-            title={t('composer.skillsHint')}>
-            <Icon name="sparkle" size={13} /> {t('composer.skills').replace('{n}', String(enabledSkills.length))}
-            <Icon name="chevronDown" size={11} />
-          </button>
-          <Popover open={skillsOpen} onClose={() => setSkillsOpen(false)} width={320}>
-            {skills.length === 0 && <div className="ui-menu-empty">{t('composer.skillsNone')}</div>}
-            {skills.map((s) => {
-              const enabled = Number(s.enabled) === 1;
-              const muted = offSkills.includes(s.id);
-              return (
-                <label
-                  key={s.id}
-                  className={`skill-toggle ${enabled ? '' : 'off'} ${muted ? 'muted' : ''}`}
-                  title={enabled ? (s.description || s.content.slice(0, 120)) : t('composer.skillDisabled')}
-                >
-                  <input
-                    type="checkbox"
-                    checked={enabled && !muted}
-                    disabled={!enabled || !onToggleSkill}
-                    onChange={() => onToggleSkill?.(s.id)}
-                  />
-                  <span className="skill-toggle-text">
-                    <span className="t">{s.name}</span>
-                    {s.description ? <small>{s.description}</small> : null}
-                  </span>
-                  {!enabled && <span className="badge">{t('composer.skillOff')}</span>}
-                </label>
-              );
-            })}
-            <button className="link skills-manage" onClick={() => { setSkillsOpen(false); useData.getState().navigate('settings'); }}>
-              {t('composer.manageSkills')}
-            </button>
-          </Popover>
-        </div>
-
+      <div className="comp-hints">
+        <span className="composer-mode-hint">{agentMode ? t('agentMode.hint') : t('mode.hint')}</span>
         <span className="spacer" />
         {draftTokens > 0 && (
           <span className="composer-words">
@@ -753,6 +888,9 @@ export function Composer({
           </span>
         )}
         <span><kbd>Enter</kbd> {t('composer.send')} · <kbd>Shift+Enter</kbd> {t('composer.newline')}</span>
+      </div>
+      <div className="composer-disclaimer" role="note">
+        <Icon name="bolt" size={11} /> {t('composer.disclaimer')}
       </div>
     </div>
   );

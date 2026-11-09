@@ -179,9 +179,15 @@ check('welcome leads with Connect a model when nothing is connected',
   /welcome-card primary/.test(views.chat || '') && /No model connected yet/.test(views.chat || ''));
 check('composer renders an attachment card with name and size', /file-card/.test(views.composerFiles || '')
   && /notes\.md/.test(views.composerFiles || '') && /4 B/.test(views.composerFiles || ''));
-check('composer ability row shows tools, thinking and skills',
-  /ability-row/.test(views.composerFiles || '') && /Skills \(0\)/.test(views.composerFiles || '')
+check('composer bar holds agent, three modes, thinking and skills',
+  /comp-modes/.test(views.composerFiles || '') && /agent-toggle/.test(views.composerFiles || '')
+  && (views.composerFiles.match(/mode-btn/g) || []).length === 3
+  && /Skills \(0\)/.test(views.composerFiles || '')
   && /think-btn/.test(views.composerFiles || ''));
+check('composer shows the AI-fallibility disclaimer',
+  /composer-disclaimer/.test(views.composerFiles || '')
+  && /AI can be wrong/.test(views.composerFiles || ''));
+check('composer offers the Auto thinking level', /think-btn lvl-auto/.test(views.composerFiles || '') && /Auto/.test(views.composerFiles || ''));
 check('composer explains a disabled send', /Type a message or attach a file first/.test(views.composerFiles || ''));
 check('composer estimates draft tokens', /~\d+ tok/.test(views.composerDraft || '') && /\d+ words/.test(views.composerDraft || ''));
 check('plain-text preview renders the body in a <pre>', /fp-pre/.test(views.filePreviewText || '')
@@ -200,16 +206,22 @@ check('model card shows the four capability rows', /caps-card/.test(views.modelC
   && /Max output/.test(views.modelCapCardUnknown || '')
   && /Reasoning/.test(views.modelCapCardUnknown || '')
   && /Prompt cache/.test(views.modelCapCardUnknown || ''));
-check('model card says unknown instead of inventing a context window',
-  /Context window unknown/.test(views.modelCapCardUnknown || '')
-  && /<dd>unknown<\/dd>/.test(views.modelCapCardUnknown || '')
+// v1.2.5: the card fills a known family INSTANTLY instead of making the user
+// wait for a probe — but the number must carry the estimate marker (`≈`), while
+// `~` stays reserved for measured values.
+check('model card fills a known family instantly and marks it as an estimate',
+  /<dd>≈200k tok/.test(views.modelCapCardUnknown || '')
   && /Verify/.test(views.modelCapCardUnknown || '')
-  && !/~\d/.test(views.modelCapCardUnknown || ''));
+  // the context row is an estimate, never a measurement (`~`)
+  && !/<dd>~200k tok/.test(views.modelCapCardUnknown || '')
+  && !/Context window unknown/.test(views.modelCapCardUnknown || ''));
 check('model profile rows read a probe plus a cache observation',
   /~200k tok/.test(views.modelProfileKnown || '') && /supported/.test(views.modelProfileKnown || '')
   && /up to ~200k tok · explicit breakpoints/.test(views.modelProfileKnown || '')
   && /reused 4096 cached tokens/.test(views.modelProfileKnown || '')
-  && /Context window 200000 tokens/.test(views.modelProfileKnown || ''));
+  // A probe is evidence: its context row is a measurement (`~`), not `≈`.
+  && /<dd>~200k tok/.test(views.modelProfileKnown || '')
+  && !/<dd>≈/.test(views.modelProfileKnown || ''));
 
 // ---------- pure helpers (bundled with esbuild so TS is testable in node) ----------
 async function bundleHelper(entry, outfile) {

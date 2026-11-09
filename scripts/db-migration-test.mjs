@@ -149,14 +149,19 @@ const backups = (dir) => fs.readdirSync(dir).filter((f) => f.endsWith('.bak'));
   const dir = dirFor('fresh');
   const file = path.join(dir, 'fresh.db');
   await initDb(dir, 'fresh.db');
-  check('fresh: schema version stamped', getSchemaVersion() === SCHEMA_VERSION && SCHEMA_VERSION === 5, `got ${getSchemaVersion()}`);
+  check('fresh: schema version stamped', getSchemaVersion() === SCHEMA_VERSION && SCHEMA_VERSION === 9, `got ${getSchemaVersion()}`);
   check('fresh: no backup is created', !fs.existsSync(`${file}.v0.bak`));
   check('fresh: chat file table and stats exist', db('dbStats').chatFiles === 0 && db('dbStats').chatFileBytes === 0);
   closeDb();
   const shape = inspect(file);
-  check('fresh: v4/v5 columns present', shape.columns.skills?.includes('description')
+  check('fresh: v4-v7 columns present', shape.columns.skills?.includes('description')
     && shape.columns.chats?.includes('skills_off')
+    && shape.columns.chats?.includes('think_level')
+    && shape.columns.chats?.includes('skills_on')
+    && shape.columns.chats?.includes('agent_mode')
+    && shape.columns.chats?.includes('chat_mode')
     && shape.columns.messages?.includes('tokens_cached')
+    && shape.columns.messages?.includes('parent_id')
     && shape.columns.mcp_servers?.includes('env'));
   check('fresh: message_files table + indexes exist', shape.tables.includes('message_files'));
 }
@@ -193,8 +198,47 @@ const backups = (dir) => fs.readdirSync(dir).filter((f) => f.endsWith('.bak'));
   // The new message column must be writable and readable end-to-end.
   const saved = db('addMessage', { chatId: 'chat-1', role: 'assistant', content: 'new', tokens_cached: 42 });
   check('legacy v0: tokens_cached round-trips through addMessage', saved.tokens_cached === 42);
+
+  // ---- schema v9: tool detail survives the round trip ---------------------
+  // A reopened chat must still explain what a run did, so the steps are written
+  // with the reply and read back by both transcript paths.
+  const withSteps = db('addMessage', {
+    chatId: 'chat-1', role: 'assistant', content: 'ran tools',
+    toolSteps: [
+      { name: 'web_search', kind: 'web', detail: '5 results', ok: true },
+      { name: 'create_chapter', kind: 'chapter', detail: 'Chapter 1', ok: false }
+    ]
+  });
+  const reloaded = db('getMessages', { chatId: 'chat-1' }).find((m) => m.id === withSteps.id);
+  check('v9: tool steps round-trip through addMessage → getMessages',
+    Array.isArray(reloaded?.toolSteps) && reloaded.toolSteps.length === 2 &&
+    reloaded.toolSteps[0].name === 'web_search' && reloaded.toolSteps[1].ok === false,
+    JSON.stringify(reloaded?.toolSteps));
+  const paged = db('getMessagePage', { chatId: 'chat-1', limit: 50 }).rows.find((m) => m.id === withSteps.id);
+  check('v9: a paged read carries the same tool steps', (paged?.toolSteps || []).length === 2);
+
+  const huge = db('addMessage', {
+    chatId: 'chat-1', role: 'assistant', content: 'loop',
+    toolSteps: Array.from({ length: 60 }, (_, i) => ({ name: 'web_search', kind: 'web', detail: `hit ${i} ` + 'x'.repeat(400), ok: true }))
+  });
+  const capped = db('getMessages', { chatId: 'chat-1' }).find((m) => m.id === huge.id);
+  check('v9: stored steps are bounded (40 rows × 200 chars)',
+    capped?.toolSteps?.length === 40 && capped.toolSteps[0].detail.length === 200,
+    `${capped?.toolSteps?.length} rows / ${capped?.toolSteps?.[0]?.detail?.length} chars`);
+
+  const plain = db('addMessage', { chatId: 'chat-1', role: 'user', content: 'no tools' });
+  const plainRead = db('getMessages', { chatId: 'chat-1' }).find((m) => m.id === plain.id);
+  check('v9: a message without tools reads back an empty list',
+    Array.isArray(plainRead?.toolSteps) && plainRead.toolSteps.length === 0);
   const updated = db('updateMessage', { id: saved.id, tokens_cached: 7 });
   check('legacy v0: tokens_cached round-trips through updateMessage', updated.tokens_cached === 7);
+
+  // v6: an assistant reply records the user turn it answers, so resend and
+  // regenerate can keep the previous answer as a variant.
+  const variant = db('addMessage', { chatId: 'chat-1', role: 'assistant', content: 'variant two', parentId: 'msg-1' });
+  check('legacy v0: parent_id round-trips through addMessage', variant.parent_id === 'msg-1', String(variant.parent_id));
+  check('legacy v0: parent_id is readable from getMessages',
+    db('getMessages', { chatId: 'chat-1' }).find((m) => m.id === variant.id)?.parent_id === 'msg-1');
 
   // Cascade: deleting a message removes its attachments.
   db('deleteMessage', { id: 'msg-1', chatId: 'chat-1' });

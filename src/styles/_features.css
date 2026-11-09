@@ -281,7 +281,55 @@ button.small.ghost.active { color: var(--accent); background: var(--accent-soft)
 .think-budget label { font-size: 10.5px; color: var(--text-faint); }
 .think-budget input { width: 100%; }
 
-/* ===== Composer ability row (tools / thinking / skills) ===== */
+/* ===== Composer mode bar (agent / plan / brainstorm / write / think / skills) ===== */
+.comp-modes {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);
+}
+.agent-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 9px; border-radius: 999px;
+  border: 1px solid var(--border); background: none;
+  color: var(--text-dim); font-size: 11.5px; cursor: pointer;
+}
+.agent-toggle:hover { border-color: var(--accent); color: var(--text); }
+.agent-toggle.on {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: var(--accent); color: var(--text); font-weight: 600;
+}
+.agent-toggle .ag-state {
+  font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-faint); font-weight: 700;
+}
+.agent-toggle.on .ag-state { color: var(--accent); }
+.mode-seg {
+  display: inline-flex; gap: 2px; padding: 2px;
+  background: var(--bg-panel-2); border: 1px solid var(--border); border-radius: 999px;
+}
+.mode-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 999px; border: 0; background: none;
+  color: var(--text-faint); font-size: 11.5px; cursor: pointer;
+}
+.mode-btn:hover { color: var(--text); background: var(--bg-hover); }
+.mode-btn.on { background: var(--accent); color: #fff; font-weight: 600; }
+.comp-modes .think-btn { padding: 4px 9px; border-radius: 999px; }
+.comp-modes .ability-btn { padding: 4px 9px; border-radius: 999px; }
+.composer-mode-hint {
+  color: var(--text-faint); font-size: 10.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%;
+}
+.composer-disclaimer {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 6px 0; color: var(--text-faint); font-size: 10.5px;
+}
+.skill-cmd .pi-desc { color: var(--text-faint); }
+.skill-cmd-hint {
+  padding: 8px 10px; color: var(--text-faint); font-size: 10.5px;
+  border-top: 1px solid var(--border);
+}
+
+/* ===== Legacy composer ability row (kept for older markup) ===== */
 .comp-hints.ability-row { gap: 8px; padding-top: 8px; }
 .ability-toggle, .ability-btn {
   display: inline-flex; align-items: center; gap: 5px;
@@ -795,3 +843,186 @@ button { transition: background 0.12s ease, border-color 0.12s ease, color 0.12s
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
 }
+
+/* ---- v1.2.5 chat modes: one sliding thumb, a distinct colour per mode ---- */
+.mode-seg {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgba(127, 127, 127, .12);
+  border: 1px solid rgba(127, 127, 127, .18);
+  overflow: hidden;
+}
+.mode-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / 3);
+  border-radius: 999px;
+  transform: translateX(calc(var(--mi, 2) * 100%));
+  transition: transform .34s cubic-bezier(.22, 1, .36, 1), background-color .34s ease, box-shadow .34s ease;
+  will-change: transform;
+  pointer-events: none;
+}
+.mode-seg.mode-plan .mode-thumb { background: #2563eb; box-shadow: 0 2px 10px rgba(37, 99, 235, .38); }
+.mode-seg.mode-brainstorm .mode-thumb { background: linear-gradient(135deg, #f97316, #7c3aed); box-shadow: 0 2px 10px rgba(124, 58, 237, .34); }
+.mode-seg.mode-write .mode-thumb { background: #16a34a; box-shadow: 0 2px 10px rgba(22, 163, 74, .34); }
+.mode-btn { position: relative; z-index: 1; background: none; border: 0; color: var(--muted, #8b8b8b); transition: color .28s ease; }
+.mode-btn.on { color: #fff; }
+
+/* ---- v1.2.5 thinking levels: colour shifts, never a layout shift ---- */
+.think-btn { transition: background-color .45s ease, color .45s ease, border-color .45s ease, box-shadow .45s ease; }
+.think-btn.lvl-off { color: var(--muted, #8b8b8b); }
+.think-btn.lvl-low { background: rgba(56, 189, 248, .16); border-color: rgba(56, 189, 248, .4); color: #0ea5e9; }
+.think-btn.lvl-medium { background: rgba(99, 102, 241, .16); border-color: rgba(99, 102, 241, .42); color: #6366f1; }
+.think-btn.lvl-high { background: rgba(168, 85, 247, .18); border-color: rgba(168, 85, 247, .45); color: #a855f7; }
+.think-btn.lvl-max {
+  background: linear-gradient(90deg, rgba(236, 72, 153, .25), rgba(168, 85, 247, .3), rgba(59, 130, 246, .25), rgba(236, 72, 153, .25));
+  background-size: 300% 100%;
+  border-color: rgba(168, 85, 247, .5);
+  color: #c084fc;
+  animation: think-flow 6s linear infinite;
+}
+@keyframes think-flow { from { background-position: 0% 50%; } to { background-position: 300% 50%; } }
+@media (prefers-reduced-motion: reduce) {
+  .mode-thumb { transition: none; }
+  .think-btn.lvl-max { animation: none; }
+}
+
+/* ---- v1.2.5 story bible progress strip ---- */
+.story-progress {
+  margin: 10px 0 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(127, 127, 127, .08);
+  border: 1px solid rgba(127, 127, 127, .16);
+}
+.sp-head { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+.sp-pct { color: #10b981; font-variant-numeric: tabular-nums; }
+.sp-bar { height: 6px; border-radius: 99px; background: rgba(127, 127, 127, .2); overflow: hidden; }
+.sp-bar > span { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #2563eb, #16a34a); transition: width .4s cubic-bezier(.22, 1, .36, 1); }
+.sp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.sp-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 7px; border-radius: 99px; background: rgba(127, 127, 127, .12); }
+.sp-chip b { font-variant-numeric: tabular-nums; }
+
+/* Equal columns: a thumb sized at one third only lines up when all three
+   buttons are the same width (they are not, by label length). */
+.mode-seg { display: inline-grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.mode-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; }
+
+/* ---------- Settings -> About: narrow-safe layout ---------- */
+.about-settings { max-width: 720px; min-width: 0; }
+.about-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+.ag-item { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ag-item.wide { grid-column: 1 / -1; }
+.ag-item .k {
+  font-size: 11px; color: var(--text-faint);
+  text-transform: uppercase; letter-spacing: 0.4px;
+}
+.ag-item code {
+  font-family: var(--mono); font-size: 11.5px;
+  min-width: 0; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The data path is the one value users may need to copy by eye, so it wraps
+   instead of hiding its tail behind an ellipsis. */
+.ag-item code.ag-path { white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+.about-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.about-actions .mailto { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+
+@media (max-width: 560px) {
+  /* About page (sidebar entry) at phone-ish widths. */
+  .about-meta .meta-grid { grid-template-columns: 1fr; }
+  .about-hero { flex-wrap: wrap; gap: 10px; }
+  .about-hero .version-pill { margin-left: 0; }
+  .about-support { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .about-footer { flex-wrap: wrap; row-gap: 4px; }
+  .social-card .soc-handle { white-space: normal; overflow-wrap: anywhere; }
+}
+
+/* ---------- Settings layout: never squeeze the pane to zero ---------- */
+/* `1fr` has an auto minimum, so one unbreakable value (a data path) could push
+   the whole content pane outside the window. minmax(0,1fr) lets it shrink and
+   lets the content's own wrap/ellipsis rules do their job. */
+.settings-layout { grid-template-columns: 232px minmax(0, 1fr); }
+@media (max-width: 760px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .settings-nav { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; gap: 6px; padding-bottom: 6px; }
+  .settings-nav > h2, .settings-nav .settings-group-label { display: none; }
+  .settings-nav button { white-space: nowrap; }
+  .settings-content { padding-right: 0; }
+}
+
+/* Stacked Settings header, take two: buttons become chips that wrap, instead
+   of a single scrolling row whose fixed height clipped the search box. */
+@media (max-width: 760px) {
+  .settings-nav { flex-wrap: wrap; overflow: visible; overflow-x: visible; overflow-y: visible; }
+  .settings-nav > h2 { display: none; }
+  .settings-nav .settings-group { display: contents; }
+  .settings-nav .settings-search { flex: 1 1 220px; margin: 0; }
+  .settings-nav .settings-results { flex: 1 1 100%; }
+  .settings-nav button { white-space: nowrap; }
+}
+/* A wrapped two-line background needs a block box, or the highlight breaks. */
+.ag-item code { display: block; }
+
+/* ---------- About page: wrap instead of overflow ---------- */
+/* These rows held their children on one line at every width, which pushed the
+   page 19px sideways at 820px and threw the donate buttons out of the window
+   at 560px. */
+.about-footer { flex-wrap: wrap; row-gap: 4px; }
+.about-support .row { flex-wrap: wrap; }
+.about-hero { flex-wrap: wrap; }
+.about-page .vn-head { flex-wrap: wrap; row-gap: 6px; }
+
+/* ---------- About page at narrow width: show the value, don't cut it ---------- */
+.about-page { min-width: 0; }
+/* The data path is the one value users may need to read or copy by eye, so it
+   wraps instead of ending in an ellipsis (Settings → About already does this). */
+.about-page .meta-item code.ellipsis {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-overflow: clip;
+  overflow: visible;
+}
+.about-page .license-line { flex-wrap: wrap; row-gap: 4px; }
+/* A two-column social grid sizes columns to their longest handle, which pushed
+   the page sideways by 22px. auto-fit + min() keeps it inside the page. */
+.about-page .social-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+.about-page .social-card { min-width: 0; }
+
+/* ---------- Story section: project bar ---------- */
+.project-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -4px 0 12px; min-width: 0; }
+.project-bar select { max-width: 260px; min-width: 0; flex: 0 1 auto; }
+.project-bar button { flex: 0 0 auto; }
+
+/* ---------- Agent tool progress (inline while a run works) ---------- */
+.agent-steps {
+  margin: 2px 0 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(127, 127, 127, .07);
+  border: 1px solid rgba(127, 127, 127, .16);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.as-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-faint); margin-bottom: 2px; }
+.as-row { display: flex; align-items: center; gap: 7px; font-size: 12px; min-width: 0; }
+.as-dot { width: 6px; height: 6px; border-radius: 50%; background: #16a34a; flex: 0 0 auto; }
+.as-row.err .as-dot { background: #e5484d; }
+.as-row.err .as-label { color: #e5484d; }
+.as-label { flex: 0 0 auto; font-weight: 600; }
+.as-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+.as-state { margin-left: auto; font-size: 10.5px; color: var(--text-faint); flex: 0 0 auto; }
+
+/* Auto = follow Settings: neutral, not a level of its own. */
+.think-btn.lvl-auto { color: var(--text-dim); }

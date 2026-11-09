@@ -50,7 +50,9 @@ export function normalizeKind(value: unknown): StoryKind | null {
     item: 'item', items: 'item', object: 'item', objects: 'item', artifact: 'item', artefact: 'item', artefak: 'item', benda: 'item',
     lore: 'lore', lores: 'lore', legend: 'lore', legends: 'lore', myth: 'lore', myths: 'lore', history: 'lore', note: 'lore', notes: 'lore', mitos: 'lore', legenda: 'lore'
   };
-  return aliases[v] || null;
+  // hasOwnProperty, not a bare lookup: "__proto__" and "constructor" resolve
+  // to inherited members and would leak a non-kind value into the import.
+  return Object.prototype.hasOwnProperty.call(aliases, v) ? aliases[v] : null;
 }
 
 /** Guess a bible category from the filename ("characters_sheet.md" → character). */
@@ -290,7 +292,10 @@ export function parseJsonEntries(text: string, fallbackKind: StoryKind, fallback
   if (!raw) return [];
   let parsed: unknown;
   try { parsed = JSON.parse(raw); } catch { return []; }
-  return jsonEntriesFromValue(parsed, fallbackKind, fallbackTitle);
+  // The conversion walks the value recursively, so pathologically deep JSON
+  // (thousands of nested arrays) overflows the stack. That is a bad document,
+  // not a crash: return no entries.
+  try { return jsonEntriesFromValue(parsed, fallbackKind, fallbackTitle); } catch { return []; }
 }
 
 // ------------------------------------------------------------------ public --

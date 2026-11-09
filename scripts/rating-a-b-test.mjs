@@ -33,7 +33,10 @@ await sleep(800);
 // framing, which would make the A/B comparison unfair.
 const pick = await evalJs(`(() => {
   const st = window.useData.getState();
-  const p = st.providers.find((x) => x.enabled && x.apiKey && (x.models || []).length);
+  // The renderer no longer receives API keys; a stored key is signalled by
+  // has_key (the main process resolves the secret when generating).
+  const p = st.providers.find((x) => x.enabled && (x.hasKey || x.apiKey) && (x.models || []).length)
+    || st.providers.find((x) => x.enabled && (x.models || []).length);
   if (!p) return null;
   // glm-5.3 and kimi-k3 verified UNREACHABLE on this endpoint (30s timeout) —
   // prefer the models that actually answer, in order.

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useData, useUi, dbCall, uid } from '../../store';
 import { useT } from '../../i18nReact';
 import { Icon } from '../Icons';
+import { TrustList } from './TrustList';
 
 // ---------------- Plugins ----------------
 const SAMPLE_PLUGIN = `// OpenPlot AI plugin example
@@ -90,6 +91,7 @@ export function PluginsSection({ logs, reloadLogs }: { logs: string[]; reloadLog
           <button className="primary" onClick={save}><Icon name="check" size={14} /> {t('plugins.save')}</button>
         </div>
       )}
+      <TrustList kind="plugin" version={plugins} />
     </div>
   );
 }

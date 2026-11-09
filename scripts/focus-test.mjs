@@ -80,9 +80,12 @@ async function connectCdp(port) {
     async typeText(text) {
       await send('Input.insertText', { text });
     },
+    // `keyDown` (not `rawKeyDown`): Chromium only routes Escape to the page
+    // as a normal key event when the focused element is not a text field, so
+    // the raw variant stops working as soon as focus sits on a modal button.
     async pressKey(key, { code, vk, modifiers = 0 } = {}) {
-      await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key, code: code || key, windowsVirtualKeyCode: vk || 0, modifiers });
-      await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: code || key, windowsVirtualKeyCode: vk || 0, modifiers });
+      await send('Input.dispatchKeyEvent', { type: 'keyDown', key, code: code || key, windowsVirtualKeyCode: vk || 0, nativeVirtualKeyCode: vk || 0, modifiers });
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: code || key, windowsVirtualKeyCode: vk || 0, nativeVirtualKeyCode: vk || 0, modifiers });
     },
     async click(selector) {
       const ok = await this.evalJS(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return false; el.click(); return true; })()`);

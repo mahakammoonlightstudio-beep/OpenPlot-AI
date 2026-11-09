@@ -78,22 +78,44 @@ function makeSandbox(id: string, name: string): { plugin: LoadedPlugin; context:
   return { plugin, context };
 }
 
-export function loadPlugins(): void {
+export interface PluginLoadOptions {
+  /**
+   * Approval gate for the code about to run. Returning false skips the row
+   * entirely, so unapproved code is never even evaluated. The main process
+   * supplies this from its trust registry; omitted means "load everything".
+   */
+  isTrusted?: (row: { id: string; name: string; code: string }) => boolean;
+}
+
+export function loadPlugins(opts: PluginLoadOptions = {}): void {
   loaded.clear();
   try {
     const rows = handleDb('listPlugins', {}) as any[];
     for (const row of rows) {
+      // A disabled plugin must not run at all. The top-level code used to be
+      // evaluated before `enabled` was consulted, which made "disabled" purely
+      // cosmetic: the code still ran on every start.
+      if (!row.enabled) {
+        log(`Plugin ${row.name || row.id} is disabled — not loaded`);
+        continue;
+      }
+      const name = row.name || row.id;
+      const code = String(row.code || '');
+      if (opts.isTrusted && !opts.isTrusted({ id: row.id, name, code })) {
+        log(`Plugin ${name} is not approved — not loaded`);
+        continue;
+      }
       try {
-        const { plugin, context } = makeSandbox(row.id, row.name || row.id);
-        plugin.enabled = !!row.enabled;
+        const { plugin, context } = makeSandbox(row.id, name);
+        plugin.enabled = true;
         // The plugin file is a script that receives a `context` object.
         // eslint-disable-next-line no-new-func
-        const factory = new Function('context', `"use strict";\n${row.code}`);
+        const factory = new Function('context', `"use strict";\n${code}`);
         factory(context);
         loaded.set(row.id, plugin);
         log(`Loaded plugin ${plugin.name}`);
       } catch (e) {
-        log(`Plugin ${row.name || row.id} failed to load: ${e}`);
+        log(`Plugin ${name} failed to load: ${e}`);
         console.error(`Plugin ${row.id} failed:`, e);
       }
     }

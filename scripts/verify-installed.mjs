@@ -64,7 +64,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       return null;
     };
     const info = await evalJS(`(async()=>{ if(!window.inkwell) return null; const i=await window.inkwell.appInfo(); return { version:i.version, encryption:i.encryption }; })()`);
-    const provs = await evalJS(`(async()=>{ if(!window.inkwell) return null; const r=await window.inkwell.dbCall('listProviders'); return (r.data||[]).map(p=>({ name:p.name, baseUrl:p.base_url||p.baseUrl, keyLen:(p.api_key||p.apiKey||'').length })); })()`);
+    // listProviders never returns the key itself — only whether one is stored.
+    const provs = await evalJS(`(async()=>{ if(!window.inkwell) return null; const r=await window.inkwell.dbCall('listProviders'); return (r.data||[]).map(p=>({ name:p.name, baseUrl:p.base_url||p.baseUrl, hasKey:Number(p.has_key)===1 })); })()`);
     const ui = await evalJS(`!!document.querySelector('.page, .welcome-card')`);
     console.log('app info :', JSON.stringify(info));
     console.log('providers:', JSON.stringify(provs));

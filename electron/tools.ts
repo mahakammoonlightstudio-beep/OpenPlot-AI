@@ -1,5 +1,6 @@
 import { handleDb, uid } from './db';
 import { isMcpToolName, mcpToolDefs, callMcpTool } from './mcp';
+import { runWebFetch, runWebSearch } from './webtools';
 
 export interface ToolCall { name: string; input: any; id?: string }
 
@@ -18,8 +19,11 @@ const TOOL_DEFS = [
   { name: 'list_chapters', description: 'List chapters of a project with word counts.', input_schema: { type: 'object', properties: { projectId: { type: 'string' } } } },
   { name: 'read_chapter', description: 'Read the full content of one chapter by id or exact title.', input_schema: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' } } } },
   { name: 'append_to_chapter', description: 'Append prose to the END of a chapter (or prepend to its beginning). Safer than update_chapter for adding text: you cannot accidentally overwrite existing prose. Use for continuing drafts, adding scenes, or inserting AI-written passages.', input_schema: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string', description: 'Exact current chapter title (when id is unknown)' }, content: { type: 'string', description: 'The text to add' }, where: { type: 'string', enum: ['end', 'beginning'], description: 'Default: end' } }, required: ['content'] } },
+  { name: 'create_project', description: 'Create a new story project. Call this FIRST when the user asks for a new story and no project exists. It returns the new project id — pass that id as projectId to every later create_story_entry / create_chapter call so nothing lands in the wrong project.', input_schema: { type: 'object', properties: { name: { type: 'string' }, description: { type: 'string' }, format: { type: 'string', enum: ['short-story', 'novel', 'book', 'fanfic', 'script'] }, rating: { type: 'string', enum: ['family', 'teen', 'mature'] } }, required: ['name'] } },
   { name: 'list_projects', description: 'List all story projects with their format, rating and word totals. Use when the user has several stories and you need to find the right one.', input_schema: { type: 'object', properties: {} } },
-  { name: 'read_project', description: 'Read one project\'s metadata (name, description, context, format, rating) plus a compact overview of its chapters and story bible entry titles. Use to orient yourself before diving into a specific chapter or bible entry.', input_schema: { type: 'object', properties: { projectId: { type: 'string', description: 'Optional project id; omit to use the active project' } } } }
+  { name: 'read_project', description: 'Read one project\'s metadata (name, description, context, format, rating) plus a compact overview of its chapters and story bible entry titles. Use to orient yourself before diving into a specific chapter or bible entry.', input_schema: { type: 'object', properties: { projectId: { type: 'string', description: 'Optional project id; omit to use the active project' } } } },
+  { name: 'web_search', description: 'Search the web for facts the story bible does not contain: real places, dates, terminology, recent events, sources for research. Returns a short list of { title, url, snippet }. Follow up with web_fetch on the most promising url. Needs a search key in Settings; if it reports none, use web_fetch with a URL you already know.', input_schema: { type: 'object', properties: { query: { type: 'string', description: 'What to search for, in natural language' }, limit: { type: 'number', description: 'How many results (1-10, default from Settings)' } }, required: ['query'] } },
+  { name: 'web_fetch', description: 'Read one web page (http/https) as readable text: title, final url and the page text with markup removed. Use it to verify a fact, read the article behind a search result, or check a public page the user linked. Works without any API key. Text is capped at 20000 characters.', input_schema: { type: 'object', properties: { url: { type: 'string', description: 'Full http(s) URL' } }, required: ['url'] } }
 ];
 
 /**
@@ -37,6 +41,9 @@ export function toolDefsForApi(): any[] {
  * and every existing caller are unaffected.
  */
 export async function executeToolCall(call: ToolCall, ctx: { projectId?: string | null } = {}): Promise<string> {
+  // Web tools hit the network, so they live on the async path next to MCP.
+  if (call.name === 'web_search') return runWebSearch(call.input);
+  if (call.name === 'web_fetch') return runWebFetch(call.input);
   if (isMcpToolName(call.name)) return callMcpTool(call.name, call.input);
   return executeTool(call, ctx);
 }
@@ -94,6 +101,19 @@ export function executeTool(call: ToolCall, ctx: { projectId?: string | null } =
   const input = call.input || {};
   try {
     switch (name) {
+      case 'create_project': {
+        const projectName = String(input.name || '').trim();
+        if (!projectName) return JSON.stringify({ error: 'create_project needs a name.' });
+        const row = handleDb('createProject', {
+          name: projectName,
+          description: String(input.description || ''),
+          format: input.format || 'novel',
+          rating: input.rating || 'teen'
+        }) as any;
+        // The run keeps its own project id on purpose: ctx.projectId is fixed
+        // for the whole generation, so later calls must pass this id explicitly.
+        return JSON.stringify({ ok: true, id: row?.id, name: row?.name, next: 'Pass this id as projectId on every later call.' });
+      }
       case 'save_memory': {
         handleDb('addMemory', { content: String(input.content || ''), source: 'agent' });
         return 'Memory saved.';
@@ -104,7 +124,7 @@ export function executeTool(call: ToolCall, ctx: { projectId?: string | null } =
       }
       case 'create_story_entry': {
         const projectId = resolveProject(input, ctx.projectId);
-        if (!projectId) return JSON.stringify({ error: 'No project exists. Ask the user to create a project first.' });
+        if (!projectId) return JSON.stringify({ error: 'No project exists yet. Call create_project first, then pass its id as projectId.' });
         const row = handleDb('createStory', { projectId, kind: input.kind, title: input.title, content: input.content || '', tags: input.tags || [], links: input.links || [] });
         return JSON.stringify({ ok: true, id: row.id, kind: row.kind, title: row.title });
       }
@@ -153,7 +173,7 @@ export function executeTool(call: ToolCall, ctx: { projectId?: string | null } =
       }
       case 'read_story_bible': {
         const projectId = resolveProject(input, ctx.projectId);
-        if (!projectId) return JSON.stringify({ error: 'No project exists. Ask the user to create a project first.' });
+        if (!projectId) return JSON.stringify({ error: 'No project exists yet. Call create_project first, then pass its id as projectId.' });
         const entries = (handleDb('listStory', {}) as any[]).filter((e) => e.project_id === projectId);
         const files = (handleDb('listStoryFiles', { projectId }) as any[]);
         return JSON.stringify({
@@ -198,7 +218,7 @@ export function executeTool(call: ToolCall, ctx: { projectId?: string | null } =
       }
       case 'create_chapter': {
         const projectId = resolveProject(input, ctx.projectId);
-        if (!projectId) return JSON.stringify({ error: 'No project exists. Ask the user to create a project first.' });
+        if (!projectId) return JSON.stringify({ error: 'No project exists yet. Call create_project first, then pass its id as projectId.' });
         const row = handleDb('createChapter', { projectId, title: input.title, content: input.content || '', status: 'draft' });
         return JSON.stringify({ ok: true, id: row.id, title: row.title });
       }
@@ -246,7 +266,7 @@ export function executeTool(call: ToolCall, ctx: { projectId?: string | null } =
       }
       case 'read_project': {
         const projectId = resolveProject(input, ctx.projectId);
-        if (!projectId) return JSON.stringify({ error: 'No project exists. Ask the user to create a project first.' });
+        if (!projectId) return JSON.stringify({ error: 'No project exists yet. Call create_project first, then pass its id as projectId.' });
         const p = (handleDb('listProjects', {}) as any[]).find((x) => x.id === projectId);
         if (!p) return JSON.stringify({ error: 'Project not found.' });
         const chapters = (handleDb('listChapters', { projectId }) as any[]).map((c) => ({ id: c.id, title: c.title, status: c.status, words: wordCount(c.content || '') }));

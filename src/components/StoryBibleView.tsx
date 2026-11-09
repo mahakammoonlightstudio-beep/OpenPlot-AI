@@ -8,6 +8,7 @@ import { confirmDialog } from './TextPrompt';
 import { Modal } from './Ui';
 import { ParsedEntry, formatBytes, guessKindFromName, parseStoryFiles } from '../lib/storyImport';
 import { toStoryArray } from '../lib/storyData';
+import { ProjectPickerBar } from './ProjectPickerBar';
 
 const KINDS: StoryKind[] = ['world', 'location', 'character', 'item', 'lore'];
 const KIND_ICON: Record<StoryKind, IconName> = { world: 'globe', location: 'pin', character: 'person', item: 'sword', lore: 'scroll' };
@@ -42,7 +43,7 @@ function TagInput({ tags, onChange }: { tags: string[]; onChange: (t: string[]) 
 export function StoryBibleView() {
   const t = useT();
   const ui = useUi();
-  const { story, activeProjectId, projects } = useData();
+  const { story, activeProjectId, projects, chapters } = useData();
   const [kind, setKind] = useState<StoryKind>('world');
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -107,6 +108,12 @@ export function StoryBibleView() {
         names.some((n) => n.includes(q))
       );
     });
+  // Progress strip: what this project actually HAS, so an empty bible reads as
+  // "nothing written yet" instead of a dead list.
+  const projectChapters = chapters.filter((c) => !activeProjectId || c.project_id === activeProjectId);
+  const doneChapters = projectChapters.filter((c) => c.status === 'done').length;
+  const filledEntries = scoped.filter((e) => e.content.trim().length > 80).length;
+  const progressPct = scoped.length ? Math.round((filledEntries / scoped.length) * 100) : 0;
   const selected = story.find((e) => e.id === selectedId) || null;
   const entryFiles = selectedId ? (filesByEntry.get(selectedId) || []) : [];
 
@@ -236,7 +243,12 @@ export function StoryBibleView() {
       const p = window.inkwell.pathForFile?.(f) || '';
       if (p) paths.push(p);
     }
-    if (paths.length) { await attachPaths(paths); return; }
+    if (paths.length) {
+      // Only the real dropped Files are granted; their paths come from webUtils.
+      await window.inkwell.grantDroppedFiles(Array.from(e.dataTransfer.files));
+      await attachPaths(paths);
+      return;
+    }
     // Plain-browser fallback (no absolute path available): read in memory.
     const rows: { name: string; content: string }[] = [];
     for (const f of Array.from(e.dataTransfer.files).slice(0, 10)) {
@@ -312,6 +324,7 @@ export function StoryBibleView() {
         {t('story.sub')}
         {project ? <> — <b>{project.name}</b></> : <> — <i>no project selected</i></>}
       </div>
+      <ProjectPickerBar />
       <div className="story-grid">
         <div className="story-list">
           <div className="kind-tabs">
@@ -335,6 +348,24 @@ export function StoryBibleView() {
             <button className="ghost" onClick={pickImportFiles} title={t('story.importHint')} aria-label={t('story.import')}>
               <Icon name="download" size={14} /> {t('story.import')}
             </button>
+          </div>
+          <div className="story-progress">
+            <div className="sp-head">
+              <span>{t('story.progress')}</span>
+              <span className="sp-pct">{progressPct}%</span>
+            </div>
+            <div className="sp-bar"><span style={{ width: `${progressPct}%` }} /></div>
+            <div className="sp-chips">
+              {KINDS.map((k) => (
+                <span key={k} className={`sp-chip kind-${k}`}>
+                  <Icon name={KIND_ICON[k]} size={10} /> {t('story.' + k)}
+                  <b>{scoped.filter((e) => e.kind === k).length}</b>
+                </span>
+              ))}
+              <span className="sp-chip kind-chapter" title={t('story.progress')}>
+                <Icon name="book" size={10} /> <b>{doneChapters}/{projectChapters.length}</b>
+              </span>
+            </div>
           </div>
           {list.length === 0 && <div className="empty-state" style={{ padding: 20 }}><span>{q ? t('story.searchEmpty') : t('story.nothing')}</span></div>}
           {list.map((e) => {

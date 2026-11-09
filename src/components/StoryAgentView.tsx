@@ -211,8 +211,9 @@ export function StoryAgentView() {
     try {
       const res = await window.inkwell.generate({
         reqId,
+        // Credentials are resolved in the main process from this id.
         provider: {
-          id: p.id, name: p.name, baseUrl: p.baseUrl, apiKey: p.apiKey,
+          id: p.id, name: p.name, baseUrl: p.baseUrl,
           enabled: true, models: p.models as string[], kind: (p as any).kind
         },
         model: model!,

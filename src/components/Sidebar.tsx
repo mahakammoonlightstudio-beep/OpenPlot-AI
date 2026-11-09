@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useData, useSettings, dbCall, createChatUi, createProjectUi } from '../store';
+import { useData, useSettings, dbCall, createChatUi } from '../store';
 import { Chat, Folder, Project } from '../types';
 import { useT } from '../i18nReact';
 import { textPrompt, confirmDialog } from './TextPrompt';
@@ -42,13 +42,6 @@ export function Sidebar() {
     if (!name) return;
     await dbCall('createFolder', { name, project_id: null });
     await useData.getState().reloadChatRelated();
-  }
-
-  async function newProject() {
-    const name = await textPrompt({ title: t('projects.name'), confirmLabel: t('projects.create') });
-    if (!name) return;
-    await createProjectUi(name);
-    navigate('projects');
   }
 
   async function renameChat(c: Chat) {
@@ -148,7 +141,6 @@ export function Sidebar() {
         </div>
         <div className="new-buttons">
           <button className="primary" onClick={newChat}><Icon name="plus" size={14} /> {t('app.newChat')}</button>
-          <button onClick={newProject} title={t('app.newProject')}><Icon name="project" size={15} /></button>
           <button onClick={newFolder} title={t('app.newFolder')}><Icon name="folderPlus" size={15} /></button>
         </div>
       </div>
@@ -162,6 +154,11 @@ export function Sidebar() {
         )}
       </div>
       <div className="nav-tree">
+        <div className="nav-section">
+          <div className={`nav-item ${route === 'home' ? 'active' : ''}`} onClick={() => navigate('home')} title={t('app.homeHint')}>
+            <span className="icon"><Icon name="quill" size={14} /></span><span className="title">{t('app.home')}</span>
+          </div>
+        </div>
         <div className="nav-section">
           <div className="nav-section-title">{t('app.chats')}</div>
           {foldersWithChats.map(({ folder, chats: fchats }) => (

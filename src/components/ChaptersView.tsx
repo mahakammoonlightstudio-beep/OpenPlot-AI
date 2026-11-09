@@ -6,6 +6,7 @@ import { useT } from '../i18nReact';
 import { Icon } from './Icons';
 import { Modal } from './Ui';
 import { confirmDialog } from './TextPrompt';
+import { ProjectPickerBar } from './ProjectPickerBar';
 
 const wordCount = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0);
 
@@ -84,6 +85,40 @@ function SceneBoard({ chapterId }: { chapterId: string }) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Chapter progress strip: how far the manuscript has actually got.
+ *
+ * The page used to open with a bare subtitle and a list — no sense of progress.
+ * This reuses the Story Bible strip so the two sections read as one system.
+ */
+function ChapterProgress({ rows, totalWords }: { rows: Chapter[]; totalWords: number }) {
+  const t = useT();
+  if (!rows.length) return null;
+  const done = rows.filter((c) => c.status === 'done').length;
+  const revising = rows.filter((c) => c.status === 'revising').length;
+  const draft = rows.length - done - revising;
+  const pct = Math.round((done / rows.length) * 100);
+  const avg = Math.round(totalWords / rows.length);
+  return (
+    <div className="story-progress chapter-progress">
+      <div className="sp-head">
+        <span>{t('chapters.title')}</span>
+        <span className="sp-pct">{pct}% {t('chapters.done').toLowerCase()}</span>
+      </div>
+      <div className="sp-bar">
+        <span style={{ width: `${Math.max(pct, 2)}%` }} />
+      </div>
+      <div className="sp-chips">
+        <span className="sp-chip">{t('chapters.draft')} <b>{draft}</b></span>
+        <span className="sp-chip">{t('chapters.revising')} <b>{revising}</b></span>
+        <span className="sp-chip">{t('chapters.done')} <b>{done}</b></span>
+        <span className="sp-chip">{t('chapters.words')} <b>{totalWords.toLocaleString()}</b></span>
+        <span className="sp-chip" title={t('chapters.words')}>Ø <b>{avg.toLocaleString()}</b> {t('chapters.words')}</span>
+      </div>
     </div>
   );
 }
@@ -313,6 +348,8 @@ export function ChaptersView() {
         {project ? <> — <b>{project.name}</b></> : <> — <i>no project selected</i></>}
         {' · '}{scoped.length} {t('chapters.title').toLowerCase()} · {doneCount} {t('chapters.done').toLowerCase()} · {totalProjectWords.toLocaleString()} {t('chapters.words')}
       </div>
+      <ProjectPickerBar />
+      <ChapterProgress rows={scoped} totalWords={totalProjectWords} />
       <div className="chapters-layout">
         <div className="chapter-list">
           <div style={{ padding: 8 }}>

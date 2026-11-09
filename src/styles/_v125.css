@@ -1,0 +1,399 @@
+/* ============================================================
+   v1.2.5 polish layer
+   Loaded last so it can neutralise colour rules from _features.css
+   without rewriting the older blocks (they are kept as history).
+   ============================================================ */
+
+/* ---- Reply-version arrows: below the bubble, neutral surface ----
+   The accent border made "1/2" look like a status badge and changed hue with
+   every theme. A quiet surface + text colour reads as a control and stays
+   readable in all fifteen themes. */
+.variant-nav {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  box-shadow: none;
+  margin-right: 2px;
+  flex: 0 0 auto;
+}
+.variant-nav .vn-btn { color: var(--text-dim); }
+.variant-nav .vn-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
+.variant-nav .vn-count { color: var(--text-dim); }
+
+/* Actions stay faintly visible instead of appearing only on hover: the arrows
+   are navigation, not a secret. */
+.msg .actions { opacity: 0.5; gap: 6px; margin-top: 8px; }
+.msg:hover .actions, .msg:focus-within .actions { opacity: 1; }
+
+/* ---- Plan / Brainstorm / Write: one framed box, no accent colours ---- */
+.mode-box {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+}
+.mode-box .mode-seg {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  border-radius: 999px;
+}
+/* Each working mode owns one FIXED colour, independent of the appearance theme:
+   the mode is a state you recognise at a glance, so switching theme must not
+   repaint it. Thumb hues are paired with a text colour that keeps >= 4.5:1
+   contrast on that thumb (dark ink on gold/pastel, white on deep green). */
+.mode-seg.mode-plan .mode-thumb {
+  background: linear-gradient(135deg, #ffd76e, #f0a92b);
+  box-shadow: 0 2px 10px rgba(240, 169, 43, 0.34);
+}
+.mode-seg.mode-brainstorm .mode-thumb {
+  /* Soft rainbow. `hue-rotate` is a composited filter, so the drift costs no
+     layout or paint work — the pill never reflows and never janks. */
+  background: linear-gradient(120deg, #ffd9e8, #ffe9b0, #c9f5d8, #cfe4ff, #e8d6ff, #ffd9e8);
+  box-shadow: 0 2px 10px rgba(167, 139, 250, 0.32);
+  animation: mode-hue 11s linear infinite;
+  will-change: filter;
+}
+.mode-seg.mode-write .mode-thumb {
+  background: linear-gradient(135deg, #12a06c, #047857);
+  box-shadow: 0 2px 10px rgba(4, 120, 87, 0.36);
+}
+@keyframes mode-hue {
+  from { filter: hue-rotate(0deg); }
+  to { filter: hue-rotate(360deg); }
+}
+
+/* Inactive labels read at text-dim in every theme: the legacy `--muted,
+   #8b8b8b` fallback failed contrast on Nord and Sepia. */
+.mode-btn { color: var(--text-dim); }
+.mode-btn.on { color: var(--text); font-weight: 600; background: none; }
+
+/* The ACTIVE label carries its own mode colour instead of relying on the thumb
+   behind it. Why: the thumb is a sibling, so anything measuring the text found
+   the neutral frame underneath and read "white on light grey". Painting the
+   button itself makes the pair real — the thumb is then only what you see
+   travelling between positions, and the label always sits on its own colour. */
+.mode-seg.mode-plan .mode-btn.on {
+  background-color: #f5b53f;
+  background-image: linear-gradient(135deg, #ffd76e, #f0a92b);
+  color: #2a1c02;
+}
+.mode-seg.mode-brainstorm .mode-btn.on {
+  /* 300%-wide gradient slid by background-position: a tiny pill repaint, no
+     filter on the element (that would tint the label too). */
+  background-color: #ecd9ff;
+  background-image: linear-gradient(120deg, #ffd9e8, #ffe9b0, #c9f5d8, #cfe4ff, #e8d6ff, #ffd9e8);
+  background-size: 300% 100%;
+  color: #1b1229;
+  animation: mode-flow 9s linear infinite;
+}
+.mode-seg.mode-write .mode-btn.on {
+  background-color: #047857;
+  background-image: linear-gradient(135deg, #12a06c, #047857);
+  color: #ffffff;
+}
+@keyframes mode-flow {
+  from { background-position: 0% 50%; }
+  to { background-position: 300% 50%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mode-seg.mode-brainstorm .mode-thumb { animation: none; will-change: auto; }
+  .mode-seg.mode-brainstorm .mode-btn.on { animation: none; }
+}
+
+/* ---- Settings → Models: tier badge ----
+   A letter that summarises the resolved numbers. Kept on the theme surface so it
+   reads in every appearance; the letter itself carries the meaning. */
+.mm-tier {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  margin-right: 6px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-2);
+  color: var(--text-dim);
+  vertical-align: middle;
+}
+.mm-tier.t-s { border-color: rgba(234, 179, 8, 0.55); color: #eab308; }
+.mm-tier.t-a { border-color: rgba(16, 185, 129, 0.5); color: #10b981; }
+.mm-tier.t-b { color: var(--text); }
+.mm-tier.t-c { color: var(--text-faint); }
+
+/* Chapter progress strip shares the Story Bible strip, with a little air above. */
+.chapter-progress { margin: 4px 0 14px; }
+
+/* Prompt-menu chips sat at text-faint (2.27–2.37 contrast on Nord/Sepia).
+   text-dim clears WCAG AA on every theme surface — but only for the resting
+   chips: the active one paints white on the accent fill, and an unscoped rule
+   here would repaint it to text-dim and drop it to 1.39. */
+.prompt-menu .chip:not(.active) { color: var(--text-dim); }
+.prompt-menu .chip:not(.active):hover { color: var(--text); }
+
+/* Selected menu row was accent-on-accent-soft (1.99:1 on Nord). The soft fill
+   already marks the selection; the label keeps readable text weight. */
+.ui-menu-item.active { color: var(--text); font-weight: 600; }
+
+/* ---- Accent sweep: accent is a FILL, not a text colour ----
+   #7c5cff on a panel measures ~4.2:1 (dark) / ~4.0:1 (light paper) — below AA
+   for the small labels these selectors render. Fills, icons, borders and focus
+   rings keep `--accent`; anything that is read as words takes `--accent-ink`. */
+.agent-role,
+.mention-item.active,
+.version-row .v-src.ai-append,
+.chip:hover:not(:disabled):not(.active),
+button.small.ghost.active,
+.social-card:hover .soc-icon {
+  color: var(--accent-ink);
+}
+a { color: var(--accent-ink); }
+
+/* ---- Tool log reads like a terminal session ----
+   Same panel, mono type and a `$` gutter, so a search/fetch run looks like a
+   command being executed rather than a list of chips. Colours stay on theme
+   tokens so every appearance keeps its contrast. */
+.tool-log .tl-body {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+.tool-log .tl-row { gap: 8px; align-items: baseline; }
+.tool-log .tl-row .tl-name::before {
+  content: '$ ';
+  color: var(--text-faint);
+}
+.tool-log .tl-dot { display: none; }
+.tool-log .tl-detail { color: var(--text-dim); word-break: break-word; }
+/* Row shape: subject, then a quiet type, then the state pushed to the right. */
+.tool-log .tl-name { color: var(--text); word-break: break-word; }
+.tool-log .tl-kind {
+  flex: 0 1 auto;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tool-log .tl-kind::before { content: '\00b7'; margin-right: 6px; }
+.tool-log .tl-state { color: var(--text-faint); margin-left: auto; }
+
+/* Long runs collapse to their newest rows; this marks what is folded away. */
+.tl-more, .sl-more {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  padding: 1px 0 3px;
+}
+.tl-more:hover, .sl-more:hover { color: var(--text); }
+
+/* ---- Web research: its own terminal box ----
+   Separate from the agent tool log on purpose — a search is a command run, not
+   a file created. Theme tokens only, so it reads on every appearance. */
+.search-log {
+  margin: 6px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.search-log.live { border-color: var(--text-faint); }
+.sl-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 9px;
+  border: 0;
+  background: var(--bg-panel-2);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  cursor: pointer;
+  text-align: left;
+}
+.sl-bar:hover { color: var(--text); }
+.sl-dots { display: inline-flex; gap: 3px; }
+.sl-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  display: block;
+}
+.sl-dots i:nth-child(1) { background: #e5484d; }
+.sl-dots i:nth-child(2) { background: #f5a623; }
+.sl-dots i:nth-child(3) { background: #46a758; }
+.sl-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  color: var(--text);
+}
+.sl-count {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.sl-fail {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(229, 72, 77, 0.16);
+  color: #e5484d;
+}
+.sl-chev { margin-left: auto; display: inline-flex; }
+.sl-body {
+  padding: 7px 9px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  max-height: 220px;
+  overflow: auto;
+}
+.sl-line { display: flex; gap: 7px; align-items: baseline; }
+.sl-prompt { color: var(--ok); flex: 0 0 auto; }
+.sl-line.err .sl-prompt { color: var(--danger); }
+.sl-cmd { color: var(--text); white-space: nowrap; }
+.sl-out { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sl-line.err .sl-out { color: var(--danger); }
+.sl-caret {
+  width: 6px;
+  height: 12px;
+  background: var(--text-dim);
+  animation: sl-blink 1.05s steps(1) infinite;
+}
+@keyframes sl-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .sl-caret { animation: none; } }
+.agent-toggle, .ability-btn { color: var(--text-dim); }
+/* Smart-setup collapsed button: its hint sat at text-faint (2.59 contrast). */
+.smart-open .hint { color: var(--text-dim); }
+.agent-toggle .ag-state { color: var(--text-dim); }
+.agent-toggle.on .ag-state { color: var(--text); }
+.mode-thumb { transition: transform 0.34s var(--ease-out); }
+
+/* ---- Web research switch ---- */
+.web-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.web-toggle:hover { border-color: var(--text-faint); color: var(--text); }
+.web-toggle.on { background: var(--bg-active); color: var(--text); font-weight: 600; }
+.web-toggle .wb-state {
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 700;
+}
+.web-toggle.on .wb-state { color: var(--text-dim); }
+
+/* ---- Tool log: one collapsed line, rows stack downward when opened ---- */
+.tool-log {
+  margin: 8px 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-panel-2);
+  overflow: hidden;
+}
+.tool-log .tl-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 10px;
+  background: none;
+  border: 0;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  cursor: pointer;
+  text-align: left;
+}
+.tool-log .tl-head:hover { color: var(--text); }
+.tl-title { display: inline-flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.tl-count {
+  font-variant-numeric: tabular-nums;
+  padding: 0 6px;
+  border-radius: 99px;
+  background: var(--bg-active);
+  font-size: 10.5px;
+}
+.tl-fail { color: var(--danger); font-size: 10.5px; font-weight: 700; }
+.tl-chev { display: inline-flex; color: var(--text-faint); }
+.tl-body {
+  padding: 6px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px solid var(--border);
+}
+.tl-row { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-dim); min-width: 0; }
+.tl-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: 0 0 auto; }
+.tl-row.err .tl-dot { background: var(--danger); }
+.tl-name { font-weight: 600; color: var(--text); }
+.tl-name.mono { font-family: var(--mono); font-weight: 500; font-size: 11px; }
+.tl-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-faint);
+}
+.tl-state { margin-left: auto; font-size: 10px; color: var(--text-faint); }
+
+/* The shell is a focus container (tabIndex -1), so its focus ring drew a frame
+   around the whole window instead of marking a control. Inner controls keep
+   their own rings. */
+#app-root:focus, #app-root:focus-visible { outline: none; }
+
+/* ---- Home greeting ---- */
+.welcome-greet { margin-top: 4px; font-size: 13px; color: var(--text-dim); }
+.welcome-greet b { color: var(--text); font-weight: 600; }
+
+/* ---- Data: what a reset destroys ---- */
+.reset-note {
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 32%, transparent);
+}
+.rn-title { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; color: var(--danger); }
+.rn-body { margin-top: 3px; font-size: 11.5px; color: var(--text-dim); line-height: 1.5; }
+
+/* ---- Breathing room in dense settings cards ---- */
+.card + .card { margin-top: 14px; }
+.provider-card { padding: 16px 18px; }
+.provider-card + .provider-card { margin-top: 12px; }
+.key-validation { margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.model-status-list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.model-status-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.model-status-row code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mode-thumb { transition: none; }
+}

@@ -11,7 +11,10 @@ const THEMES = [
   { id: 'forest', name: 'Forest', md: 'Dark', sw: ['#0f1a14', '#1c2d23', '#3ddc84'] },
   { id: 'rose-dawn', name: 'Rose Dawn', md: 'Dark', sw: ['#1c1116', '#301e28', '#ff6f91'] },
   { id: 'ocean', name: 'Ocean', md: 'Dark', sw: ['#0a1520', '#142839', '#4cc9f0'] },
+  { id: 'gruvbox', name: 'Gruvbox', md: 'Dark', sw: ['#1d2021', '#32302f', '#fabd2f'] },
+  { id: 'catppuccin', name: 'Catppuccin', md: 'Dark', sw: ['#1e1e2e', '#313244', '#cba6f7'] },
   { id: 'sepia', name: 'Sepia', md: 'Light', sw: ['#f4ecd8', '#e4d6b8', '#8b5e34'] },
+  { id: 'sandstone', name: 'Sandstone', md: 'Light', sw: ['#f7f2ea', '#efe6d8', '#b45309'] },
   { id: 'light-paper', name: 'Light Paper', md: 'Light', sw: ['#f7f7f5', '#f1f1ee', '#7048e8'] }
 ];
 
