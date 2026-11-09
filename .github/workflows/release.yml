@@ -1,8 +1,16 @@
 name: Release
 
-# Build native installers for all three platforms on every version tag and
-# attach them to a draft GitHub release. Publish the draft from the releases
-# page after reviewing the assets.
+# Build native installers for all platforms on every version tag and attach
+# them to a draft GitHub release. Publish the draft from the releases page
+# after reviewing the assets.
+#
+# macOS signing/notarization is opt-in. Add these repository secrets to sign:
+#   MAC_CERT_P12               base64 of the Developer ID .p12 certificate
+#   MAC_CERT_PASSWORD          password for that .p12
+#   APPLE_ID                   Apple account email
+#   APPLE_APP_SPECIFIC_PASSWORD  app-specific password for that account
+#   APPLE_TEAM_ID              Apple developer team id
+# Without them the macOS build is unsigned (Gatekeeper needs Open on first run).
 
 on:
   push:
@@ -15,10 +23,26 @@ permissions:
 
 jobs:
   build:
+    name: build (${{ matrix.label }})
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        include:
+          - os: windows-latest
+            label: windows
+            extra_args: ''
+          - os: macos-latest
+            label: macos
+            extra_args: ''
+          - os: ubuntu-latest
+            label: linux-x64
+            extra_args: '--linux --x64'
+          # Cross-build the arm64 AppImage/tarball on the x64 runner. The
+          # suffix keeps the x64 asset names stable for the website, which
+          # links to them by name.
+          - os: ubuntu-latest
+            label: linux-arm64
+            extra_args: "--linux --arm64 '-c.linux.artifactName=OpenPlot.AI-${version}-arm64.${ext}'"
     runs-on: ${{ matrix.os }}
     steps:
       - name: Check out repository
@@ -50,9 +74,17 @@ jobs:
         # softprops step below is the single upload path. electron-builder also
         # downloads the Electron runtime, so retry the build like npm ci.
         shell: bash
+        env:
+          # Empty on forks and local runs: electron-builder skips signing and
+          # the afterSign hook skips notarization.
+          CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           for attempt in 1 2 3; do
-            if npm run dist -- --publish never; then exit 0; fi
+            if npm run dist -- --publish never ${{ matrix.extra_args }}; then exit 0; fi
             echo "dist failed (attempt $attempt/3); retrying in 20s"
             sleep 20
           done
@@ -76,7 +108,7 @@ jobs:
         if: "!startsWith(github.ref, 'refs/tags/v')"
         uses: actions/upload-artifact@v4
         with:
-          name: openplot-${{ matrix.os }}
+          name: openplot-${{ matrix.label }}
           path: |
             release/*.exe
             release/*.zip

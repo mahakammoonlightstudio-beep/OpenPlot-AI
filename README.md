@@ -208,9 +208,17 @@ npm test             # headless suite
 npm run test:e2e     # headless + GUI end-to-end
 
 npm run dist:win     # Windows NSIS + zip
-npm run dist:linux   # Linux AppImage + tar.gz
+npm run dist:linux   # Linux x64 AppImage + tar.gz
 npm run dist:mac     # macOS dmg + zip
 ```
+
+The release workflow also cross-builds Linux **arm64** AppImage and tarball
+(`OpenPlot.AI-<version>-arm64.*`); `npm run dist:linux` locally stays x64.
+
+macOS builds are signed with the hardened runtime and notarized automatically
+when the repository has `MAC_CERT_P12`, `MAC_CERT_PASSWORD`, `APPLE_ID`,
+`APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` secrets. Without them the
+macOS build is unsigned and Gatekeeper asks you to open it once.
 
 DevTools stay closed in development; set `OPENPLOT_DEVTOOLS=1` to open them.
 

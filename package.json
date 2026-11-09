@@ -37,6 +37,7 @@
     "sql.js": "^1.13.0"
   },
   "devDependencies": {
+    "@electron/notarize": "^2.5.0",
     "@types/dompurify": "^3.0.5",
     "@types/node": "^22.9.0",
     "@types/react": "^18.3.12",
@@ -58,6 +59,7 @@
   "build": {
     "appId": "co.mahakammoon.openplotai",
     "productName": "OpenPlot AI",
+    "afterSign": "scripts/notarize.cjs",
     "directories": {
       "output": "release"
     },
@@ -115,7 +117,11 @@
         }
       ],
       "category": "public.app-category.productivity",
-      "icon": "build/icon-512.png"
+      "icon": "build/icon-512.png",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     }
   }
 }
