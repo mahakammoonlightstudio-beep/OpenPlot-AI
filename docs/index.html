@@ -229,8 +229,8 @@
           <p data-i18n="c7.p">Plot Smith, the guided story agent: three premise options, a cast, a three-act outline and a ready project. Attach reference files to any Story Bible entry, import Markdown/JSON/CSV in one pass, and enjoy a lighter core that only writes the database when something changed.</p>
         </div>
         <div class="card">
-          <h3 data-i18n="c8.h">New in v1.2.3</h3>
-          <p data-i18n="c8.p">Files now live in the chat as cards you can read before and after sending, a searchable guide ships inside the app, thinking controls follow each model, smart configuration reports prompt-cache memory, skills must be enabled on purpose, and settings finally have search and a simple mode. Long chats load one page at a time, the views load on demand, and animations respect reduced motion. The MCP bridge runs the servers you enable and exposes their tools to the model, automations react to real events with a run history, the palette switches models, skills and plugin commands, and prompt libraries import and export as JSON.</p>
+          <h3 data-i18n="c8.h">New in v1.2.5</h3>
+          <p data-i18n="c8.p">The app opens on Home, with a greeting that follows the clock, quick starts and the live model-health strip. A Web switch gives any chat web_search and web_fetch without agent mode, tool calls collapse into one readable log under the reply, and plugin/MCP approvals can be reviewed, flagged when their code changed, and revoked in Settings. Remote Markdown images are fetched by the main process so the window stays offline, dialogs close on the first Escape, and three new themes join the thirteen.</p>
         </div>
       </div>
     </div>
@@ -238,7 +238,7 @@
 
   <section id="download" style="background: var(--panel); border-block: 1px solid var(--border);">
     <div class="wrap">
-      <h2><span data-i18n="dl.h">Download</span> <span class="badge" id="ver-badge">v1.2.3</span></h2>
+      <h2><span data-i18n="dl.h">Download</span> <span class="badge" id="ver-badge">v1.2.5</span></h2>
       <p style="color: var(--muted); max-width: 620px;" data-i18n="dl.intro">
         The button above picks the right installer for your operating system automatically.
         Prefer to choose manually? All assets:
@@ -345,7 +345,7 @@
           'c6.p': 'Local SQLite storage. No account, no cloud, no telemetry. Open source under the MIT license.',
           'c7.h': 'New in v1.2',
           'c7.p': 'Plot Smith, the guided story agent: three premise options, a cast, a three-act outline and a ready project. Attach reference files to any Story Bible entry, import Markdown/JSON/CSV in one pass, and enjoy a lighter core that only writes the database when something changed.',
-          'c8.h': 'New in v1.2.3',
+          'c8.h': 'New in v1.2.5',
           'c8.p': 'Files now live in the chat as cards you can read before and after sending, a searchable guide ships inside the app, thinking controls follow each model, smart configuration reports prompt-cache memory, skills must be enabled on purpose, and settings finally have search and a simple mode. The MCP bridge runs the servers you enable and exposes their tools to the model, automations react to real events with a run history, the palette switches models, skills and plugin commands, and prompt libraries import and export as JSON.',
           'dl.h': 'Download', 'dl.platform': 'Platform', 'dl.installer': 'Installer', 'dl.portable': 'Portable',
           'dl.intro': 'The button above picks the right installer for your operating system automatically. Prefer to choose manually? All assets:',
@@ -387,7 +387,7 @@
           'c6.p': 'Penyimpanan SQLite lokal. Tanpa akun, tanpa cloud, tanpa telemetry. Open source dengan lisensi MIT.',
           'c7.h': 'Baru di v1.2',
           'c7.p': 'Plot Smith, agen cerita terpandu: tiga opsi premis, para tokoh, kerangka tiga babak, dan proyek siap pakai. Lampirkan file referensi ke entri Kitab Cerita mana pun, impor Markdown/JSON/CSV sekali jalan, dan nikmati inti yang lebih ringan — database hanya ditulis saat ada perubahan.',
-          'c8.h': 'Baru di v1.2.3',
+          'c8.h': 'Baru di v1.2.5',
           'c8.p': 'File sekarang tinggal di dalam chat sebagai kartu yang bisa dibaca sebelum maupun sesudah dikirim, panduan yang bisa dicari ikut terpasang di dalam app, kontrol thinking mengikuti kemampuan tiap model, smart configuration melaporkan memori prompt-cache, skill harus diaktifkan dengan sengaja, dan settings akhirnya punya pencarian serta mode sederhana. Bridge MCP menjalankan server yang kamu aktifkan dan mengekspos tool-nya ke model, otomatisasi bereaksi pada event nyata lengkap dengan riwayat jalan, palette bisa mengganti model, skill, dan perintah plugin, serta pustaka prompt bisa diimpor dan diekspor sebagai JSON.',
           'dl.h': 'Unduh', 'dl.platform': 'Platform', 'dl.installer': 'Installer', 'dl.portable': 'Portable',
           'dl.intro': 'Tombol di atas otomatis memilih installer yang sesuai untuk sistem operasimu. Ingin memilih manual? Semua aset:',
@@ -461,7 +461,7 @@
       var isLinux = /Linux|X11|CrOS/i.test(ua) && !isMac && !isWindows;
 
       var OS_SUFFIX = {
-        'win':      'OpenPlot.AI-VER-Setup.', 'win-zip': 'OpenPlot.AI-VER-win.zip',
+        'win':      'OpenPlot.AI.Setup.VER.exe', 'win-zip': 'OpenPlot.AI-VER-win.zip',
         'mac-dmg':  'OpenPlot.AI-VER-universal.dmg', 'mac-zip': 'OpenPlot.AI-VER-universal-mac.zip',
         'linux':    'OpenPlot.AI-VER.AppImage', 'linux-tar': 'openplot-ai-VER.tar.gz'
       };

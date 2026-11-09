@@ -231,8 +231,8 @@
           <p>Plot Smith, agen cerita terpandu: tiga opsi premis, para tokoh, kerangka tiga babak, dan proyek siap pakai. Lampirkan file referensi ke entri Kitab Cerita mana pun, impor Markdown/JSON/CSV sekali jalan, dan nikmati inti yang lebih ringan — database hanya ditulis saat ada perubahan.</p>
         </div>
         <div class="card">
-          <h3>Baru di v1.2.3</h3>
-          <p>File sekarang tinggal di dalam chat sebagai kartu yang bisa dibaca sebelum maupun sesudah dikirim, panduan yang bisa dicari ikut terpasang di dalam app, kontrol thinking mengikuti kemampuan tiap model, smart configuration melaporkan memori prompt-cache, skill harus diaktifkan dengan sengaja, dan settings akhirnya punya pencarian serta mode sederhana. Chat panjang dimuat satu halaman sekaligus, tampilan dimuat saat dibuka, dan animasi menghormati reduced motion. Bridge MCP menjalankan server yang kamu aktifkan dan mengekspos tool-nya ke model, otomatisasi bereaksi pada event nyata lengkap dengan riwayat jalan, palette bisa mengganti model, skill, dan perintah plugin, serta pustaka prompt bisa diimpor dan diekspor sebagai JSON.</p>
+          <h3>Baru di v1.2.5</h3>
+          <p>App terbuka di Home dengan sapaan sesuai waktu, quick start, dan strip kesehatan model. Sakelar Web memberi chat mana pun web_search dan web_fetch tanpa mode agen, panggilan tool diringkas jadi satu log yang mudah dibaca di bawah balasan, dan persetujuan plugin/MCP bisa ditinjau, ditandai saat kodenya berubah, serta dicabut di Settings. Gambar Markdown remote diambil oleh main process supaya jendela tetap offline, dialog tertutup pada Escape pertama, dan tiga tema baru melengkapi tigabelas yang sudah ada.</p>
         </div>
       </div>
     </div>
@@ -240,7 +240,7 @@
 
   <section id="download" style="background: var(--panel); border-block: 1px solid var(--border);">
     <div class="wrap">
-      <h2>Unduh <span class="badge" id="ver-badge">v1.2.3</span></h2>
+      <h2>Unduh <span class="badge" id="ver-badge">v1.2.5</span></h2>
       <p style="color: var(--muted); max-width: 620px;">
         Tombol di atas otomatis memilih installer yang sesuai untuk sistem operasimu.
         Ingin memilih manual? Semua aset:
@@ -325,7 +325,7 @@
       var isLinux = /Linux|X11|CrOS/i.test(ua) && !isMac && !isWindows;
 
       var OS_SUFFIX = {
-        'win':      'OpenPlot.AI-VER-Setup.', 'win-zip': 'OpenPlot.AI-VER-win.zip',
+        'win':      'OpenPlot.AI.Setup.VER.exe', 'win-zip': 'OpenPlot.AI-VER-win.zip',
         'mac-dmg':  'OpenPlot.AI-VER-universal.dmg', 'mac-zip': 'OpenPlot.AI-VER-universal-mac.zip',
         'linux':    'OpenPlot.AI-VER.AppImage', 'linux-tar': 'openplot-ai-VER.tar.gz'
       };
