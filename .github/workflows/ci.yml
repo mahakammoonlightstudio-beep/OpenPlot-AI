@@ -32,7 +32,16 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        # The Electron binary is downloaded from GitHub releases, which
+        # occasionally answers 504. Retry instead of failing the whole matrix.
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "npm ci failed (attempt $attempt/3); retrying in 15s"
+            sleep 15
+          done
+          exit 1
 
       - name: Typecheck
         run: npm run typecheck

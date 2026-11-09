@@ -31,7 +31,15 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        # A flaky Electron binary download must not cost a whole release run.
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "npm ci failed (attempt $attempt/3); retrying in 15s"
+            sleep 15
+          done
+          exit 1
 
       - name: Typecheck
         run: npm run typecheck
