@@ -21,6 +21,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # CI never launches Electron (the GUI suites stay local), so skip the
+      # ~100 MB binary download that the release CDN keeps timing out on.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
