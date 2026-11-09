@@ -58,12 +58,44 @@ jobs:
         # A flaky Electron binary download must not cost a whole release run.
         shell: bash
         run: |
-          for attempt in 1 2 3; do
+          for attempt in 1 2 3 4; do
             if npm ci; then exit 0; fi
-            echo "npm ci failed (attempt $attempt/3); retrying in 15s"
-            sleep 15
+            echo "npm ci failed (attempt $attempt/4); retrying in 20s"
+            sleep 20
           done
           exit 1
+
+      - name: Configure Apple signing
+        # Only export the variables when the secrets exist. electron-builder
+        # treats an empty CSC_LINK as a path and fails with "not a file".
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$MAC_CERT_P12" ]; then
+            {
+              echo "CSC_LINK=$MAC_CERT_P12"
+              echo "CSC_KEY_PASSWORD=$MAC_CERT_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo "Developer ID certificate configured"
+          else
+            echo "No Developer ID certificate: building unsigned"
+          fi
+          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            {
+              echo "APPLE_ID=$APPLE_ID"
+              echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+            } >> "$GITHUB_ENV"
+            echo "Notarization credentials configured"
+          else
+            echo "No notarization credentials: skipping notarization"
+          fi
 
       - name: Typecheck
         run: npm run typecheck
@@ -72,21 +104,16 @@ jobs:
         # --publish never: electron-builder must NOT upload by itself (its
         # dotted asset names duplicated the workflow's on v1.0.0); the
         # softprops step below is the single upload path. electron-builder also
-        # downloads the Electron runtime, so retry the build like npm ci.
+        # downloads the Electron runtime and its AppImage tool, so retry with a
+        # longer backoff: the GitHub release CDN answers 504 for a few minutes
+        # at a time, then recovers.
         shell: bash
-        env:
-          # Empty on forks and local runs: electron-builder skips signing and
-          # the afterSign hook skips notarization.
-          CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          for attempt in 1 2 3; do
+          for attempt in 1 2 3 4 5; do
             if npm run dist -- --publish never ${{ matrix.extra_args }}; then exit 0; fi
-            echo "dist failed (attempt $attempt/3); retrying in 20s"
-            sleep 20
+            wait=$((attempt * 30))
+            echo "dist failed (attempt $attempt/5); retrying in ${wait}s"
+            sleep $wait
           done
           exit 1
 
