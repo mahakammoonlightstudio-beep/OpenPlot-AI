@@ -236,6 +236,11 @@ ${links()?.releases || 'GitHub → Releases'}
     console.log(`    - ${asset.name} (${kb} KB)`);
     if (Number(asset.size || 0) === 0) console.log('      ⚠ zero-byte asset');
   }
+  for (const appimage of assets.filter((asset) => asset.name.endsWith('.AppImage'))) {
+    if (!assets.some((asset) => asset.name === `${appimage.name}.zsync`)) {
+      console.log(`      ⚠ missing ${appimage.name}.zsync (AppImageUpdate delta)`);
+    }
+  }
   if (!assets.length) console.log('    (none yet)');
   if (data.url) console.log(`  url      : ${data.url}`);
 

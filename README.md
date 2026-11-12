@@ -193,6 +193,10 @@ Each platform has a full installer/app and a portable folder build.
 The macOS disk image and the main macOS zip are universal (Intel + Apple
 silicon); the `arm64-mac.zip` is smaller and Apple-silicon only.
 
+Every Linux AppImage release also ships a matching `.zsync` file for
+[AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate) delta
+downloads.
+
 ## Build from source
 
 Requirements: **Node.js 18+** and npm.

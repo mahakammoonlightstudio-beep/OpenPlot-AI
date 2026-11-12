@@ -117,6 +117,26 @@ jobs:
           done
           exit 1
 
+      - name: Add zsync metadata for AppImage
+        # AppImageUpdate uses the .zsync sidecar for delta downloads. Generate
+        # one next to every AppImage this Linux job produced.
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zsync
+          shopt -s nullglob
+          for appimage in release/*.AppImage; do
+            name="$(basename "$appimage")"
+            if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+              url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${name}"
+            else
+              url="$name"
+            fi
+            echo "Generating zsync for $name"
+            zsyncmake -u "$url" -o "${appimage}.zsync" "$appimage"
+          done
+
       - name: Upload release assets
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
@@ -127,6 +147,7 @@ jobs:
             release/*.zip
             release/*.dmg
             release/*.AppImage
+            release/*.zsync
             release/*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -141,5 +162,6 @@ jobs:
             release/*.zip
             release/*.dmg
             release/*.AppImage
+            release/*.zsync
             release/*.tar.gz
           if-no-files-found: warn
