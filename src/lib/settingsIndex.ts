@@ -96,8 +96,11 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { id: 'set-agentmd-editor', section: 'agentmd', labelKey: 'agentmd.title', keywords: ['agent.md', 'instructions', 'rules', 'aturan', 'instruksi'] },
   // ---- Appearance ----
   { id: 'set-theme', section: 'appearance', labelKey: 'appearance.theme', keywords: ['theme', 'dark', 'light', 'tema', 'gelap', 'terang'] },
+  { id: 'set-language', section: 'appearance', labelKey: 'appearance.language', keywords: ['language', 'locale', 'english', 'spanish', 'hindi', 'indonesian', 'bahasa', 'espanol', 'हिन्दी'] },
   { id: 'set-accent', section: 'appearance', labelKey: 'appearance.accent', keywords: ['accent', 'color', 'warna', 'aksen'] },
   { id: 'set-font-size', section: 'appearance', labelKey: 'appearance.font', keywords: ['font', 'size', 'text', 'huruf', 'ukuran'] },
+  { id: 'set-ui-font', section: 'appearance', labelKey: 'appearance.uiFont', keywords: ['font', 'typeface', 'serif', 'mono', 'huruf', 'tampilan'] },
+  { id: 'set-ui-layout', section: 'appearance', labelKey: 'appearance.uiLayout', keywords: ['scale', 'zoom', 'density', 'radius', 'layout', 'skala', 'kepadatan'] },
   { id: 'set-settings-mode', section: 'appearance', labelKey: 'settings.mode', keywords: ['simple', 'advanced', 'sederhana', 'lanjutan', 'mode'] },
   { id: 'set-motion', section: 'appearance', labelKey: 'appearance.motion', keywords: ['motion', 'animation', 'reduce', 'animasi', 'gerak', 'kurangi'] },
   // ---- Data ----
@@ -105,6 +108,8 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   { id: 'set-memory-list', section: 'memory', labelKey: 'memory.title', keywords: ['memory list', 'forget', 'daftar memori', 'hapus memori'] },
   { id: 'set-usage-totals', section: 'usage', labelKey: 'usage.title', keywords: ['usage', 'tokens', 'cost', 'cache', 'penggunaan', 'token'] },
   { id: 'set-data-path', section: 'data', labelKey: 'data.path', keywords: ['data path', 'folder', 'database', 'lokasi'] },
+  { id: 'set-libraries', section: 'data', labelKey: 'library.title', keywords: ['library', 'database', 'legacy', 'universal', 'switch', 'ganti database', 'export', 'portable', 'ekspor', 'backup', 'cadangan'] },
+  { id: 'set-snapshots', section: 'data', labelKey: 'snapshot.title', keywords: ['snapshot', 'time machine', 'backup', 'restore', 'cadangan', 'pulihkan'] },
   { id: 'set-data-chatfiles', section: 'data', labelKey: 'data.chatFiles', keywords: ['attachments', 'files', 'clear files', 'lampiran', 'file'] },
   { id: 'set-data-compact', section: 'data', labelKey: 'data.compact', keywords: ['compact', 'vacuum', 'shrink', 'kompres', 'rapikan'] },
   { id: 'set-data-reset', section: 'data', labelKey: 'data.reset', keywords: ['reset', 'erase', 'delete all', 'hapus semua'] },
@@ -124,7 +129,10 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
  * pretending. Exported so the index test can keep it honest.
  */
 export const SECTION_DEFAULTS: Partial<Record<SettingsSection, Record<string, unknown>>> = {
-  appearance: { theme: 'dark-classic', accent: '#7c5cff', chatFontSize: 14 },
+  appearance: {
+    theme: 'dark-classic', accent: '#7c5cff', chatFontSize: 14,
+    uiFont: 'system', uiFontCustom: '', uiScale: 1, uiDensity: 'comfortable', uiRadius: 10
+  },
   behavior: {
     temperature: 0.7,
     // 0 = the model's own ceiling (see `replyBudget`). A 4k default truncated

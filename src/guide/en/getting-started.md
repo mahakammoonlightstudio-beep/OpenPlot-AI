@@ -20,7 +20,7 @@ Every provider row needs:
 Settings → [[settings:models]] lists every model with its capability chips. Choose one as the default, or leave **Auto (recommended)** and let each chat decide.
 
 ## 3. Start a chat
-`Ctrl+N` creates a chat. Type, press `Enter` to send, `Shift+Enter` for a new line. `Ctrl+K` opens the command palette from anywhere.
+`Ctrl+N` creates a chat. Type, press `Enter` to send, `Shift+Enter` for a new line. `Ctrl+K` opens the command palette from anywhere, and `Ctrl+P` opens a quick switcher for chats and projects.
 
 ## 4. Give it a project (optional)
 A project holds a story bible, chapters and a context block. Attach a project to a chat and the model sees your canon instead of guessing.

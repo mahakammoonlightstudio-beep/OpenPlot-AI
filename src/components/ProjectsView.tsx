@@ -34,7 +34,7 @@ export function ProjectsView() {
   async function save() {
     if (!selected || !draft) return;
     await dbCall('updateProject', { id: selected.id, name: draft.name, description: draft.description, context: draft.context, format: draft.format, rating: draft.rating });
-    await useData.getState().load();
+    await useData.getState().reloadProjects();
     setDirty(false);
   }
 

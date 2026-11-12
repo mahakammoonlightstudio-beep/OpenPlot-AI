@@ -7,7 +7,7 @@ import { CSSProperties } from 'react';
 
 export type IconName =
   | 'chat' | 'book' | 'settings' | 'folder' | 'folderPlus' | 'project' | 'plus' | 'trash'
-  | 'pencil' | 'chevronDown' | 'chevronRight' | 'chevronUp' | 'refresh' | 'download'
+  | 'pencil' | 'chevronDown' | 'chevronRight' | 'chevronUp' | 'refresh' | 'download' | 'upload'
   | 'copy' | 'check' | 'x' | 'send' | 'stop' | 'brain' | 'tools' | 'memory'
   | 'user' | 'quill' | 'globe' | 'pin' | 'person' | 'sword' | 'scroll' | 'file'
   | 'plug' | 'bolt' | 'heart' | 'donate' | 'clock' | 'search' | 'cpu' | 'server'
@@ -66,6 +66,7 @@ const ICONS: Record<IconName, JSX.Element> = {
     </>
   ),
   download: P('M8 2.5v7M5 7l3 3 3-3M3 12.5h10'),
+  upload: P('M8 13.5v-7M5 9l3-3 3 3M3 3.5h10'),
   copy: (
     <>
       <rect key={0} x="5.5" y="5.5" width="8" height="8" rx="1.2" />

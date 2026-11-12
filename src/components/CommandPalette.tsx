@@ -7,6 +7,7 @@ import { openPromptLibraryUi } from '../App';
 import { visibleSections } from '../lib/settingsIndex';
 import { GUIDE_DOCS } from '../guide';
 import { articleList as guideArticles } from '../guide/content';
+import { guideLangFor } from '../i18n';
 import { thinkingSupport } from '../lib/modelCaps';
 
 type CmdGroup = 'actions' | 'models' | 'skills' | 'plugins' | 'chats' | 'projects';
@@ -35,7 +36,8 @@ export function CommandPalette() {
   const t = useT();
   const ui = useUi();
   const settings = useSettings();
-  const { chats, providers, skills, projects, navigate } = useData();
+  const { chats, providers, skills, projects, navigate, activeChatId, activeProjectId } = useData();
+  const mode = ui.paletteMode;
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   // Loaded plugin commands are fetched when the palette opens — the bridge
@@ -56,10 +58,9 @@ export function CommandPalette() {
       setSel(0);
       setTimeout(() => inputRef.current?.focus(), 30);
     }
-  }, [ui.paletteOpen]);
+  }, [ui.paletteOpen, ui.paletteMode]);
 
   const cmds: Cmd[] = useMemo(() => {
-    const activeChatId = useData.getState().activeChatId;
     const base: Cmd[] = [
       { id: 'new-chat', group: 'actions', label: t('app.newChat'), icon: 'chat', hint: 'Ctrl+N', run: () => createChatUi() },
       { id: 'new-project', group: 'actions', label: t('app.newProject'), icon: 'folder', hint: 'Ctrl+Shift+N', run: async () => {
@@ -70,11 +71,14 @@ export function CommandPalette() {
       } },
       { id: 'search', group: 'actions', label: t('palette.search'), icon: 'chat', hint: 'Ctrl+F', run: () => window.dispatchEvent(new CustomEvent('inkwell:focus-search')) },
       { id: 'prompts', group: 'actions', label: t('prompt.title'), icon: 'scroll', hint: 'Ctrl+/', run: () => openPromptLibraryUi() },
-      { id: 'agent', group: 'actions', label: t('app.agent'), icon: 'sparkle', run: () => navigate('agent') },
+      { id: 'agent', group: 'actions', label: t('advance.agent'), icon: 'tools', run: () => navigate('agent') },
+      { id: 'write', group: 'actions', label: t('advance.write'), icon: 'quill', run: () => navigate('write') },
+      { id: 'story-agent', group: 'actions', label: t('app.agent'), icon: 'sparkle', run: () => navigate('story-agent') },
       { id: 'story', group: 'actions', label: t('app.story'), icon: 'book', run: () => navigate('story') },
       { id: 'chapters', group: 'actions', label: t('app.chapters'), icon: 'book', run: () => navigate('chapters') },
       { id: 'flow', group: 'actions', label: t('app.flow'), icon: 'target', run: () => navigate('flow') },
       { id: 'stats', group: 'actions', label: t('app.stats'), icon: 'target', run: () => navigate('stats') },
+      { id: 'dump', group: 'actions', label: t('dump.title'), icon: 'trash', run: () => navigate('dump') },
       { id: 'settings', group: 'actions', label: t('app.settings'), icon: 'settings', hint: 'Ctrl+,', run: () => navigate('settings') },
       // Every Settings section is one palette entry, so “settings: models” or
       // “pengaturan: model” lands on the control without clicking through nav.
@@ -96,7 +100,7 @@ export function CommandPalette() {
     ];
     // Every guide article is reachable by name, so “cache” or “skills” opens
     // the page instead of a section that merely mentions it.
-    for (const doc of guideArticles(settings.lang, GUIDE_DOCS)) {
+    for (const doc of guideArticles(guideLangFor(settings.lang), GUIDE_DOCS)) {
       base.push({
         id: 'guide-' + doc.slug,
         group: 'actions',
@@ -179,39 +183,87 @@ export function CommandPalette() {
       }
     }
 
-    // Most recently updated chats first
-    const recent = [...chats].sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0)).slice(0, 30);
-    const chatCmds: Cmd[] = recent.map((c) => ({
-      id: 'chat-' + c.id, group: 'chats', label: c.title, icon: 'chat', hint: t('palette.groupChats'),
-      run: () => { useData.getState().setActiveChat(c.id); navigate('chat'); }
-    }));
-    const projCmds: Cmd[] = projects.map((p) => ({
-      id: 'proj-' + p.id, group: 'projects', label: p.name, icon: 'folder', hint: t('palette.groupProjects'),
-      run: () => { useData.getState().setActiveProject(p.id); navigate('projects'); }
-    }));
+    // Quick switch: chats and projects are first-class results, not just
+    // recent-history shortcuts. The current item leads the empty list, pinned
+    // rows follow, then newest; every chat is searchable (not only 30).
+    const orderedChats = [...chats].sort((a, b) => {
+      if (a.id === b.id) return 0;
+      if (a.id === activeChatId) return -1;
+      if (b.id === activeChatId) return 1;
+      const pin = Number(b.pinned || 0) - Number(a.pinned || 0);
+      return pin || (b.updated_at || 0) - (a.updated_at || 0);
+    });
+    const chatCounts = new Map<string, number>();
+    for (const c of chats) {
+      if (c.project_id) chatCounts.set(c.project_id, (chatCounts.get(c.project_id) || 0) + 1);
+    }
+    const chatCmds: Cmd[] = orderedChats.map((c) => {
+      const project = c.project_id ? projects.find((p) => p.id === c.project_id) : null;
+      const bits: string[] = [];
+      if (project) bits.push(project.name);
+      if (c.workspace === 'agent') bits.push(t('advance.agent'));
+      if (!bits.length) bits.push(t('advance.chat'));
+      if (c.id === activeChatId) bits.push(t('palette.current'));
+      return {
+        id: 'chat-' + c.id,
+        group: 'chats' as const,
+        label: c.title || t('app.newChat'),
+        icon: 'chat' as const,
+        hint: bits.join(' · '),
+        // setActiveChat already lands in the chat's own workspace (Agent or
+        // Chat); navigating to 'chat' here used to pull Agent sessions out of
+        // their desk.
+        run: () => useData.getState().setActiveChat(c.id)
+      };
+    });
+    const orderedProjects = [...projects].sort((a, b) => {
+      if (a.id === b.id) return 0;
+      if (a.id === activeProjectId) return -1;
+      if (b.id === activeProjectId) return 1;
+      return 0;
+    });
+    const projCmds: Cmd[] = orderedProjects.map((p) => {
+      const count = chatCounts.get(p.id) || 0;
+      return {
+        id: 'proj-' + p.id,
+        group: 'projects' as const,
+        label: p.name,
+        icon: 'folder' as const,
+        hint: p.id === activeProjectId
+          ? t('palette.current')
+          : count === 1
+            ? t('palette.chatCountOne').replace('{n}', '1')
+            : count ? t('palette.chatCount').replace('{n}', String(count)) : '',
+        run: () => { useData.getState().setActiveProject(p.id); navigate('projects'); }
+      };
+    });
     return [...base, ...modelCmds, ...skillCmds, ...pluginEntries, ...chatCmds, ...projCmds];
-  }, [chats, projects, providers, skills, pluginCmds, t, settings.theme, settings.settingsMode, settings.modelCaps, navigate, ui]);
+  }, [chats, projects, providers, skills, pluginCmds, t, settings.theme, settings.settingsMode, settings.modelCaps, navigate, ui, activeChatId, activeProjectId]);
 
   const results = useMemo(() => {
     const query = q.trim();
+    const switching = mode === 'switch';
+    // Ctrl+P is a switcher, not a second command list: only chats and projects
+    // compete, and every one of them is searchable.
+    const pool = switching ? cmds.filter((c) => c.group === 'chats' || c.group === 'projects') : cmds;
     if (!query) {
       // With no query every command scores the same, so a flat cap used to show
       // only the first handful of actions — chats, models, skills and plugin
       // commands were unreachable until you typed something. Show a few per
       // group instead, keeping the curated order.
-      const perGroup = 5;
+      const perGroup = switching ? 8 : 5;
       const seen: Record<string, number> = {};
-      return cmds.filter((c) => {
+      return pool.filter((c) => {
         seen[c.group] = (seen[c.group] || 0) + 1;
         return seen[c.group] <= perGroup;
       });
     }
-    const scored = cmds
+    const scored = pool
       .map((c) => ({ c, s: fuzzyScore(query, c.label + ' ' + (c.hint || '')) }))
       .filter((x) => x.s > 0)
       .sort((a, b) => b.s - a.s);
-    return scored.slice(0, 14).map((x) => x.c);
-  }, [q, cmds]);
+    return scored.slice(0, switching ? 20 : 14).map((x) => x.c);
+  }, [q, cmds, mode]);
 
   // keep selection in bounds as the result list shrinks
   useEffect(() => {
@@ -242,14 +294,36 @@ export function CommandPalette() {
 
   if (!ui.paletteOpen) return null;
 
-  const groups: Array<{ key: CmdGroup; label: string }> = [
-    { key: 'actions', label: t('palette.groupActions') },
-    { key: 'models', label: t('palette.groupModels') },
-    { key: 'skills', label: t('palette.groupSkills') },
-    { key: 'plugins', label: t('palette.groupPlugins') },
-    { key: 'chats', label: t('palette.groupChats') },
-    { key: 'projects', label: t('palette.groupProjects') }
-  ];
+  const groups: Array<{ key: CmdGroup; label: string }> = mode === 'switch'
+    ? [
+        { key: 'chats', label: t('palette.groupChats') },
+        { key: 'projects', label: t('palette.groupProjects') }
+      ]
+    : [
+        { key: 'actions', label: t('palette.groupActions') },
+        { key: 'models', label: t('palette.groupModels') },
+        { key: 'skills', label: t('palette.groupSkills') },
+        { key: 'plugins', label: t('palette.groupPlugins') },
+        { key: 'chats', label: t('palette.groupChats') },
+        { key: 'projects', label: t('palette.groupProjects') }
+      ];
+  const placeholder = mode === 'switch' ? t('palette.switchPlaceholder') : t('palette.placeholder');
+
+  const renderItem = (r: Cmd, i: number) => {
+    const active = i === sel;
+    return (
+      <div
+        key={r.id}
+        className={`palette-item ${active ? 'active' : ''}`}
+        onMouseEnter={() => setSel(i)}
+        onClick={() => { r.run(); ui.setPalette(false); }}
+      >
+        <Icon name={r.icon} size={15} />
+        <span className="plabel">{r.label}</span>
+        {r.hint && <span className="phint">{r.hint}</span>}
+      </div>
+    );
+  };
 
   return (
     <div className="palette-overlay" onClick={() => ui.setPalette(false)}>
@@ -257,7 +331,7 @@ export function CommandPalette() {
         <input
           ref={inputRef}
           value={q}
-          placeholder={t('palette.placeholder')}
+          placeholder={placeholder}
           onChange={(e) => { setQ(e.target.value); setSel(0); }}
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => Math.min(s + 1, results.length - 1)); }
@@ -265,35 +339,28 @@ export function CommandPalette() {
             else if (e.key === 'Enter') { e.preventDefault(); results[sel]?.run(); ui.setPalette(false); }
             else if (e.key === 'Escape') ui.setPalette(false);
           }}
-          aria-label={t('palette.placeholder')}
+          aria-label={placeholder}
         />
         <div className="palette-list" ref={listRef}>
-          {results.length === 0 && <div className="palette-empty">{t('palette.noResults')}</div>}
-          {groups.map((g) => {
-            const items = results.map((r) => ({ r })).filter((x) => x.r.group === g.key);
-            if (!items.length) return null;
-            return (
-              <div key={g.key}>
-                <div className="palette-group">{g.label}</div>
-                {items.map(({ r }) => {
-                  const i = results.findIndex((x) => x.id === r.id);
-                  const active = i === sel;
-                  return (
-                    <div
-                      key={r.id}
-                      className={`palette-item ${active ? 'active' : ''}`}
-                      onMouseEnter={() => setSel(i)}
-                      onClick={() => { r.run(); ui.setPalette(false); }}
-                    >
-                      <Icon name={r.icon} size={15} />
-                      <span className="plabel">{r.label}</span>
-                      {r.hint && <span className="phint">{r.hint}</span>}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+          {results.length === 0 && (
+            <div className="palette-empty">{mode === 'switch' ? t('palette.noSwitchResults') : t('palette.noResults')}</div>
+          )}
+          {mode === 'switch' && q.trim()
+            // While searching, show the true score order. Grouped rendering
+            // used to paint a chat above a more relevant project because the
+            // group order was fixed, so Enter could select a row that was not
+            // visually first.
+            ? results.map((r, i) => renderItem(r, i))
+            : groups.map((g) => {
+                const items = results.filter((r) => r.group === g.key);
+                if (!items.length) return null;
+                return (
+                  <div key={g.key}>
+                    <div className="palette-group">{g.label}</div>
+                    {items.map((r) => renderItem(r, results.findIndex((x) => x.id === r.id)))}
+                  </div>
+                );
+              })}
         </div>
       </div>
     </div>

@@ -17,7 +17,9 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const electronExe = require('electron');
 const PROJ = path.resolve(import.meta.dirname, '..');
-const OUT = path.join(PROJ, 'docs', 'review');
+const OUT = process.env.OPENPLOT_SHOTS
+  ? path.resolve(process.env.OPENPLOT_SHOTS)
+  : path.join(PROJ, 'docs', 'review');
 
 let failures = 0;
 const check = (name, cond, detail = '') => {
@@ -269,7 +271,19 @@ const PROBE = `(() => {
     await cdp.evalJS("window.useSettings.getState().set('defaultModel','mock-visual')");
     const proj = await cdp.evalJS(`(async()=>{return (await window.inkwell.dbCall('createProject',{name:'Harbor Lights',description:'A fog-laden port city mystery',context:'Set in 1930s Mahakam; gas lamps, river barges, quiet corruption.',format:'novel',rating:'teen'})).data;})()`);
     await cdp.evalJS(`(async()=>{await window.inkwell.dbCall('createStory',{projectId:'${proj.id}',kind:'character',title:'Sari Winata',content:'Harbor customs officer. Keeps a ledger of every lie she hears.',tags:['lead']});return 1;})()`);
-    await cdp.evalJS(`(async()=>{await window.inkwell.dbCall('createChapter',{projectId:'${proj.id}',title:'Chapter 1 — Low Tide',content:'The letter arrived on a Tuesday, folded inside a shipping manifest.',status:'draft'});return 1;})()`);
+    // Build multi-paragraph prose in Node and JSON-encode it: embedding real
+    // newlines or escaped quotes in the evaluated expression is how this seed
+    // used to die with a SyntaxError before any screenshot was taken.
+    const chapterProse = [
+      'The letter arrived on a Tuesday, folded inside a shipping manifest.',
+      'Sari read it twice. The harbor outside her window was still asleep under a quilt of fog, and the cranes along Pier 7 stood like gallows in the grey light.',
+      '“They found another one,” the note said. No signature. No date.'
+    ].join('\n\n');
+    const firstChapter = await cdp.evalJS(`(async()=>{return (await window.inkwell.dbCall('createChapter',{projectId:'${proj.id}',title:'Chapter 1 — Low Tide',content:${JSON.stringify(chapterProse)},status:'draft'})).data;})()`);
+    const dumpA = 'The harbor was quiet and foggy. Sari looked at the letter and felt afraid.';
+    const dumpB = 'A paragraph the agent cut: the customs house smelled of wet rope and old tobacco, and nobody there remembered the last honest manifest.';
+    await cdp.evalJS(`(async()=>{await window.inkwell.dbCall('addTextDump',{projectId:'${proj.id}',chapterId:'${firstChapter.id}',chapterTitle:'Chapter 1 — Low Tide',source:'writing',action:'rephrase',scope:'passage',original:${JSON.stringify(dumpA)},replacement:'The harbor slept under a quilt of fog. Sari read the letter twice.',startOffset:0,endOffset:80});return 1;})()`);
+    await cdp.evalJS(`(async()=>{await window.inkwell.dbCall('addTextDump',{projectId:'${proj.id}',chapterId:'${firstChapter.id}',chapterTitle:'Chapter 1 — Low Tide',source:'agent',action:'delete',scope:'chapter',original:${JSON.stringify(dumpB)},replacement:''});return 1;})()`);
     for (const [act, title, summary] of [[1,'The Body at Pier 7','A customs officer finds a ledger with impossible numbers.'],[2,'River Bargains','Sari trades silence for access; the city watches.'],[3,'High Water','The flood forces every secret into the open.']]) {
       await cdp.evalJS(`(async()=>{await window.inkwell.dbCall('createFlowBeat',{projectId:'${proj.id}',act:${act},title:${JSON.stringify(title)},summary:${JSON.stringify(summary)}});return 1;})()`);
     }
@@ -325,7 +339,30 @@ const PROBE = `(() => {
     await nav('flow');     await audit('flow', '04-flow.png');
     await nav('projects'); await audit('projects', '05-projects.png');
     await nav('stats');    await audit('stats', '06-stats.png');
+    await nav('write');    await audit('writing', '18-write.png');
+    await nav('dump');     await audit('text dump', '19-dump.png');
     await nav('about');    await audit('about', '07-about.png');
+  });
+
+  await run('writing diff + Text Dump', async () => {
+    await nav('write');
+    await waitUntil(() => cdp.evalJS("!!document.querySelector('.write-text')"), 20000, 'writing board');
+    const before = await cdp.evalJS("window.inkwell.dbCall('countTextDumps').then(r=>r.data)");
+    await cdp.evalJS("(function(){var el=document.querySelector('.write-text');el.focus();el.setSelectionRange(0,90);return 1;})()");
+    await cdp.evalJS("[...document.querySelectorAll('.write-ai-actions button')].find(b=>/rephrase/i.test(b.textContent))?.click()");
+    await waitUntil(() => cdp.evalJS("!!document.querySelector('.write-diff')"), 30000, 'diff preview');
+    const diffParts = await cdp.evalJS("document.querySelectorAll('.write-diff ins, .write-diff del').length");
+    check('writing: AI result renders an inline diff', diffParts > 0, 'parts=' + diffParts);
+    await cdp.shot('20-write-diff.png');
+    await cdp.evalJS("[...document.querySelectorAll('.wr-actions button')].find(b=>/replace/i.test(b.textContent))?.click()");
+    await waitUntil(async () => {
+      const n = await cdp.evalJS("window.inkwell.dbCall('countTextDumps').then(r=>r.data)");
+      return Number(n) === Number(before) + 1;
+    }, 8000, 'text dump row from writing');
+    check('writing: applying a rewrite stores the displaced text', true);
+    await cdp.evalJS(`window.useData.getState().navigate('dump')`);
+    await waitUntil(() => cdp.evalJS("document.querySelectorAll('.dump-row').length >= 3"), 10000, 'dump rows');
+    await cdp.shot('21-dump-after-write.png');
   });
 
   await run('settings sections', async () => {
@@ -419,6 +456,15 @@ const PROBE = `(() => {
     await cdp.evalJS(`window.useSettings.getState().set('theme', 'dark-classic')`);
   });
 
+  await run('light writing + dump', async () => {
+    await cdp.evalJS(`window.useSettings.getState().set('theme', 'light-paper')`);
+    await nav('write');
+    await audit('writing · light-paper', '22-write-light.png');
+    await nav('dump');
+    await audit('text dump · light-paper', '23-dump-light.png');
+    await cdp.evalJS(`window.useSettings.getState().set('theme', 'dark-classic')`);
+  });
+
   // Overlays are audited on their own surface: a menu floating over the chat has
   // its own background, so a chip that passes on the page can fail in the menu.
   await run('overlay contrast', async () => {
@@ -492,7 +538,7 @@ const PROBE = `(() => {
   try { vite.kill(); } catch {}
   try { server.close(); } catch {}
   clearTimeout(watchdog);
-  console.log(failures === 0 ? '\nVISUAL REVIEW CLEAN — screenshots in docs/review/' : '\n' + failures + ' VISUAL ISSUE(S) FOUND');
+  console.log(failures === 0 ? '\nVISUAL REVIEW CLEAN — screenshots in ' + OUT : '\n' + failures + ' VISUAL ISSUE(S) FOUND');
   await sleep(300);
   process.exit(failures === 0 ? 0 : 1);
 })().catch((e) => { console.error('FATAL:', e); process.exit(1); });

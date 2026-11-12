@@ -7,11 +7,13 @@ import { ChatView } from './components/ChatView';
 // chrome so switching views does not jump the layout.
 const StoryBibleView = lazy(() => import('./components/StoryBibleView').then((m) => ({ default: m.StoryBibleView })));
 const StoryAgentView = lazy(() => import('./components/StoryAgentView').then((m) => ({ default: m.StoryAgentView })));
+const WritingView = lazy(() => import('./components/WritingView').then((m) => ({ default: m.WritingView })));
 const ChaptersView = lazy(() => import('./components/ChaptersView').then((m) => ({ default: m.ChaptersView })));
 const FlowView = lazy(() => import('./components/FlowView').then((m) => ({ default: m.FlowView })));
 const SettingsView = lazy(() => import('./components/SettingsView').then((m) => ({ default: m.SettingsView })));
 const ProjectsView = lazy(() => import('./components/ProjectsView').then((m) => ({ default: m.ProjectsView })));
 const StatsView = lazy(() => import('./components/StatsView').then((m) => ({ default: m.StatsView })));
+const TextDumpView = lazy(() => import('./components/TextDumpView').then((m) => ({ default: m.TextDumpView })));
 const AboutView = lazy(() => import('./components/AboutView').then((m) => ({ default: m.AboutView })));
 const GuideView = lazy(() => import('./components/GuideView').then((m) => ({ default: m.GuideView })));
 import { CommandPalette } from './components/CommandPalette';
@@ -19,8 +21,9 @@ import { ShortcutsSheet } from './components/ShortcutsSheet';
 import { WhatsNewModal } from './components/WhatsNewModal';
 import { textPrompt } from './components/TextPrompt';
 import { useUnreadStore } from './unreadStore';
-import { translate } from './i18n';
+import { htmlLang, translate } from './i18n';
 import { SHORTCUTS, matchesCombo } from './lib/shortcuts';
+import { uiFontStack } from './lib/appearance';
 
 /** Open the Prompt Library slash menu on the active chat (no-op elsewhere). */
 export function openPromptLibraryUi(): void {
@@ -66,8 +69,19 @@ export default function App() {
     document.documentElement.style.setProperty('--accent', settings.accent);
     const rgb = hexToRgb(settings.accent);
     document.documentElement.style.setProperty('--accent-soft', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.16)`);
-    document.documentElement.lang = settings.lang;
+    document.documentElement.lang = htmlLang(settings.lang);
   }, [settings.theme, settings.accent, settings.lang]);
+
+  // Custom appearance (v1.3.0): font stack + radius are CSS variables; density
+  // is an attribute; scale is native zoom so px-based controls scale together.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--font', uiFontStack(settings.uiFont, settings.uiFontCustom));
+    root.style.setProperty('--radius', `${settings.uiRadius}px`);
+    root.setAttribute('data-density', settings.uiDensity);
+    // Optional: browser-only dev has no preload bridge.
+    try { window.inkwell?.setZoom?.(settings.uiScale); } catch { /* ignore */ }
+  }, [settings.uiFont, settings.uiFontCustom, settings.uiRadius, settings.uiDensity, settings.uiScale]);
 
   // Motion preference → one attribute the CSS kill switch reads. `system` asks
   // the OS directly, so a reduced-motion desktop user gets calm animations
@@ -92,6 +106,7 @@ export default function App() {
     // Combos are looked up by id so a rebinding only ever happens in the registry.
     const bindings: Array<[string, () => void]> = [
       ['palette', () => useUi.getState().setPalette(true)],
+      ['quick-switch', () => useUi.getState().setPalette(true, 'switch')],
       ['search', () => window.dispatchEvent(new CustomEvent('inkwell:focus-search'))],
       ['guide', () => useData.getState().navigate('guide')],
       ['shortcuts', () => useUi.getState().setShortcuts(!useUi.getState().shortcutsOpen)],
@@ -173,6 +188,7 @@ export default function App() {
       if (action === 'new-chat') newChat();
       else if (action === 'new-project') newProject();
       else if (action === 'focus-search') window.dispatchEvent(new CustomEvent('inkwell:focus-search'));
+      else if (action === 'quick-switch') useUi.getState().setPalette(true, 'switch');
       else if (action === 'open-prompts') openPrompts();
       else if (action === 'guide') useData.getState().navigate('guide');
       else if (action === 'shortcuts') useUi.getState().setShortcuts(true);
@@ -229,11 +245,18 @@ function RouteFallback() {
   let body: React.ReactNode;
   switch (route) {
     case 'story': body = <StoryBibleView />; break;
-    case 'agent': body = <StoryAgentView />; break;
+    // v1.3.0 Advance workspaces: Chat (conversation), Agent (tools) and
+    // Writing (manuscript + AI editor). The story-plan wizard moved to its own
+    // route so the Agent workspace owns `agent`.
+    case 'chat': body = <ChatView key={'chat-' + (activeChatId || 'none')} />; break;
+    case 'agent': body = <ChatView key={'agent-' + (activeChatId || 'none')} workspace="agent" />; break;
+    case 'write': body = <WritingView />; break;
+    case 'story-agent': body = <StoryAgentView />; break;
     case 'chapters': body = <ChaptersView />; break;
     case 'flow': body = <FlowView />; break;
     case 'projects': body = <ProjectsView />; break;
     case 'stats': body = <StatsView />; break;
+    case 'dump': body = <TextDumpView />; break;
     case 'settings': body = <SettingsView initialSection="providers" />; break;
     case 'settings-plugins': body = <SettingsView initialSection="plugins" />; break;
     case 'settings-appearance': body = <SettingsView initialSection="appearance" />; break;

@@ -83,6 +83,8 @@ export const LENGTH_WORDS: Record<string, number> = {
   epic: 150000
 };
 
+import type { Lang } from '../i18n';
+
 export interface StoryBrief {
   idea: string;
   genres: string[];
@@ -107,13 +109,13 @@ export const DEFAULT_BRIEF: StoryBrief = {
   notes: ''
 };
 
-export function optionLabel(list: Choice[], id: string, lang: 'en' | 'id'): string {
+export function optionLabel(list: Choice[], id: string, lang: Lang): string {
   const found = list.find((o) => o.id === id);
   if (!found) return id;
   return lang === 'id' ? found.id_label : found.en;
 }
 
-export function briefSummary(brief: StoryBrief, lang: 'en' | 'id'): string {
+export function briefSummary(brief: StoryBrief, lang: Lang): string {
   const genres = brief.genres.map((g) => optionLabel(GENRES, g, lang)).join(', ') || '—';
   const tone = optionLabel(TONES, brief.tone, lang);
   const pov = optionLabel(POVS, brief.pov, lang);

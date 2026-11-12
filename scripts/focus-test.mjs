@@ -162,6 +162,19 @@ const setReactInput = `(function(el,val){var p=Object.getOwnPropertyDescriptor(w
     }
     check('boot: welcome screen', true);
 
+    // A fresh 1.3.0 profile also opens the "What's new" card. Left open, it is
+    // the first `.ui-modal-card`, so the history-modal assertions would inspect
+    // the wrong dialog and Escape would reveal this one instead of closing.
+    const whatsNew = await cdp.evalJS(`(() => {
+      const b = [...document.querySelectorAll('.ui-modal-card button')]
+        .find((x) => /start writing|mulai menulis/i.test(x.textContent || ''));
+      if (!b) return false;
+      b.click();
+      return true;
+    })()`);
+    if (whatsNew) await waitUntil(async () => !(await cdp.evalJS("!!document.querySelector('.ui-modal-card')")), 5000, 'whats-new closed');
+    check('boot: no first-run modal covers the page', true);
+
     // ---------- Test A1: delete-chat confirm, then typing ----------
     await cdp.click('.sidebar-header button.primary');
     await sleep(1200);

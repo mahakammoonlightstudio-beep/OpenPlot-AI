@@ -1,14 +1,14 @@
 /* ---------- Theme system ---------- */
 :root {
-  --bg: #0b0d12;
-  --bg-panel: #11141c;
-  --bg-panel-2: #171b26;
-  --bg-hover: #1d2230;
-  --bg-active: #242a3b;
-  --border: #262c3d;
-  --text: #e6e9f2;
-  --text-dim: #8a91a8;
-  --text-faint: #5b6178;
+  --bg: #0c0f16;
+  --bg-panel: #131824;
+  --bg-panel-2: #1a2030;
+  --bg-hover: #222a3c;
+  --bg-active: #2a3347;
+  --border: #283146;
+  --text: #e8ecf6;
+  --text-dim: #98a2b8;
+  --text-faint: #6a748c;
   --accent: #7c5cff;
   --accent-soft: rgba(124, 92, 255, 0.16);
   /* Accent used as TEXT (labels, active rows). The fill colour measures ~4.2:1
@@ -16,10 +16,17 @@
      variant. Light themes override this with a darker one. */
   --accent-ink: #a78bfa;
   --danger: #e5484d;
+  --danger-soft: rgba(229, 72, 77, 0.14);
   --ok: #46a758;
+  --ok-soft: rgba(70, 167, 88, 0.14);
   --warn: #f5a623;
+  --warn-soft: rgba(245, 166, 35, 0.14);
+  --info: #6ea8fe;
+  --info-soft: rgba(110, 168, 254, 0.14);
   --radius: 10px;
-  --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.18);
+  --shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.42);
   --font: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
   --mono: 'Cascadia Code', 'JetBrains Mono', Consolas, 'Courier New', monospace;
   /* Motion tokens (v1.2.3 Task 10). Only opacity/transform animate, and the
@@ -32,12 +39,26 @@
 }
 
 [data-theme='dark-classic'] {
-  --bg: #0b0d12; --bg-panel: #11141c; --bg-panel-2: #171b26; --bg-hover: #1d2230; --bg-active: #242a3b;
-  --border: #262c3d; --text: #e6e9f2; --text-dim: #8a91a8; --text-faint: #5b6178;
+  --bg: #0c0f16; --bg-panel: #131824; --bg-panel-2: #1a2030; --bg-hover: #222a3c; --bg-active: #2a3347;
+  --border: #283146; --text: #e8ecf6; --text-dim: #98a2b8; --text-faint: #6a748c;
 }
 [data-theme='midnight-ink'] {
   --bg: #07090f; --bg-panel: #0c0f18; --bg-panel-2: #111522; --bg-hover: #161b2c; --bg-active: #1d2438;
   --border: #1f2536; --text: #dfe4f2; --text-dim: #7e86a0; --text-faint: #525a72;
+}
+[data-theme='sepia'], [data-theme='light-paper'], [data-theme='sandstone'] {
+  color-scheme: light;
+  --shadow-sm: 0 1px 2px rgba(58, 43, 20, 0.07);
+  --shadow: 0 10px 28px rgba(58, 43, 20, 0.1);
+  --shadow-lg: 0 24px 56px rgba(58, 43, 20, 0.14);
+  --danger: #b8323a;
+  --danger-soft: rgba(184, 50, 58, 0.1);
+  --ok: #2f7d46;
+  --ok-soft: rgba(47, 125, 70, 0.11);
+  --warn: #9a6400;
+  --warn-soft: rgba(154, 100, 0, 0.12);
+  --info: #3168c8;
+  --info-soft: rgba(49, 104, 200, 0.1);
 }
 [data-theme='sepia'] {
   --bg: #f4ecd8; --bg-panel: #ede2c8; --bg-panel-2: #e4d6b8; --bg-hover: #dccca9; --bg-active: #d0bd96;
@@ -45,8 +66,8 @@
   --accent-ink: #5b3fd6;
 }
 [data-theme='light-paper'] {
-  --bg: #f7f7f5; --bg-panel: #ffffff; --bg-panel-2: #f1f1ee; --bg-hover: #e8e8e4; --bg-active: #dcdcd6;
-  --border: #dddddd; --text: #1c1c1c; --text-dim: #666666; --text-faint: #999999;
+  --bg: #f6f5f1; --bg-panel: #fffefb; --bg-panel-2: #efede6; --bg-hover: #e7e4db; --bg-active: #dcd7ca;
+  --border: #ddd8cc; --text: #221f1a; --text-dim: #6b655a; --text-faint: #9a9284;
   --accent-ink: #5b3fd6;
 }
 [data-theme='nord'] {

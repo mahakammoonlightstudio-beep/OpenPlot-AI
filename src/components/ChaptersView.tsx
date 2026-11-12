@@ -1,21 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useData, dbCall, useUi, createProjectUi, runAutomations } from '../store';
+import { useData, dbCall, createProjectUi, runAutomations } from '../store';
 import { useWriteStats } from '../writeStats';
 import { Chapter } from '../types';
 import { useT } from '../i18nReact';
 import { Icon } from './Icons';
-import { Modal } from './Ui';
 import { confirmDialog } from './TextPrompt';
 import { ProjectPickerBar } from './ProjectPickerBar';
+import { RevisionTimeline } from './RevisionTimeline';
 
 const wordCount = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0);
-
-interface ChapterVersionRow { id: string; chapter_id: string; title: string; content: string; word_count: number; source: string; created_at: number }
-
-function fmtVersionDate(ts: number): string {
-  const d = new Date(ts);
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-}
 
 interface SceneRow { id: string; chapter_id: string; title: string; summary: string; position: number }
 
@@ -125,7 +118,6 @@ function ChapterProgress({ rows, totalWords }: { rows: Chapter[]; totalWords: nu
 
 export function ChaptersView() {
   const t = useT();
-  const ui = useUi();
   const { chapters, activeProjectId, projects } = useData();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ title: string; content: string; status: Chapter['status'] } | null>(null);
@@ -191,7 +183,7 @@ export function ChaptersView() {
       projectId = p.id;
     }
     const row = await dbCall<Chapter>('createChapter', { projectId, title: 'Chapter ' + (scoped.length + 1), content: '', status: 'draft' });
-    await useData.getState().load();
+    await useData.getState().reloadChapters();
     setSelectedId(row.id);
   }
 
@@ -205,6 +197,22 @@ export function ChaptersView() {
       try {
         await dbCall('createChapterVersion', { chapterId: selected.id, title: selected.title, content: selected.content, source: 'manual' });
       } catch { /* versioning is best-effort — never block a save */ }
+      // Text Dump keeps the displaced prose readable on its own, even after
+      // the chapter history cap rolls past this save.
+      if (draft.content !== selected.content) {
+        try {
+          await dbCall('addTextDump', {
+            projectId: selected.project_id,
+            chapterId: selected.id,
+            chapterTitle: selected.title,
+            source: 'manual',
+            action: 'edit',
+            scope: 'chapter',
+            original: selected.content,
+            replacement: draft.content
+          });
+        } catch { /* recovery is a safety net, not a blocker */ }
+      }
     }
     await dbCall('updateChapter', { id: selected.id, title: draft.title, content: draft.content, status: draft.status });
     // `chapter:saved` fires after the row is written, with the real word count.
@@ -212,7 +220,7 @@ export function ChaptersView() {
     // Record writing stats delta for this project (local, no AI involved).
     // Reload FIRST so the total reflects the row just saved (the stale
     // snapshot used to under/overwrite the stored project total).
-    await useData.getState().load();
+    await useData.getState().reloadChapters();
     if (selected.project_id) {
       const project = useData.getState().projects.find((p) => p.id === selected.project_id);
       const total = useData
@@ -229,7 +237,7 @@ export function ChaptersView() {
     if (!(await confirmDialog({ title: t('confirm.deleteChapter'), danger: true, confirmLabel: t('confirm.delete'), cancelLabel: t('confirm.cancel') }))) return;
     await dbCall('deleteChapter', { id: selected.id });
     setSelectedId(null);
-    await useData.getState().load();
+    await useData.getState().reloadChapters();
   }
 
   // Move a chapter up/down in reading order and persist the new positions.
@@ -241,7 +249,7 @@ export function ChaptersView() {
     if (i < 0 || j < 0 || j >= order.length) return;
     [order[i], order[j]] = [order[j], order[i]];
     await dbCall('reorderChapters', { order });
-    await useData.getState().load();
+    await useData.getState().reloadChapters();
   }
 
   function toggleFocus() {
@@ -250,49 +258,35 @@ export function ChaptersView() {
   }
   const [lastFocusWords, setLastFocusWords] = useState(0);
 
-  // ---- version history ----
-  const [histOpen, setHistOpen] = useState(false);
-  const [versions, setVersions] = useState<ChapterVersionRow[]>([]);
-  const [busyVersion, setBusyVersion] = useState<string | null>(null);  async function openHistory() {
+  // ---- revision timeline ----
+  // Two scopes: the chapter's own history (editor button) and the manuscript's
+  // whole revision line (page header). Both use the same modal.
+  const [timelineChapterId, setTimelineChapterId] = useState<string | null>(null);
+  const [projectTimeline, setProjectTimeline] = useState(false);
+
+  async function openChapterTimeline() {
     if (!selected) return;
     // Unsaved edits first — so what's in the editor is what history restores
     // past, and the snapshot it creates is the current state.
     if (dirty) await save();
-    setVersions(await dbCall<ChapterVersionRow[]>('listChapterVersions', { chapterId: selected.id }));
-    setHistOpen(true);
+    setTimelineChapterId(selected.id);
   }
 
-  async function restoreVersion(v: ChapterVersionRow) {
-    if (!selected || busyVersion) return;
-    setBusyVersion(v.id);
-    try {
-      // Safety net: the CURRENT text is snapshotted first, so a restore can
-      // always be undone by restoring the snapshot it just created.
-      await dbCall('createChapterVersion', { chapterId: selected.id, title: selected.title, content: selected.content, source: 'restore' });
-      await dbCall('updateChapter', { id: selected.id, content: v.content, title: selected.title, status: selected.status });
-      await useData.getState().load();
-      // Sync the editor draft directly — setSelectedId(selected.id) would be a
-      // no-op (same value → effect never re-runs → stale draft).
-      const fresh = useData.getState().chapters.find((c) => c.id === selected.id);
-      setDraft({ title: fresh?.title || selected.title, content: fresh?.content || v.content, status: (fresh?.status || selected.status) as Chapter['status'] });
-      setBaselineWords(wordCount(fresh?.content || v.content));
-      setDirty(false);
-      setHistOpen(false);
-      ui.toast(t('chapters.restored'), 'ok');
-    } finally {
-      setBusyVersion(null);
-    }
+  async function openProjectTimeline() {
+    if (dirty) await save();
+    setProjectTimeline(true);
   }
 
-  async function deleteVersion(v: ChapterVersionRow) {
-    if (busyVersion) return;
-    setBusyVersion(v.id);
-    try {
-      await dbCall('deleteChapterVersion', { id: v.id });
-      setVersions((vs) => vs.filter((x) => x.id !== v.id));
-    } finally {
-      setBusyVersion(null);
-    }
+  // A restore writes the chapter row behind the editor's back; sync the draft
+  // directly since setSelectedId(same id) would not re-run its effect.
+  async function handleTimelineRestored(chapterId: string) {
+    await useData.getState().reloadChapters();
+    if (!selectedId || selectedId !== chapterId) return;
+    const fresh = useData.getState().chapters.find((c) => c.id === chapterId);
+    if (!fresh) return;
+    setDraft({ title: fresh.title, content: fresh.content, status: fresh.status as Chapter['status'] });
+    setBaselineWords(wordCount(fresh.content));
+    setDirty(false);
   }
 
   async function aiAction(mode: 'continue' | 'critique' | 'beat') {
@@ -342,7 +336,17 @@ export function ChaptersView() {
 
   return (
     <div className="page">
-      <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="book" size={18} /> {t('chapters.title')}</h1>
+      <div className="chapters-page-head">
+        <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="book" size={18} /> {t('chapters.title')}</h1>
+        <button
+          className="small ghost"
+          onClick={() => { void openProjectTimeline(); }}
+          disabled={!scoped.length}
+          title={t('revision.openHint')}
+        >
+          <Icon name="clock" size={13} /> {t('revision.open')}
+        </button>
+      </div>
       <div className="subtitle">
         {t('chapters.sub')}
         {project ? <> — <b>{project.name}</b></> : <> — <i>no project selected</i></>}
@@ -409,7 +413,7 @@ export function ChaptersView() {
                   <option value="done">{t('chapters.done')}</option>
                 </select>
                 <button className="primary" onClick={save} disabled={!dirty}><Icon name="check" size={14} /> {t('chapters.save')}</button>
-                <button className="ghost" onClick={openHistory} title={t('chapters.historyHint')}><Icon name="clock" size={14} /> {t('chapters.history')}</button>
+                <button className="ghost" onClick={() => { void openChapterTimeline(); }} title={t('chapters.historyHint')}><Icon name="clock" size={14} /> {t('chapters.history')}</button>
                 <button className="ghost" onClick={toggleFocus} title={t('chapters.focusHint')}><Icon name="file" size={14} /> {t('chapters.focus')}</button>
                 <button className="danger" onClick={remove} aria-label={t('chapters.delete')}><Icon name="trash" size={14} /></button>
               </div>
@@ -434,28 +438,20 @@ export function ChaptersView() {
           )}
         </div>
       </div>
-      {histOpen && (
-        <Modal title={`${t('chapters.history')}: ${selected?.title || ''}`} onClose={() => setHistOpen(false)} width={640}>
-          <div className="hint" style={{ marginBottom: 10 }}>{t('chapters.historyHint')}</div>
-          {versions.length === 0 && <div className="hint">{t('chapters.versionsEmpty')}</div>}
-          <div className="version-list">
-            {versions.map((v) => (
-              <div key={v.id} className="version-row">
-                <span className="v-date">{fmtVersionDate(v.created_at)}</span>
-                <span className={`v-src ${v.source}`}>{t('chapters.src.' + v.source)}</span>
-                <span className="v-wc">{v.word_count.toLocaleString()}w</span>
-                <span className="v-actions">
-                  <button className="small" disabled={busyVersion !== null} onClick={() => restoreVersion(v)}>
-                    <Icon name="refresh" size={12} /> {t('chapters.restore')}
-                  </button>
-                  <button className="small ghost" title={t('story.delete')} disabled={busyVersion !== null} onClick={() => deleteVersion(v)}>
-                    <Icon name="trash" size={12} />
-                  </button>
-                </span>
-              </div>
-            ))}
-          </div>
-        </Modal>
+      {timelineChapterId && (
+        <RevisionTimeline
+          projectId={activeProjectId}
+          chapterId={timelineChapterId}
+          onClose={() => setTimelineChapterId(null)}
+          onRestored={handleTimelineRestored}
+        />
+      )}
+      {projectTimeline && (
+        <RevisionTimeline
+          projectId={activeProjectId}
+          onClose={() => setProjectTimeline(false)}
+          onRestored={handleTimelineRestored}
+        />
       )}
     </div>
   );

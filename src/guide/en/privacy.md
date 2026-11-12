@@ -17,7 +17,9 @@ Only the request you send: the system prompt (which may include agent.md, projec
 Images and files are sent as text. Binary files are rejected rather than uploaded.
 
 ## API keys
-Keys are stored encrypted when the OS credential vault is available; otherwise the app says so in [[settings:data]]. They never appear in exports, logs or error messages.
+Provider keys and the web-search key are stored encrypted when the OS credential vault is available; otherwise the app says so in [[settings:data]]. The web-search key never reaches the interface — it only shows whether one is stored. Keys never appear in exports, logs or error messages.
+
+MCP environment variables are different: the MCP editor needs to show and edit them, so they live in the local database rather than the OS vault. Portable copies empty them, but for long-lived production secrets prefer an OS-encrypted disk.
 
 ## Deleting
 *Reset all data* deletes every row and the file contents. Backups written during a schema migration (`.bak`) stay next to the database — remove them manually for a clean slate.

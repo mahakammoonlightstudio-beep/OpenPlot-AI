@@ -6,7 +6,7 @@
  * tool name + its result string into one readable step the UI can list live:
  * what it created, and whether it worked.
  */
-export type ToolStepKind = 'project' | 'entry' | 'chapter' | 'read' | 'search' | 'memory' | 'web' | 'other';
+export type ToolStepKind = 'project' | 'entry' | 'chapter' | 'read' | 'search' | 'memory' | 'skill' | 'web' | 'mode' | 'other';
 
 export interface ToolStep {
   name: string;
@@ -32,8 +32,15 @@ const KIND: Record<string, ToolStepKind> = {
   list_memories: 'memory',
   save_memory: 'memory',
   search_story: 'search',
+  search_text_dump: 'search',
+  restore_text_dump: 'chapter',
   web_search: 'web',
-  web_fetch: 'web'
+  web_fetch: 'web',
+  list_skills: 'skill',
+  use_skill: 'skill',
+  drop_skill: 'skill',
+  // The agent switching its own working mode (v1.3.0).
+  set_mode: 'mode'
 };
 
 function parse(result: string): any {
@@ -50,6 +57,7 @@ export function describeToolStep(name: string, result: string): ToolStep {
     if (!detail && Array.isArray(json)) detail = String(json.length);
     if (!detail && Array.isArray(json.entries)) detail = String(json.entries.length);
     if (!detail && json.project?.name) detail = String(json.project.name);
+    if (kind === 'mode' && json.mode) detail = String(json.mode);
     if (kind === 'web') {
       // A search step is best described by what it looked for, a fetch by
       // the page it read.

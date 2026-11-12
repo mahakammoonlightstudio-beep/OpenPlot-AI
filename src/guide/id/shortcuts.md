@@ -10,6 +10,7 @@ order: 19
 | Tombol | Aksi |
 | --- | --- |
 | `Ctrl+K` | Command palette |
+| `Ctrl+P` | Pindah cepat (chat dan proyek) |
 | `Ctrl+N` | Chat baru |
 | `Ctrl+Shift+N` | Proyek baru |
 | `Ctrl+F` | Fokus pencarian chat |

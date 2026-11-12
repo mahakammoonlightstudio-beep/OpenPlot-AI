@@ -1,67 +1,64 @@
-# OpenPlot AI — Extreme Stress Test
+# Engine stress test
 
-Hasil pengujian ketahanan engine AI (`electron/ai.ts`) terhadap kondisi hostil yang bisa
-dihasilkan relay/provider nyata: balasan rusak, koneksi mati mendadak, payload raksasa,
-dan beban tinggi.
-
-Jalankan dengan:
+How the AI engine (`electron/ai.ts`) behaves when a real provider or relay
+misbehaves: broken SSE, sockets cut mid-reply, stalls, HTML landing pages,
+oversized payloads and concurrent load.
 
 ```bash
 node scripts/stress-test.mjs
 ```
 
-Target suite: **14 check, semua PASS** (per 2026-09-24).
+The suite runs against local mock servers; no API key or network access is
+needed. It currently performs **12 assertions**, all passing on 2026-11-12.
 
-## Skenario
+## Scenarios
 
-| # | Skenario | Mock | Yang diuji |
-|---|----------|------|------------|
-| S1 | Malformed SSE | `malformed` — baris sampah, JSON pecah, tanpa urutan wajar | Parser tidak crash; delta valid tetap diselamatkan (`survivor`) |
-| S2 | Socket dipotong di tengah reply | `midcut` — `res.destroy()` setelah 1 delta | Promise settle (error ATAU teks parsial), tidak pernah nyangkut |
-| S3 | Stall lalu mati | `stall` — SSE terbuka, hanya comment ping, lalu destroy | Resolve sebagai error jauh di bawah timeout 30s |
-| S4 | Halaman HTML di endpoint chat | `html` — semua path menyajikan landing page | HTTP 200 berupa HTML ditolak dengan pesan yang bisa dibaca manusia |
-| S5 | 20 generasi konkuren | `good` | Semua hasil utuh & identik, tidak ada state bleed antar call |
-| S6 | Abort storm (10 sekaligus) | `good` | Semua promise settle, tanpa deadlock |
-| S7 | Payload ~400KB | `slow_big` — 12000 token, burst tiap 8ms | Reply sampai utuh ke ujung; chunk streaming terhitung |
-| S8 | Rapid-fire 30x sekuensial | `good` | 30/30 hasil konsisten; tidak ada kebocoran keep-alive/socket |
-| S9 | verifyModel/validateKey vs mode hostil | `html` → `good` | HTML dilaporkan anggun; pemulihan normal di endpoint sehat |
+| # | Scenario | Mock | What is checked |
+|---|---|---|---|
+| S1 | Malformed SSE | `malformed` — garbage lines, broken JSON, no sensible ordering | The parser does not crash; valid deltas before the damage are still delivered (`survivor`) |
+| S2 | Socket cut mid-reply | `midcut` — `res.destroy()` after one delta | The promise settles with an error or the partial text; it never hangs |
+| S3 | Stall, then die | `stall` — open SSE, comment pings only, then destroy | Settles as an error well under the 30 s timeout |
+| S4 | HTML page on a chat endpoint | `html` — every path serves a landing page | HTTP 200 HTML is rejected with a readable error |
+| S5 | 20 concurrent generations | `good` | All 20 results arrive intact and identical; no state bleed |
+| S6 | Abort storm | `good` — ten started, all aborted after 60 ms | Every promise settles; no deadlock |
+| S7 | ~400 KB reply | `slow_big` — 12,000 tokens in bursts | The full reply arrives; streaming chunks are counted |
+| S8 | 30 rapid sequential runs | `good` | 30/30 consistent results, no leaked keep-alive or socket |
+| S9 | `verifyModel` / `validateKey` against hostile modes | `html` → `good` | HTML is reported gracefully; the healthy endpoint recovers |
 
-## Bug yang ditemukan & diperbaiki selama stress test
+## Bugs found and fixed by this harness
 
-1. **Streaming nyangkut (hang) — bug paling kritis.** Saat stream gagal di tengah jalan
-   (S2/S3), UI tidak pernah kembali bisa dipakai. Fix: `try/finally` di `ChatView.send()`
-   + `abort()` melepas UI segera.
-2. **Keep-alive poisoning.** Socket dari respons hostil "menulari" koneksi reuse ke
-   request berikutnya. Fix: `tryHttpRequest()` pakai `agent: false`-style clean socket per
-   kandidat base URL, dan mock test memaksa `Connection: close`.
-3. **HTML berstatus 200 dianggap sukses.** Relay yang menyajikan landing page dengan kode
-   200 dulu dianggap balasan valid. Fix: `isHtmlBody()` dijalankan pada body apa pun
-   berstatus sukses sebelum di-parse.
-4. **`verifyModel` hanya mengenali satu shape balasan.** Relay non-standar
-   (`{content:[...]}`, `{response}`, `{output_text}`) dilaporkan gagal padahal model
-   sehat. Fix: ekstraksi multi-shape.
-5. **`providers.kind` hilang saat restart.** Kolom tidak ikut disimpan oleh
-   `updateProvider`, sehingga deteksi gaya Anthropic/OpenAI kacau setelah reboot. Fix:
-   migrasi kolom + simpan di create/update (dibuktikan oleh S9 yang mengandalkan `kind`).
-6. **Kandidat Base URL kaku.** Salah satu format umum (endpoint penuh, tanpa `/v1`,
-   dengan `/v1/extra`) bikin request 404. Fix: `baseUrlCandidates()` mencoba beberapa
-   varian secara berurutan.
+1. **Streaming could hang the UI.** A mid-stream failure left the composer
+   waiting forever. `ChatView.send()` now uses `try/finally` and `abort()`
+   releases the UI immediately.
+2. **Keep-alive poisoning.** A hostile response could poison a reused socket.
+   Each request uses a clean socket (`agent: false`-style), and the mock forces
+   `Connection: close`.
+3. **HTTP 200 HTML looked like a reply.** `isHtmlBody()` now runs on any
+   successful body before parsing.
+4. **`verifyModel` knew one response shape.** Non-standard relays
+   (`{content:[…]}`, `{response}`, `{output_text}`) now parse correctly.
+5. **`providers.kind` was lost on restart.** A migration and the update path
+   persist the column, so Anthropic/OpenAI detection survives a reboot.
+6. **Rigid base-URL candidates.** `baseUrlCandidates()` tries the common
+   variants (full endpoint, no `/v1`, `/v1/extra`) instead of failing on 404.
 
-## Batasan yang diketahui (by design)
+## Known limits
 
-- **Timeout 30s hard** per request HTTP (`tryHttpRequest`). Model reasoning yang lambat
-  bisa kena; saat ini tidak dikonfigurasi per-provider.
-- **Health status bar bersifat lokal.** Data di `openplot.modelHealth.v1` (maks 40 event
-  per model, ambang degraded 6 detik) adalah pengamatan klien, bukan uptime resmi
-  provider.
-- **Render window 60 pesan.** Chat sangat panjang merender bertahap (skeleton +
-  tombol "Load N earlier"); memory hemat, tapi scroll ke pesan tertua butuh beberapa klik.
-- **Abort path engine diuji terpisah** di `scripts/engine-test.mjs` (penghentian
-  mid-stream); S6 hanya memastikan storm abort tidak deadlock.
-- **Mock memakai protokol OpenAI penuh**; variasi kuasi-OpenAI nyata (mis. SSE dengan
-  `usage` aneh, SSE kosong tanpa `[DONE]` di akhir) tercakup sebagian oleh S1.
+- **30 s hard request timeout.** Slow reasoning models can hit it; it is not
+  configurable per provider.
+- **Health status is local.** `openplot.modelHealth.v1` (max 40 events per model,
+  degraded threshold 6 s) is a client observation, not provider uptime.
+- **The transcript renders 60 messages at a time.** Long chats page backward
+  with a skeleton and a "Load N earlier" button.
+- **Abort mid-stream is covered separately** by `scripts/engine-test.mjs`; S6
+  only proves the abort storm settles.
+- **Mocks speak the OpenAI wire format.** Quasi-OpenAI variants (odd `usage`,
+  empty SSE without `[DONE]`) are only partly covered by S1.
 
-## Cakupan test lain
+## Related checks
 
-- `node scripts/engine-test.mjs` — streaming inkremental, tool-call, abort mid-stream.
-- `node scripts/url-fix-test.mjs` — matriks kandidat Base URL & ekstraksi error.
+- `node scripts/engine-test.mjs` — incremental streaming, tool calls, abort.
+- `node scripts/url-fix-test.mjs` — base-URL candidates and error extraction.
+- `node scripts/security-test.mjs` — SSRF/DNS, secrets, files, plugins/MCP,
+  images and database hostile input.
+- `npm test` — the whole headless group.

@@ -4,7 +4,7 @@ import { ModelBadge } from './MessageBubble';
 import { ModelStatusBar } from '../ModelStatusBar';
 import { useT } from '../../i18nReact';
 import { relativeTime } from '../../lib/chatContext';
-import { useSettings, DONATE_URL, SAWERIA_URL } from '../../store';
+import { useSettings, DONATE_URL, SAWERIA_URL, PAYPAL_URL } from '../../store';
 import { greetingFor, openingFor } from '../../lib/greetings';
 
 /**
@@ -131,6 +131,8 @@ export function WelcomeScreen({
         <button className="link" onClick={() => window.inkwell.openExternal(DONATE_URL)}>{t('chat.welcomeDonate')}</button>
         <span>·</span>
         <button className="link" onClick={() => window.inkwell.openExternal(SAWERIA_URL)}>{t('chat.welcomeDonate2')}</button>
+        <span>·</span>
+        <button className="link" onClick={() => window.inkwell.openExternal(PAYPAL_URL)}>{t('chat.welcomeDonatePaypal')}</button>
       </div>
     </div>
   );

@@ -31,7 +31,7 @@ export function smoke(): Record<string, string> {
     }
   };
   render('app', <App />);
-  render('agent', <StoryAgentView />);
+  render('story-agent', <StoryAgentView />);
   render('story', <StoryBibleView />);
   render('settings', <SettingsView initialSection="data" />);
   // Every Settings section renders on its own: the shell (nav, search, reset)

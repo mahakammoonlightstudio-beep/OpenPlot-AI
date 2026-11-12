@@ -1,6 +1,7 @@
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import { writeSnapshotFile } from './snapshots';
 
 let db: Database | null = null;
 let sqlStatic: SqlJsStatic | null = null;
@@ -33,6 +34,15 @@ const ENC_PREFIX = 'enc:v1:';
 
 // Per-chapter snapshot cap — oldest rows are pruned on every insert.
 const CHAPTER_VERSIONS_MAX = 30;
+/** Text Dump retention: newest rows win, so the trash cannot grow forever. */
+const TEXT_DUMP_MAX = 500;
+/**
+ * A row cap alone is not a memory bound: 500 whole-chapter snapshots at the
+ * 500k-character field cap would be hundreds of megabytes, and sql.js keeps
+ * the entire database in RAM. Oldest recovery rows are evicted once the dump
+ * exceeds this character budget (roughly 24 MB of JS text).
+ */
+const TEXT_DUMP_CHARS_MAX = 12_000_000;
 // Story-bible attachments are stored as text inside the DB; keep a sane cap so
 // a stray binary or a 40 MB ebook can never bloat the local database.
 const STORY_FILE_MAX_BYTES = 2_000_000;
@@ -118,6 +128,28 @@ function unprotectKey(stored: string): string {
   }
 }
 
+/**
+ * Read a secret stored in the settings table for main-process use only.
+ * The value is JSON-encoded like every other setting, so decrypt first and
+ * parse second. Legacy plaintext rows still work and are re-sealed on boot.
+ */
+export function settingSecret(key: string): string {
+  let raw = '';
+  try {
+    const row = get('SELECT value FROM settings WHERE key=?', [String(key)]);
+    raw = row?.value == null ? '' : String(row.value);
+  } catch {
+    return '';
+  }
+  raw = unprotectKey(raw);
+  try {
+    const parsed = JSON.parse(raw);
+    return typeof parsed === 'string' ? parsed : '';
+  } catch {
+    return raw;
+  }
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS projects (
@@ -127,14 +159,15 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 CREATE TABLE IF NOT EXISTS folders (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, project_id TEXT DEFAULT NULL,
-  expanded INTEGER DEFAULT 1, position INTEGER DEFAULT 0, created_at INTEGER
+  expanded INTEGER DEFAULT 1, position INTEGER DEFAULT 0, created_at INTEGER,
+  workspace TEXT DEFAULT 'chat'
 );
 CREATE TABLE IF NOT EXISTS chats (
   id TEXT PRIMARY KEY, title TEXT DEFAULT 'New chat', folder_id TEXT DEFAULT NULL,
   project_id TEXT DEFAULT NULL, model TEXT DEFAULT NULL,
   system_prompt TEXT DEFAULT NULL, pinned INTEGER DEFAULT 0,
   skills_off TEXT DEFAULT '[]', skills_on TEXT DEFAULT '[]',
-  agent_mode INTEGER DEFAULT 0, chat_mode TEXT DEFAULT 'write',
+  agent_mode INTEGER DEFAULT 0, chat_mode TEXT DEFAULT 'write', workspace TEXT DEFAULT 'chat',
   think_level TEXT DEFAULT 'auto',
   created_at INTEGER, updated_at INTEGER
 );
@@ -168,7 +201,8 @@ CREATE TABLE IF NOT EXISTS plugins (id TEXT PRIMARY KEY, name TEXT, code TEXT, e
 CREATE TABLE IF NOT EXISTS skills (
   id TEXT PRIMARY KEY, name TEXT, content TEXT, enabled INTEGER DEFAULT 1,
   description TEXT DEFAULT '', builtin INTEGER DEFAULT 0,
-  source TEXT DEFAULT 'user', updated_at INTEGER
+  source TEXT DEFAULT 'user', updated_at INTEGER,
+  category TEXT DEFAULT 'writing'
 );
 CREATE TABLE IF NOT EXISTS automations (id TEXT PRIMARY KEY, name TEXT, trigger TEXT, action TEXT, param TEXT DEFAULT '', enabled INTEGER DEFAULT 1);
 CREATE TABLE IF NOT EXISTS mcp_servers (id TEXT PRIMARY KEY, name TEXT, command TEXT, args TEXT, env TEXT DEFAULT '{}', enabled INTEGER DEFAULT 1);
@@ -190,6 +224,14 @@ CREATE TABLE IF NOT EXISTS chapter_versions (
   content TEXT DEFAULT '', word_count INTEGER DEFAULT 0,
   source TEXT DEFAULT 'manual', created_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS text_dump (
+  id TEXT PRIMARY KEY, project_id TEXT, chapter_id TEXT,
+  chapter_title TEXT DEFAULT '', source TEXT DEFAULT 'writing',
+  action TEXT DEFAULT 'edit', scope TEXT DEFAULT 'passage',
+  original TEXT NOT NULL, replacement TEXT DEFAULT '',
+  start_offset INTEGER, end_offset INTEGER,
+  restored_at INTEGER, created_at INTEGER
+);
 CREATE TABLE IF NOT EXISTS prompt_styles (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, content TEXT NOT NULL,
   builtin INTEGER DEFAULT 0, created_at INTEGER, updated_at INTEGER
@@ -210,10 +252,13 @@ CREATE TABLE IF NOT EXISTS story_plans (
   created_at INTEGER, updated_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id);
+CREATE INDEX IF NOT EXISTS idx_messages_chat_created ON messages(chat_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_story_project ON story(project_id);
 CREATE INDEX IF NOT EXISTS idx_chapters_project ON chapters(project_id);
 CREATE INDEX IF NOT EXISTS idx_flow_project ON flow_beats(project_id);
 CREATE INDEX IF NOT EXISTS idx_versions_chapter ON chapter_versions(chapter_id);
+CREATE INDEX IF NOT EXISTS idx_text_dump_created ON text_dump(created_at);
+CREATE INDEX IF NOT EXISTS idx_text_dump_project ON text_dump(project_id);
 CREATE INDEX IF NOT EXISTS idx_story_files_project ON story_files(project_id);
 CREATE INDEX IF NOT EXISTS idx_story_files_entry ON story_files(story_id);
 CREATE INDEX IF NOT EXISTS idx_message_files_message ON message_files(message_id);
@@ -236,7 +281,7 @@ CREATE INDEX IF NOT EXISTS idx_message_files_chat ON message_files(chat_id);
  * A column/table that already exists is skipped, so partially-migrated and
  * pre-1.2 databases (user_version = 0 with a modern shape) both upgrade safely.
  */
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 14;
 
 function readUserVersion(): number {
   try {
@@ -249,6 +294,34 @@ function readUserVersion(): number {
 
 export function getSchemaVersion(): number {
   return readUserVersion();
+}
+
+/** The file this process actually has open (not just what library.json says). */
+export function getDbFilePath(): string {
+  return dbFile;
+}
+
+/**
+ * Read `PRAGMA user_version` from a database file without opening sql.js.
+ * SQLite stores it as a big-endian uint32 at byte 60 of the 100-byte header,
+ * so listing libraries stays cheap even when there are many large files.
+ * Returns null for a missing/empty/unreadable file; 0 is a valid legacy DB.
+ */
+export function readSchemaVersionFile(file: string): number | null {
+  let fd: number | null = null;
+  try {
+    const stat = fs.statSync(file);
+    if (!stat.isFile() || stat.size < 100) return null;
+    fd = fs.openSync(file, 'r');
+    const header = Buffer.alloc(100);
+    fs.readSync(fd, header, 0, 100, 0);
+    if (header.toString('utf8', 0, 15) !== 'SQLite format 3') return null;
+    return header.readUInt32BE(60);
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) { try { fs.closeSync(fd); } catch { /* ignore */ } }
+  }
 }
 
 function hasTable(name: string): boolean {
@@ -442,6 +515,72 @@ const MIGRATIONS: { version: number; run: () => void }[] = [
       // step (what it created, whether it worked) next to the reply.
       addColumn('messages', 'tools_json', 'TEXT');
     }
+  },
+  {
+    version: 10,
+    run() {
+      // Workspaces (v1.3.0). Every chat belongs to exactly one Advance section:
+      // 'chat' (conversation/brainstorm) or 'agent' (the tool loop). Existing
+      // chats become Chat sessions; chats that were already running with agent
+      // mode on move to the Agent workspace, so no session disappears on
+      // upgrade. The Writing workspace keeps chapters, not chats.
+      addColumn('chats', 'workspace', "TEXT DEFAULT 'chat'");
+      execRaw("UPDATE chats SET workspace = 'agent' WHERE agent_mode = 1");
+    }
+  },
+  {
+    version: 11,
+    run() {
+      // Folders belong to one workspace too (v1.3.0): a Chat folder must not
+      // show up in Agent and vice versa. Existing folders stay in Chat.
+      addColumn('folders', 'workspace', "TEXT DEFAULT 'chat'");
+    }
+  },
+  {
+    version: 12,
+    run() {
+      // Text Dump (v1.4.0): every AI/manual replacement keeps the text it
+      // displaced, so a bad rewrite can be recovered without rolling the whole
+      // chapter back. `scope` decides whether restore replaces the chapter or
+      // splices the old passage back into its original slot.
+      if (!hasTable('text_dump')) {
+        execRaw("CREATE TABLE text_dump (id TEXT PRIMARY KEY, project_id TEXT, chapter_id TEXT, chapter_title TEXT DEFAULT '', source TEXT DEFAULT 'writing', action TEXT DEFAULT 'edit', scope TEXT DEFAULT 'passage', original TEXT NOT NULL, replacement TEXT DEFAULT '', start_offset INTEGER, end_offset INTEGER, restored_at INTEGER, created_at INTEGER)");
+      }
+      execRaw('CREATE INDEX IF NOT EXISTS idx_text_dump_created ON text_dump(created_at)');
+      execRaw('CREATE INDEX IF NOT EXISTS idx_text_dump_project ON text_dump(project_id)');
+    }
+  },
+  {
+    version: 13,
+    run() {
+      // Paging reads `WHERE chat_id=? ORDER BY created_at DESC, rowid DESC`.
+      // The old chat-only index left SQLite with a sort of the whole chat for
+      // every page. This one serves both the filter and the order, so a page
+      // on a 5,000-message chat stops scaling with transcript length.
+      execRaw('CREATE INDEX IF NOT EXISTS idx_messages_chat_created ON messages(chat_id, created_at)');
+    }
+  },
+  {
+    version: 14,
+    run() {
+      // Skill categories (v1.3.0): the same library is shared by Chat, Agent
+      // and Writing, but the picker groups instructions by the desk they fit.
+      addColumn('skills', 'category', "TEXT DEFAULT 'writing'");
+      const shipped: Record<string, string> = {
+        'skill-continuity': 'agent',
+        'skill-prose': 'writing',
+        'skill-dialogue': 'writing',
+        'skill-pacing': 'writing',
+        'skill-beta-reader': 'chat',
+        'skill-architect': 'agent',
+        'skill-voice': 'writing',
+        'skill-hook': 'writing',
+        'skill-line-editor': 'writing'
+      };
+      for (const [id, category] of Object.entries(shipped)) {
+        run('UPDATE skills SET category=? WHERE id=?', [category, id]);
+      }
+    }
   }
 ];
 
@@ -510,6 +649,16 @@ export async function initDb(dir: string, fileName = 'openplot.db'): Promise<str
   }
 
   const snapshot = existed ? db.export() : null;
+  // Time Machine copy before the in-memory DB is touched. The `.vN.bak` above
+  // is the technical fallback; this one is discoverable in Settings → Data.
+  // A snapshot failure must not block a migration whose .bak already exists.
+  if (snapshot && existed && from < SCHEMA_VERSION) {
+    try {
+      writeSnapshotFile(dir, fileName, snapshot, `pre-migration-v${from}`);
+    } catch (e) {
+      console.error('pre-migration snapshot failed:', e);
+    }
+  }
   const applied: number[] = [];
   try {
     db.exec('BEGIN');
@@ -532,6 +681,7 @@ export async function initDb(dir: string, fileName = 'openplot.db'): Promise<str
   }
   if (applied.length) console.log(`DB migrated v${from} → v${SCHEMA_VERSION} (steps: ${applied.join(', ')})`);
   seedDefaults();
+  protectLegacySettingSecrets();
   dirty = true;
   persistNow();
   return dbFile;
@@ -550,6 +700,22 @@ function readSettingsValue(key: string): string | null {
     // raw rather than treating it as "no value" (which would overwrite it).
     return String(row.value);
   }
+}
+
+/**
+ * Older builds wrote the web-search key as a plaintext JSON setting. Re-seal it
+ * once at boot, before the renderer can ask for settings. A failed encryption
+ * leaves the row untouched rather than destroying the user's key.
+ */
+function protectLegacySettingSecrets(): void {
+  if (!encryptSecret) return;
+  try {
+    const row = get("SELECT value FROM settings WHERE key='webSearchApiKey'");
+    const raw = row?.value == null ? '' : String(row.value);
+    if (!raw || raw.startsWith(ENC_PREFIX)) return;
+    const sealed = protectKey(raw);
+    if (sealed !== raw) run("UPDATE settings SET value=? WHERE key='webSearchApiKey'", [sealed]);
+  } catch { /* settings table not ready yet */ }
 }
 
 function seedDefaults(): void {
@@ -613,8 +779,8 @@ function seedDefaults(): void {
         continue;
       }
       // Skills ship OFF: they are switched on per chat with /skill, so a
-      // fresh install never injects six instruction blocks nobody asked for.
-      run('INSERT INTO skills (id, name, description, content, enabled, builtin) VALUES (?,?,?,?,0,1)', [s.id, s.name, s.description, s.content]);
+      // fresh install never injects instruction blocks nobody asked for.
+      run('INSERT INTO skills (id, name, description, content, enabled, builtin, category) VALUES (?,?,?,?,0,1,?)', [s.id, s.name, s.description, s.content, s.category]);
     }
   } catch (e) {
     console.error('seedDefaults failed:', e);
@@ -738,57 +904,66 @@ export const DEFAULT_STYLES: Array<{ id: string; name: string; content: string }
 
 // Starter skills — shown in Settings → Skills; the user can edit or delete
 // them like any other skill. They ride along in the system prompt.
-export const DEFAULT_SKILLS: Array<{ id: string; name: string; description: string; content: string }> = [
+export const DEFAULT_SKILLS: Array<{ id: string; name: string; description: string; content: string; category: string }> = [
   {
     id: 'skill-continuity',
+    category: 'agent',
     name: 'Continuity Guardian',
     description: 'Checks new facts against canon before writing them down.',
     content: 'Before adding any story fact (name, place, date, ability, relationship), search the story bible and read the relevant chapter. If the new fact conflicts with established canon, say so and propose the smallest change that preserves both.'
   },
   {
     id: 'skill-prose',
+    category: 'writing',
     name: 'Prose Polisher',
     description: 'Tightens prose and explains every change.',
     content: 'When asked to improve prose: cut filler words, vary sentence length, replace weak verbs + adverbs with strong verbs, and prefer concrete sensory detail. Show the revised passage first, then a short bullet list of what changed and why.'
   },
   {
     id: 'skill-dialogue',
+    category: 'writing',
     name: 'Dialogue Coach',
     description: 'Gives every character a distinct, testable voice.',
     content: 'Give each character a distinct voice: vocabulary, rhythm, and what they leave unsaid. When writing dialogue, read it back per character; if two voices could swap lines unnoticed, differentiate them. Use subtext — characters rarely state feelings directly.'
   },
   {
     id: 'skill-pacing',
+    category: 'writing',
     name: 'Pacing Analyst',
     description: 'Finds scenes that run long without a turn.',
     content: 'When reviewing chapters, track scene-level pacing: goal, conflict, disaster/turn per scene. Flag scenes that run long without a turn, summarize slow middle stretches, and suggest where to cut or add a beat. Reference the story flow board when it exists.'
   },
   {
     id: 'skill-beta-reader',
+    category: 'chat',
     name: 'Beta Reader',
     description: 'Reads a draft the way a first-time reader would.',
     content: 'Read the passage once as a first-time reader, then report: where you got confused, where you got bored, where you got hooked, and the one thing you would change first. Quote the exact lines you reacted to, and separate "this is broken" from "this is not to my taste".'
   },
   {
     id: 'skill-architect',
+    category: 'agent',
     name: 'Worldbuilding Architect',
     description: 'Builds settings from consequences, not decoration.',
     content: 'When inventing a place, culture or system, start from one constraint (geography, scarcity, magic cost, power structure) and derive the consequences people would actually live with: work, food, etiquette, taboos, slang. Store durable facts as story bible entries; keep flavour text out of canon.'
   },
   {
     id: 'skill-voice',
+    category: 'writing',
     name: 'Voice Keeper',
     description: 'Keeps every POV voice consistent across chapters.',
     content: 'Track the current point of view, tense and register. Before writing, sample one paragraph of that POV\'s existing prose and match its sentence rhythm, vocabulary and level of interiority. If a new passage drifts into another character\'s diction or the wrong tense, fix it before returning the text, and say in one line what you corrected.'
   },
   {
     id: 'skill-hook',
+    category: 'writing',
     name: 'Hook Doctor',
     description: 'Sharpens openings and chapter endings.',
     content: 'For an opening: state in one line what the reader wants to know by the end of the first paragraph, then rewrite so a concrete image or a live problem creates that question immediately — no weather, no waking up, no summary. For a chapter ending: end on a decision, a reversal or an unanswered cost, never on a tidy resolution. Offer two alternatives and name which one you would keep.'
   },
   {
     id: 'skill-line-editor',
+    category: 'writing',
     name: 'Line Editor',
     description: 'Copyedits without flattening the author\u2019s voice.',
     content: 'Do a line edit, not a rewrite: fix grammar, punctuation, repeated words, filter verbs (saw, felt, noticed), dangling modifiers and unintentional echoes. Preserve the author\u2019s diction, dialect and deliberate fragments. Return the corrected passage, then list only the categories of change with one example each.'
@@ -826,6 +1001,32 @@ export function persistNow(force = false): boolean {
   }
 }
 
+/**
+ * A copy of the open library safe to carry to another machine (v1.3.0).
+ *
+ * Everything the studio owns lives in the database — chats, chapters, story
+ * files, prompts, skills, settings — so one file is the whole library. Two
+ * things must not travel: provider API keys (safeStorage ties them to this OS
+ * account; elsewhere they would be undecryptable noise) and stored plugin/MCP
+ * execution approvals (a security decision made on this machine). Rows are
+ * removed from the copy only; the live database is untouched.
+ */
+export function portableDatabaseBuffer(): Buffer | null {
+  if (!db || !sqlStatic) return null;
+  const copy = new sqlStatic.Database(db.export());
+  try {
+    copy.run("UPDATE providers SET api_key = ''");
+    copy.run("DELETE FROM settings WHERE key IN ('trustedExec', 'webSearchApiKey')");
+    // MCP environment variables often carry tokens. A portable copy is a
+    // data handoff, not a credential handoff, so server definitions travel but
+    // their environment is emptied and must be re-entered on the new machine.
+    copy.run("UPDATE mcp_servers SET env = '{}'");
+    return Buffer.from(copy.export());
+  } finally {
+    try { copy.close(); } catch { /* already closed */ }
+  }
+}
+
 function schedulePersist(): void {
   dirty = true;
   if (saveTimer) clearTimeout(saveTimer);
@@ -836,6 +1037,27 @@ function schedulePersist(): void {
     saveTimer = null;
     persistNow();
   }, 1200);
+}
+
+/**
+ * Keep the recovery bin bounded by BOTH row count and stored text size. The
+ * size pass only runs after an insert, and deletes whole rows oldest-first so
+ * a single huge chapter snapshot cannot evict every other recovery entry in
+ * one go unnecessarily early.
+ */
+function pruneTextDump(): void {
+  run('DELETE FROM text_dump WHERE id IN (SELECT id FROM text_dump ORDER BY created_at DESC LIMIT -1 OFFSET ?)', [TEXT_DUMP_MAX]);
+  const total = Number(get('SELECT SUM(length(original) + length(replacement)) AS n FROM text_dump')?.n || 0);
+  let excess = total - TEXT_DUMP_CHARS_MAX;
+  if (excess <= 0) return;
+  const rows = all('SELECT id, length(original) + length(replacement) AS n FROM text_dump ORDER BY created_at ASC, rowid ASC');
+  const drop: string[] = [];
+  for (const row of rows) {
+    drop.push(row.id);
+    excess -= Number(row.n) || 0;
+    if (excess <= 0) break;
+  }
+  if (drop.length) run(`DELETE FROM text_dump WHERE id IN (${drop.map(() => '?').join(',')})`, drop);
 }
 
 function run(sql: string, params: any[] = []): void {
@@ -930,7 +1152,21 @@ export function handleDb(op: string, payload: any): any {
     case 'getAllSettings':
       return Object.fromEntries(all('SELECT key, value FROM settings').map((r: any) => [r.key, r.value]));
     case 'setSetting': {
-      run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [payload.key, payload.value]);
+      const key = String(payload?.key || '');
+      let value = payload?.value;
+      // The web-search key is a credential, not ordinary UI state. Encrypt the
+      // JSON wrapper so the database never contains it in plaintext; the
+      // renderer only receives an empty string plus a has-key flag.
+      if (key === 'webSearchApiKey') {
+        const rawValue = String(value ?? '');
+        let plain = rawValue;
+        try {
+          const parsed = JSON.parse(rawValue);
+          if (typeof parsed === 'string') plain = parsed;
+        } catch { /* legacy raw string */ }
+        value = plain.trim() ? protectKey(rawValue) : '';
+      }
+      run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [key, value]);
       return true;
     }
     // The shipped agent.md text, so "Restore default" restores exactly what
@@ -995,7 +1231,7 @@ export function handleDb(op: string, payload: any): any {
       return all('SELECT * FROM folders ORDER BY position, created_at');
     case 'createFolder': {
       const id = uid();
-      run('INSERT INTO folders (id, name, project_id, expanded, position, created_at) VALUES (?,?,?,1,?,?)', [id, payload.name, payload.project_id ?? null, payload.position || 0, now]);
+      run('INSERT INTO folders (id, name, project_id, expanded, position, created_at, workspace) VALUES (?,?,?,1,?,?,?)', [id, payload.name, payload.project_id ?? null, payload.position || 0, now, payload.workspace === 'agent' ? 'agent' : 'chat']);
       return get('SELECT * FROM folders WHERE id = ?', [id]);
     }
     case 'updateFolder': {
@@ -1012,7 +1248,8 @@ export function handleDb(op: string, payload: any): any {
       return all('SELECT * FROM chats ORDER BY pinned DESC, updated_at DESC, created_at DESC');
     case 'createChat': {
       const id = uid();
-      run('INSERT INTO chats (id, title, folder_id, project_id, created_at, updated_at) VALUES (?,?,?,?,?,?)', [id, payload.title || 'New chat', payload.folder_id ?? null, payload.project_id ?? null, now, now]);
+      const workspace = payload.workspace === 'agent' ? 'agent' : 'chat';
+      run('INSERT INTO chats (id, title, folder_id, project_id, workspace, created_at, updated_at) VALUES (?,?,?,?,?,?,?)', [id, payload.title || 'New chat', payload.folder_id ?? null, payload.project_id ?? null, workspace, now, now]);
       (globalThis as any).__pluginHook?.('chat:new', { chatId: id, title: payload.title || 'New chat' });
       return get('SELECT * FROM chats WHERE id = ?', [id]);
     }
@@ -1036,6 +1273,8 @@ export function handleDb(op: string, payload: any): any {
           ? undefined
           : JSON.stringify(Array.isArray(payload.skills_on) ? payload.skills_on : [])],
         ['chat_mode', payload.chat_mode],
+        // Workspace: only the two chat-based sections can own a chat row.
+        ['workspace', payload.workspace === undefined ? undefined : (payload.workspace === 'agent' ? 'agent' : 'chat')],
         // Persisted thinking level; anything unknown falls back to 'auto'.
         ['think_level', payload.think_level === undefined
           ? undefined
@@ -1093,12 +1332,15 @@ export function handleDb(op: string, payload: any): any {
       // over the whole chat.
       const rows = all(
         before != null && beforeRow != null
-          ? 'SELECT *, rowid AS _row FROM messages WHERE chat_id=? AND (created_at < ? OR (created_at = ? AND rowid < ?)) ORDER BY created_at DESC, rowid DESC LIMIT ?'
+          // Row-value comparison is exactly the old OR, but SQLite can turn it
+          // into a range seek on (chat_id, created_at) instead of scanning
+          // every newer row in the chat before finding the page.
+          ? 'SELECT *, rowid AS _row FROM messages WHERE chat_id=? AND (created_at, rowid) < (?, ?) ORDER BY created_at DESC, rowid DESC LIMIT ?'
           : before != null
             ? 'SELECT *, rowid AS _row FROM messages WHERE chat_id=? AND created_at < ? ORDER BY created_at DESC, rowid DESC LIMIT ?'
             : 'SELECT *, rowid AS _row FROM messages WHERE chat_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?',
         before != null && beforeRow != null
-          ? [payload.chatId, before, before, beforeRow, limit + 1]
+          ? [payload.chatId, before, beforeRow, limit + 1]
           : before != null
             ? [payload.chatId, before, limit + 1]
             : [payload.chatId, limit + 1]
@@ -1480,6 +1722,255 @@ export function handleDb(op: string, payload: any): any {
       run('DELETE FROM chapter_versions WHERE chapter_id=?', [payload.chapterId]);
       return true;
 
+    // ---- Revision Timeline (v1.3.0) ----
+    // One timeline over the two histories the manuscript already keeps: full
+    // chapter snapshots (chapter_versions) and displaced text (text_dump).
+    // Listing returns metadata + a short preview only; the prose is fetched per
+    // entry via getRevisionEntry, so opening the timeline never pushes dozens of
+    // whole chapters through IPC.
+    case 'listRevisionTimeline': {
+      const projectId = payload.projectId ? String(payload.projectId) : '';
+      const chapterId = payload.chapterId ? String(payload.chapterId) : '';
+      const limit = Math.max(1, Math.min(600, Number(payload.limit) || 300));
+
+      const vWhere: string[] = [];
+      const vArgs: any[] = [];
+      if (projectId) { vWhere.push('c.project_id=?'); vArgs.push(projectId); }
+      if (chapterId) { vWhere.push('v.chapter_id=?'); vArgs.push(chapterId); }
+      const versionRows = all(`SELECT v.id, v.chapter_id, v.word_count, v.source, v.created_at, v.rowid AS rowid,
+          c.title AS chapter_title, substr(v.content, 1, 240) AS preview, length(v.content) AS chars
+        FROM chapter_versions v JOIN chapters c ON c.id = v.chapter_id
+        ${vWhere.length ? 'WHERE ' + vWhere.join(' AND ') : ''}
+        ORDER BY v.chapter_id, v.created_at ASC, v.rowid ASC`, vArgs);
+
+      // Word count AFTER each snapshot: the next snapshot of the same chapter,
+      // or the chapter's current text for the newest one. Stored word_count
+      // makes this cheap — no content has to leave the main process.
+      const chapterRows = all(`SELECT id, title, content FROM chapters
+        ${chapterId ? 'WHERE id=?' : projectId ? 'WHERE project_id=?' : ''}`,
+        chapterId ? [chapterId] : projectId ? [projectId] : []);
+      const currentWords = new Map<string, number>();
+      const chapterTitles = new Map<string, string>();
+      for (const c of chapterRows) {
+        const text = String(c.content || '').trim();
+        currentWords.set(c.id, text ? text.split(/\s+/).length : 0);
+        chapterTitles.set(c.id, String(c.title || ''));
+      }
+      const nextWords = new Map<string, number>();
+      const byChapter = new Map<string, any[]>();
+      for (const row of versionRows) {
+        const list = byChapter.get(row.chapter_id);
+        if (list) list.push(row); else byChapter.set(row.chapter_id, [row]);
+      }
+      for (const rows of byChapter.values()) {
+        for (let i = 0; i < rows.length; i++) {
+          nextWords.set(rows[i].id, i + 1 < rows.length
+            ? Number(rows[i + 1].word_count) || 0
+            : currentWords.get(rows[i].chapter_id) || 0);
+        }
+      }
+
+      const dWhere: string[] = [];
+      const dArgs: any[] = [];
+      if (projectId) { dWhere.push('project_id=?'); dArgs.push(projectId); }
+      if (chapterId) { dWhere.push('chapter_id=?'); dArgs.push(chapterId); }
+      const dumpRows = all(`SELECT id, chapter_id, chapter_title, source, action, scope, restored_at, created_at,
+          substr(original, 1, 240) AS preview, length(original) AS chars
+        FROM text_dump ${dWhere.length ? 'WHERE ' + dWhere.join(' AND ') : ''}
+        ORDER BY created_at DESC LIMIT ?`, [...dArgs, limit]);
+
+      const snippet = (text: any) => String(text || '').replace(/\s+/g, ' ').trim();
+      const entries = [
+        ...versionRows.map((v: any) => ({
+          id: 'v:' + v.id,
+          kind: 'version',
+          rowId: v.id,
+          chapterId: v.chapter_id,
+          chapterTitle: String(v.chapter_title || chapterTitles.get(v.chapter_id) || ''),
+          at: Number(v.created_at) || 0,
+          source: String(v.source || 'manual'),
+          action: null,
+          scope: 'chapter',
+          words: Number(v.word_count) || 0,
+          afterWords: nextWords.get(v.id) ?? null,
+          chars: Number(v.chars) || 0,
+          preview: snippet(v.preview),
+          restoredAt: null
+        })),
+        ...dumpRows.map((d: any) => ({
+          id: 'd:' + d.id,
+          kind: 'edit',
+          rowId: d.id,
+          chapterId: d.chapter_id || null,
+          chapterTitle: String(d.chapter_title || chapterTitles.get(d.chapter_id) || ''),
+          at: Number(d.created_at) || 0,
+          source: String(d.source || 'manual'),
+          action: String(d.action || 'edit'),
+          scope: d.scope === 'chapter' ? 'chapter' : 'passage',
+          words: null,
+          afterWords: null,
+          chars: Number(d.chars) || 0,
+          preview: snippet(d.preview),
+          restoredAt: d.restored_at == null ? null : Number(d.restored_at)
+        }))
+      ];
+      entries.sort((a, b) => b.at - a.at || a.id.localeCompare(b.id));
+      return entries.slice(0, limit);
+    }
+    case 'getRevisionEntry': {
+      const kind = payload.kind === 'edit' ? 'edit' : 'version';
+      if (kind === 'edit') {
+        const row = get('SELECT * FROM text_dump WHERE id=?', [payload.id]);
+        if (!row) return { ok: false, error: 'missing' };
+        const chapter = row.chapter_id ? get('SELECT id, title FROM chapters WHERE id=?', [row.chapter_id]) : undefined;
+        return {
+          ok: true,
+          id: row.id,
+          kind,
+          chapterId: row.chapter_id || null,
+          chapterTitle: String(chapter?.title || row.chapter_title || ''),
+          at: Number(row.created_at) || 0,
+          source: String(row.source || 'manual'),
+          action: String(row.action || 'edit'),
+          scope: row.scope === 'chapter' ? 'chapter' : 'passage',
+          before: String(row.original || ''),
+          after: String(row.replacement || ''),
+          startOffset: row.start_offset == null ? null : Number(row.start_offset),
+          endOffset: row.end_offset == null ? null : Number(row.end_offset),
+          restoredAt: row.restored_at == null ? null : Number(row.restored_at)
+        };
+      }
+      const row = get(`SELECT v.*, v.rowid AS rowid, c.title AS chapter_title, c.content AS current_content
+        FROM chapter_versions v LEFT JOIN chapters c ON c.id = v.chapter_id
+        WHERE v.id=?`, [payload.id]);
+      if (!row) return { ok: false, error: 'missing' };
+      const next = get(`SELECT content FROM chapter_versions
+        WHERE chapter_id=? AND (created_at > ? OR (created_at = ? AND rowid > ?))
+        ORDER BY created_at ASC, rowid ASC LIMIT 1`,
+        [row.chapter_id, row.created_at, row.created_at, row.rowid]);
+      return {
+        ok: true,
+        id: row.id,
+        kind,
+        chapterId: row.chapter_id,
+        chapterTitle: String(row.chapter_title || row.title || ''),
+        at: Number(row.created_at) || 0,
+        source: String(row.source || 'manual'),
+        action: null,
+        scope: 'chapter',
+        title: String(row.title || ''),
+        before: String(row.content || ''),
+        after: String(next ? next.content : (row.current_content || '')),
+        startOffset: null,
+        endOffset: null,
+        restoredAt: null
+      };
+    }
+    // Restoring a snapshot is one main-process transaction: snapshot the text
+    // being replaced, then write the chosen text. Leaving that to the renderer
+    // would risk a half-restore if the second call failed.
+    case 'restoreChapterVersion': {
+      const v = get('SELECT * FROM chapter_versions WHERE id=?', [payload.id]);
+      if (!v) return { ok: false, error: 'missing' };
+      const chapter = get('SELECT * FROM chapters WHERE id=?', [v.chapter_id]);
+      if (!chapter) return { ok: false, error: 'missing-chapter' };
+      const current = String(chapter.content || '');
+      const next = String(v.content || '');
+      if (current === next) return { ok: true, chapterId: chapter.id, title: chapter.title, content: next };
+      const wc = current.trim() ? current.trim().split(/\s+/).length : 0;
+      run('INSERT INTO chapter_versions (id, chapter_id, title, content, word_count, source, created_at) VALUES (?,?,?,?,?,?,?)',
+        [uid(), chapter.id, chapter.title || '', current, wc, 'restore', now]);
+      run('DELETE FROM chapter_versions WHERE chapter_id=? AND id NOT IN (SELECT id FROM chapter_versions WHERE chapter_id=? ORDER BY created_at DESC LIMIT ?)',
+        [chapter.id, chapter.id, CHAPTER_VERSIONS_MAX]);
+      run('UPDATE chapters SET content=?, updated_at=? WHERE id=?', [next, now, chapter.id]);
+      return { ok: true, chapterId: chapter.id, title: chapter.title, content: next };
+    }
+
+    // ---- Text Dump: text displaced by an AI edit or a manual save ----
+    // The dump stores the OLD text (and, for a replacement, what took its
+    // place). Restore is deliberately conservative: if the chapter moved on,
+    // it reports a conflict instead of overwriting newer prose.
+    case 'listTextDump': {
+      if (payload.projectId) {
+        return all('SELECT * FROM text_dump WHERE project_id=? ORDER BY created_at DESC LIMIT ?', [payload.projectId, TEXT_DUMP_MAX]);
+      }
+      return all('SELECT * FROM text_dump ORDER BY created_at DESC LIMIT ?', [TEXT_DUMP_MAX]);
+    }
+    case 'countTextDumps': {
+      const row = get('SELECT COUNT(*) AS n FROM text_dump');
+      return row?.n || 0;
+    }
+    case 'addTextDump': {
+      const original = cleanText(payload.original);
+      if (!original.trim()) return null; // nothing was displaced
+      const chapterId = payload.chapterId ? String(payload.chapterId) : null;
+      const replacement = cleanText(payload.replacement);
+      // Autosave and a repeated Ctrl+S can produce the same entry twice in a
+      // row; one row is enough to recover it.
+      const last = get('SELECT * FROM text_dump ORDER BY created_at DESC LIMIT 1');
+      if (last && last.chapter_id === chapterId && last.original === original && last.replacement === replacement) {
+        return last;
+      }
+      const allowedActions = ['delete', 'replace', 'edit', 'rephrase', 'expand', 'shrink'];
+      const action = allowedActions.includes(String(payload.action)) ? String(payload.action) : 'edit';
+      const scope = payload.scope === 'chapter' ? 'chapter' : 'passage';
+      const id = uid();
+      run('INSERT INTO text_dump (id, project_id, chapter_id, chapter_title, source, action, scope, original, replacement, start_offset, end_offset, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+        [id, payload.projectId || null, chapterId, cleanText(payload.chapterTitle).slice(0, 300),
+          ['writing', 'agent', 'manual', 'chat'].includes(String(payload.source)) ? String(payload.source) : 'writing',
+          action, scope, original.slice(0, 500_000), replacement.slice(0, 500_000),
+          Number.isFinite(Number(payload.startOffset)) ? Number(payload.startOffset) : null,
+          Number.isFinite(Number(payload.endOffset)) ? Number(payload.endOffset) : null, now]);
+      pruneTextDump();
+      return get('SELECT * FROM text_dump WHERE id=?', [id]);
+    }
+    case 'deleteTextDumps': {
+      const ids = Array.isArray(payload.ids) ? payload.ids.filter((x: any) => typeof x === 'string') : [];
+      if (!ids.length) return 0;
+      run(`DELETE FROM text_dump WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+      return ids.length;
+    }
+    case 'deleteAllTextDumps': {
+      const before = get('SELECT COUNT(*) AS n FROM text_dump')?.n || 0;
+      if (payload.projectId) run('DELETE FROM text_dump WHERE project_id=?', [payload.projectId]);
+      else run('DELETE FROM text_dump', []);
+      return before;
+    }
+    case 'restoreTextDump': {
+      const row = get('SELECT * FROM text_dump WHERE id=?', [payload.id]);
+      if (!row) return { ok: false, error: 'missing' };
+      const chapter = row.chapter_id ? get('SELECT * FROM chapters WHERE id=?', [row.chapter_id]) : null;
+      if (!chapter) return { ok: false, error: 'missing-chapter', row };
+      const current = String(chapter.content || '');
+      const original = String(row.original || '');
+      const replacement = String(row.replacement || '');
+      const start = Number(row.start_offset);
+      const canSplice = row.scope === 'passage' && Number.isInteger(start) && start >= 0
+        && current.slice(start, start + replacement.length) === replacement;
+      const canReplace = row.scope === 'chapter' && current === replacement;
+      if (!payload.force && !canSplice && !canReplace) {
+        // Newer prose sits where the old text used to be. Let the caller decide
+        // whether to force a restore rather than silently discarding it.
+        return { ok: false, error: 'conflict', row, current };
+      }
+      let next: string;
+      if (canSplice && !payload.force) {
+        next = current.slice(0, start) + original + current.slice(start + replacement.length);
+      } else if (row.scope === 'chapter' || !canSplice) {
+        next = original;
+      } else {
+        next = current.slice(0, start) + original + current.slice(start + replacement.length);
+      }
+      // Snapshot what the chapter held immediately before the restore, so the
+      // restore itself can be undone from chapter history.
+      const wc = current.trim() ? current.trim().split(/\s+/).length : 0;
+      run('INSERT INTO chapter_versions (id, chapter_id, title, content, word_count, source, created_at) VALUES (?,?,?,?,?,?,?)',
+        [uid(), chapter.id, chapter.title || '', current, wc, 'restore', now]);
+      run('UPDATE chapters SET content=?, updated_at=? WHERE id=?', [next, now, chapter.id]);
+      run('UPDATE text_dump SET restored_at=? WHERE id=?', [now, row.id]);
+      return { ok: true, chapterId: chapter.id, title: chapter.title, content: next };
+    }
+
     // ---- user-defined prompt library ----
     case 'listPrompts':
       return all('SELECT * FROM prompts ORDER BY created_at DESC');
@@ -1617,7 +2108,7 @@ export function handleDb(op: string, payload: any): any {
       return all('SELECT * FROM skills ORDER BY builtin DESC, name');
     case 'saveSkill': {
       const id = payload.id || uid();
-      const existing = get('SELECT id, builtin FROM skills WHERE id=?', [id]);
+      const existing = get('SELECT id, builtin, category FROM skills WHERE id=?', [id]);
       // A brand-new skill starts DISABLED unless the caller explicitly enables
       // it. An added skill silently changing every reply is the bug this
       // release exists to kill.
@@ -1625,13 +2116,17 @@ export function handleDb(op: string, payload: any): any {
         ? 0
         : (payload.enabled === true || payload.enabled === 1 ? 1 : 0);
       const description = String(payload.description ?? '').slice(0, 500);
+      const requestedCategory = String(payload.category ?? '');
+      const category = ['chat', 'agent', 'writing'].includes(requestedCategory)
+        ? requestedCategory
+        : String(existing?.category || 'writing');
       if (existing) {
-        run('UPDATE skills SET name=?, description=?, content=?, enabled=? WHERE id=?', [
-          payload.name, description, payload.content, enabled, id
+        run('UPDATE skills SET name=?, description=?, content=?, enabled=?, category=? WHERE id=?', [
+          payload.name, description, payload.content, enabled, category, id
         ]);
       } else {
-        run('INSERT INTO skills (id, name, description, content, enabled, builtin) VALUES (?,?,?,?,?,0)', [
-          id, payload.name, description, payload.content, enabled
+        run('INSERT INTO skills (id, name, description, content, enabled, builtin, category) VALUES (?,?,?,?,?,0,?)', [
+          id, payload.name, description, payload.content, enabled, category
         ]);
       }
       return get('SELECT * FROM skills WHERE id=?', [id]);
@@ -1639,8 +2134,8 @@ export function handleDb(op: string, payload: any): any {
     case 'resetSkill': {
       const shipped = DEFAULT_SKILLS.find((s) => s.id === payload.id);
       if (!shipped) throw new Error('Only builtin skills can be reset');
-      run('UPDATE skills SET name=?, description=?, content=?, builtin=1 WHERE id=?', [
-        shipped.name, shipped.description, shipped.content, shipped.id
+      run('UPDATE skills SET name=?, description=?, content=?, builtin=1, category=? WHERE id=?', [
+        shipped.name, shipped.description, shipped.content, shipped.category, shipped.id
       ]);
       return get('SELECT * FROM skills WHERE id=?', [shipped.id]);
     }
@@ -1676,7 +2171,11 @@ export function handleDb(op: string, payload: any): any {
       return true;
     case 'resetAll':
       if (db) {
-        db.exec('DELETE FROM settings; DELETE FROM projects; DELETE FROM folders; DELETE FROM chats; DELETE FROM messages; DELETE FROM message_files; DELETE FROM memories; DELETE FROM story; DELETE FROM chapters; DELETE FROM providers; DELETE FROM plugins; DELETE FROM skills; DELETE FROM automations; DELETE FROM mcp_servers; DELETE FROM scenes; DELETE FROM flow_beats; DELETE FROM prompts; DELETE FROM chapter_versions; DELETE FROM prompt_styles; DELETE FROM story_files; DELETE FROM story_plans;');
+        // A reset is destructive and irreversible from inside the app. Keep a
+        // discoverable Time Machine copy first; if it cannot be written, abort
+        // instead of deleting the only copy of the user's work.
+        writeSnapshotFile(path.dirname(dbFile), path.basename(dbFile), db.export(), 'pre-reset');
+        db.exec('DELETE FROM settings; DELETE FROM projects; DELETE FROM folders; DELETE FROM chats; DELETE FROM messages; DELETE FROM message_files; DELETE FROM memories; DELETE FROM story; DELETE FROM chapters; DELETE FROM providers; DELETE FROM plugins; DELETE FROM skills; DELETE FROM automations; DELETE FROM mcp_servers; DELETE FROM scenes; DELETE FROM flow_beats; DELETE FROM prompts; DELETE FROM chapter_versions; DELETE FROM prompt_styles; DELETE FROM story_files; DELETE FROM story_plans; DELETE FROM text_dump;');
         // Builtin styles and skills are permanent furniture — re-seed
         // immediately so the user never sees an empty picker until the next
         // app start. Both stay DISABLED-free by shipping enabled for skills
@@ -1688,7 +2187,7 @@ export function handleDb(op: string, payload: any): any {
           stmt.free();
         }
         for (const s of DEFAULT_SKILLS) {
-          run('INSERT INTO skills (id, name, description, content, enabled, builtin) VALUES (?,?,?,?,0,1)', [s.id, s.name, s.description, s.content]);
+          run('INSERT INTO skills (id, name, description, content, enabled, builtin, category) VALUES (?,?,?,?,0,1,?)', [s.id, s.name, s.description, s.content, s.category]);
         }
         dirty = true;
         persistNow();
@@ -1728,6 +2227,12 @@ export function handleDb(op: string, payload: any): any {
       // (a file whose message was just removed must not survive the pass).
       run('DELETE FROM messages WHERE chat_id NOT IN (SELECT id FROM chats)');
       run('DELETE FROM message_files WHERE chat_id NOT IN (SELECT id FROM chats) OR message_id NOT IN (SELECT id FROM messages)');
+      // Recovery rows for chapters/projects that no longer exist are dead
+      // weight: they can never be restored, but sql.js still holds every byte
+      // in RAM until they are pruned.
+      run('DELETE FROM text_dump WHERE project_id IS NOT NULL AND project_id NOT IN (SELECT id FROM projects)');
+      run('DELETE FROM text_dump WHERE chapter_id IS NOT NULL AND chapter_id NOT IN (SELECT id FROM chapters)');
+      run('DELETE FROM scenes WHERE chapter_id NOT IN (SELECT id FROM chapters)');
       try { db?.exec('VACUUM'); } catch (e) { console.warn('VACUUM skipped:', e); }
       dirty = true;
       persistNow(true);

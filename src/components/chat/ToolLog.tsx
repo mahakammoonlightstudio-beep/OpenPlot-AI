@@ -72,17 +72,19 @@ export function ToolLog({
           )}
           {steps && steps.length
             ? steps.slice(showAll ? 0 : hidden).map((s, i) => (
-              <div key={i} className={`tl-row ${s.ok ? 'ok' : 'err'}`}>
+              <div key={i} className={`tl-row ${s.ok ? 'ok' : 'err'} ${s.kind === 'mode' ? 'mode' : ''}`}>
                 <span className="tl-dot" aria-hidden />
                 {/* The subject leads and the type follows: `$ Sari Winata · story bible`
                     reads like a command output; the old order led with the label,
                     which made every row start with the same word. */}
                 {s.detail ? (
                   <>
-                    <span className="tl-name" title={s.detail}>{s.detail}</span>
-                    {/* "Chapter 1 — Low Tide · Chapter" is noise: when the title
-                        already says the type, the tag is dropped. */}
-                    {typeEcho(s.detail, t('tool.step.' + s.kind)) ? null : (
+                    {/* A set_mode row reads as the mode it moved to, not as a
+                        raw "write" detail with an "other" tag. */}
+                    <span className="tl-name" title={s.detail}>
+                      {s.kind === 'mode' ? t('mode.' + s.detail) : s.detail}
+                    </span>
+                    {s.kind === 'mode' ? null : typeEcho(s.detail, t('tool.step.' + s.kind)) ? null : (
                       <span className="tl-kind">{t('tool.step.' + s.kind)}</span>
                     )}
                   </>

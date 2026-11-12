@@ -19,6 +19,7 @@
 - [Export](export)
 - [Settings](settings)
 - [Plugins](plugins)
+- [Automations](automations)
 - [MCP servers](mcp)
 - [Privacy and data](privacy)
 - [Troubleshooting](troubleshooting)
@@ -42,7 +43,7 @@ Every provider row needs:
 Settings → Settings → Models lists every model with its capability chips. Choose one as the default, or leave **Auto (recommended)** and let each chat decide.
 
 ## 3. Start a chat
-`Ctrl+N` creates a chat. Type, press `Enter` to send, `Shift+Enter` for a new line. `Ctrl+K` opens the command palette from anywhere.
+`Ctrl+N` creates a chat. Type, press `Enter` to send, `Shift+Enter` for a new line. `Ctrl+K` opens the command palette from anywhere, and `Ctrl+P` opens a quick switcher for chats and projects.
 
 ## 4. Give it a project (optional)
 A project holds a story bible, chapters and a context block. Attach a project to a chat and the model sees your canon instead of guessing.
@@ -72,9 +73,10 @@ The header shows the model, the token meter and the project chip. Each chat keep
 - per-chat skill opt-outs.
 
 ## Organising
-- **Folders** group chats in the sidebar; move a chat into a folder from its menu.
+- **Folders** group chats in the sidebar, separately for Chat and Agent. Click a folder to open it and use its `+` to start a chat inside; drag any chat onto a folder to file it, and onto the **Chats** header to take it back out.
 - **Pin** keeps a chat at the top.
 - **Rename** from the chat row or the header.
+- **Quick switch** — `Ctrl+P` opens a chats-and-projects-only palette; type part of a title, project name or workspace and press `Enter`.
 - Deleting a chat deletes its messages and attached files. There is no undo — export from Settings → Data first if the chat matters.
 
 ## What the model actually sees
@@ -162,7 +164,7 @@ Reasoning text is stored with the message and is never injected back into later 
 A skill is a named block of instructions injected into the system prompt: continuity rules, a critique protocol, a genre guide. Skills are global; each chat can mute them.
 
 ## Builtins
-Six ship with the app: continuity, prose, dialogue, pacing, beta reader and architect. They are marked **Builtin**:
+Nine ship with the app: continuity, prose, dialogue, pacing, beta reader, architect, voice, hook and line editor. They are marked **Builtin**:
 - you can edit the text,
 - **Reset** restores the shipped version,
 - you cannot delete them.
@@ -173,7 +175,22 @@ Settings → Skills → **Add skill** opens the editor with name, description, c
 Start from a template (Blank, Line editor, Beta reader, Worldbuilding) or import a `.md` file. Export produces a portable markdown file.
 
 ## Per-chat control
-The composer shows a `Skills n` chip when skills are active. The popover lists every enabled skill with a switch; turning one off stores its id in the chat's opt-out list, so it stays off for that chat only.
+The composer shows a `Skills n` chip when skills are active. The popover puts the **Chat** or **Agent** desk's skills first and folds the other desks into *Other desks* — an active skill from another desk still shows there, so it can never be hidden by a filter. Turning a skill off stores its id in the chat's opt-out list, so it stays off for that chat only.
+
+The **Writing** workspace has no chat row, so its AI editor uses the globally enabled Writing skills; the editor header shows how many are riding along.
+
+## Skill Lab
+Open a skill in Settings → Skills to see its **Skill Lab**:
+- the exact block added to the system prompt,
+- its character and token estimate,
+- how much of the 12,000-character budget the active set uses,
+- a warning when another active skill has duplicate instructions, shares its focus, or pulls in a different direction (shorter vs longer, rewrite vs preserve, ask vs don't ask, formal vs casual),
+- **Use in current chat** to switch it on without leaving Settings.
+
+Token counts are a 4-character estimate, not a provider tokenizer, but they are consistent with the composer's counter.
+
+## Agent mode picks skills
+In Agent mode the model can switch skills on and off itself, per chat. Before a task it calls `list_skills`, then `use_skill` for the packs that fit — continuity before checking canon, prose while drafting, beta reader while critiquing — and `drop_skill` when one stops applying. Each switch shows up in the tool log and as a toast, and the composer chip updates, so an automatic change is never silent. Because the choice is stored on the chat, the skill stays active for the following turns.
 
 ## Prompt size
 The skills block is capped at 12,000 characters. A skill that does not fit is replaced by `[skill truncated: …]` rather than cut mid-instruction.
@@ -240,10 +257,14 @@ A chat bound to a project receives the project description as context. Pull a sp
 Chapters hold the manuscript. Each chapter has a title, content, status (`draft`, `revising`, `done`), a position and a word count.
 
 ## Writing in the app
-The editor saves when you press **Save** — nothing is written behind your back mid-sentence. Version history keeps a snapshot per save so you can compare or roll back.
+The editor saves when you press **Save** — nothing is written behind your back mid-sentence. Each save keeps a snapshot of the previous text.
+
+**History** opens the chapter's Revision Timeline: every saved snapshot and every displaced passage from an AI edit, newest first. Open a row to see the before/after diff with added/removed word counts, copy either side, or restore it. Restoring a snapshot first saves the current text to history, so the restore itself can be undone. **Timeline** at the top of the Chapters page shows the same line for the whole manuscript, with a chapter filter. The Writing board has the same button beside Save.
 
 ## With the model
 Ask for a scene and the model can `create_chapter`, `update_chapter`, `append_to_chapter` and `read_chapter`. Appending is safer than rewriting: it never touches what you already wrote.
+
+Every AI rewrite or manual save also leaves the displaced prose in **Text Dump**, in the sidebar. Preview or copy it, restore it to its old slot, or delete selected entries permanently. Restore asks before overwriting newer text, and the agent can search the bin with `search_text_dump` when you ask it to bring a cut line back.
 
 Agents write to chapters, not to the chat, when the output is long-form. That keeps prose out of the transcript and out of the prompt history.
 
@@ -285,6 +306,11 @@ Stats counts words you actually wrote, per day and per project. It is local and 
 
 The numbers are approximate by design: this is a motivational graph, not an audit trail.
 
+## Manuscript check
+Below the graphs, **Manuscript check** reads the selected novel's chapters and reports revision hints: reading time, dialogue share, average sentence length, filter words (“felt”, “saw”, “realized”), repeated sentence openings, overused content words, `-ly` adverbs and the longest sentences with the chapter they came from. There is also a per-chapter row so you can spot the chapter that drifted.
+
+Everything is computed locally from the text you already saved — no AI call, no upload. The numbers are heuristics, so treat them as questions to ask of the draft, not verdicts: a repeated “she” may be deliberate, and a long sentence may be the best one in the book.
+
 ---
 
 ## Export
@@ -297,10 +323,12 @@ The numbers are approximate by design: this is a motivational graph, not an audi
 ## Chapters and projects
 A project exports as one Markdown file or an EPUB, chapters in order, with the story bible appended as an appendix when you ask for it.
 
-## Full backup
-Settings → Data exports everything as JSON: chats, projects, story bible, chapters, prompts, styles, skills, settings. API keys are stripped.
+## Full library
+Settings → Data → **Export portable copy** writes one `.db` holding every chat, project, story-bible entry, chapter, attachment, prompt, style, skill and setting. On another machine, use **Import .db** and press **Use** to open it.
 
-Restoring is a merge, not a replace: rows with the same id are updated, new rows are added, nothing is deleted.
+Several things deliberately stay behind: provider API keys and the web-search key (the OS credential vault ties them to this machine, so re-enter them after importing), MCP environment variables (often tokens), and stored plugin/MCP execution approvals. Time Machine snapshots are not part of the file either.
+
+> This is a copy, not a sync. Importing adds a separate library and never merges into or overwrites the one you have open.
 
 > Export before a version upgrade. It costs one click and it is the only backup the app does not make for you.
 
@@ -312,47 +340,107 @@ Settings is grouped by what you are trying to do, not by data model:
 
 - **AI** — providers, models, behaviour.
 - **Chat** — styles, skills, agent.md.
-- **Appearance** — theme, accent, font size.
-- **Data** — memory, usage, backup and reset.
+- **Appearance** — theme, accent, font size, language.
+- **Data** — libraries, Time Machine snapshots, memory, usage, backup and reset.
 - **Extend** — plugins, automations, MCP *(advanced mode)*.
 - **About** — version, data path, credential vault, guide.
 
 ## Search
 The search box above the nav finds controls, not just sections: type `cache` to land on the cache rows of the models page. `↑`/`↓` move, `Enter` jumps and focuses the control, `Esc` clears.
 
+## Language
+Appearance → Language switches the interface between English (US), English (UK), Bahasa Indonesia, Español and हिन्दी. English (UK) uses British spelling; Spanish and Hindi are beta, so their core screens are translated while advanced settings fall back to English and say so.
+
 ## Simple vs advanced
 Simple mode hides advanced model parameters and the Extend group. Nothing is removed — *Show advanced settings*, also in the palette, brings everything back, and the choice is remembered.
 
+## Time Machine
+Settings → Data keeps up to 12 whole-library snapshots. One is taken before a schema upgrade, an import, a reset or a restore, plus a daily copy and any *Snapshot now*. Restoring asks first, saves the current state as another snapshot, then restarts into the chosen copy. Snapshots are per library, so restoring one library never touches another.
+
 ## Reset
-Each section can reset its own defaults. *Reset all data* in Settings → Data deletes everything and cannot be undone; export first.
+Each section can reset its own defaults. *Reset all data* in Settings → Data deletes everything; a *Before reset* snapshot is taken automatically, but export first if the data matters.
 
 ---
 
 ## Plugins
 
-A plugin is a local JavaScript file with hooks. Plugins run in the main process with the same access as the app: install only code you wrote or read.
+A plugin is a local JavaScript snippet stored in the app and executed in the main process. Plugins run with the same access as the app: install only code you wrote or read.
 
 ## Shape
 ```js
-module.exports = {
-  name: 'word-count-logger',
-  hooks: {
-    'message:new': (payload, api) => api.log('message ' + payload.role)
-  }
-}
+context.registerHook('message:new', (payload) => {
+  context.log('New message in chat ' + payload.chatId);
+});
+context.registerCommand('hello', () => {
+  context.toast('Hello from my plugin!');
+});
 ```
 
 ## Hooks
-Fired by the app today: `chat:new` (a chat row is created) and `message:new` (a message is saved).
+Fired by the app: `app:ready` (window ready), `chat:new` (a chat row is created), `message:new` (a message is saved — user, assistant or error).
 
-`app:ready`, `chat:send`, `chapter:saved`, `project:created` and `skill:enabled` belong to the plugin API but are not wired yet — treat them as planned, and fire your own hook names if you need them now.
+Errors thrown by one handler are caught and written to that plugin's log; a broken plugin never breaks chat or the database.
 
-## Behaviour
-- Disabled plugins are never loaded, not loaded and then blocked.
-- Errors are caught per hook and written to the plugin's log; a broken plugin does not break chat.
-- A plugin registers commands with `context.registerCommand`; the row list in Settings → Plugins shows its log.
+## Commands
+`context.registerCommand(name, fn)` adds a command that runs on demand:
 
-See `docs/PLUGIN_API.md` in the repository for the full surface.
+- listed on the plugin's row in Settings → Plugins, with a button per command;
+- searchable in the command palette (`Ctrl/Cmd+K`) as *plugin name: command*.
+
+**Reload all plugins** re-reads every enabled plugin from the database after you edit code, so there is no restart. Save from the editor does the same automatically.
+
+## Safety
+- A disabled plugin is never loaded — not loaded and then blocked.
+- Plugin code can read files, reach the network and write the database. `new Function` is a convenience boundary, not a security boundary.
+- Keep hooks fast: they run synchronously on the main process.
+
+See `docs/PLUGIN_API.md` in the repository for the full `context` surface.
+
+If you only need "on this event, do that" without writing code, use **automations** instead — same triggers, ready-made actions.
+
+---
+
+## Automations
+
+An automation is a small when/then rule kept in Settings → Automations. When something happens in the app, every enabled rule for that event runs its action.
+
+## Triggers
+
+| When | Fires |
+|---|---|
+| App starts | once, after the window is ready |
+| Chat created | a chat row was created (from the sidebar, palette, menu or the story agent) |
+| Message sent | right before a request goes out, after the user turn is stored |
+| AI reply received | after an assistant message is saved |
+| Chapter saved | after a chapter is written to the database |
+| Project created | from the project form or Plot Smith |
+| Skill enabled | whenever a skill is switched on in Settings or the palette |
+
+## Actions
+
+| Then | Parameter |
+|---|---|
+| Show a toast | optional text (defaults to the automation name) |
+| Flash the window | text shown with the flash |
+| Write to the plugin log | — |
+| Save a memory | the memory text |
+| Clear all memories | — (destructive; it wipes every long-term memory) |
+| Open a page | one of the app pages |
+| Create a new chat | optional chat title |
+| Open URL in browser | an `http(s)` address |
+| Apply a skill to the next message | the skill |
+
+## Running and checking
+
+- **Test** runs that single rule immediately — not every rule that shares its trigger.
+- Each row shows the last run (time, success, message). The **history** button lists up to 20 runs from this session.
+- Run history lives in memory only; it is gone after a restart.
+
+## Loop protection
+
+A rule whose action re-fires its own trigger is skipped (for example *AI reply received → create a new chat → message sent*), and a chain may not nest more than two levels deep. When a guard trips, the run is recorded as skipped instead of retrying silently.
+
+Automations are stored in the local database with the rest of your settings and are included in a full backup. Use a **plugin** when you need real code or an outside process; use **MCP** when the model itself should pick the tool.
 
 ---
 
@@ -360,25 +448,30 @@ See `docs/PLUGIN_API.md` in the repository for the full surface.
 
 MCP (Model Context Protocol) is how a model calls tools that live outside the app: a filesystem helper, a search index, a database.
 
-## Status in this version
+## What ships
 
-Settings → MCP stores server definitions locally — name, command, arguments, environment variables and an enable flag. **The bridge that starts those processes, lists their tools and exposes them to the model is not part of this version.** A stored definition never runs anything; enabling one is configuration for the release that ships the bridge.
+Settings → MCP stores server definitions locally — name, command, arguments, environment variables and an enable flag. The bridge starts **only enabled** servers after the window is ready, speaks newline-delimited JSON-RPC 2.0 over stdio (`initialize`, `tools/list`, `tools/call`), and kills every child process on quit.
 
-The plan, and the protocol details, live in `docs/PLUGIN_API.md` and the release plan under `docs/superpowers/plans/`.
+- Tools are advertised as `mcp__{server}__{tool}` and are offered only when agent tools are on for that chat. The prompt lists the exact names the server reported, never a guess.
+- A tool call gets **30 seconds**, a start **10**; one response line is capped at **1 MB**, and the text handed to the model is cut at **20,000 characters** with a visible truncation note.
+- Each server shows a status (starting, connected, error), its tool count, the last error and a filtered log (300 lines).
 
-## What you can do today
+## Adding a server
 
-- Keep the registry ready: add the servers you want, with the exact command and arguments, so enabling them later is one switch.
-- Read the command before saving it. An MCP server runs as a local process with your permissions; treat a definition like a script you are about to run.
+1. Settings → MCP servers → **Add**, or pick one of the recommended definitions.
+2. Fill the command and arguments exactly as you would type them in a terminal, for example `npx` with `["-y", "@modelcontextprotocol/server-filesystem", "D:\\Notes"]`.
+3. Environment variables are a JSON object: `{"API_KEY": "…"}`.
+4. Enable it. **Restart** re-runs the process; **Logs** shows what it printed.
 
-## What the bridge will do
+## Safety
 
-- Spawn only enabled servers, after the window is ready, and kill them on quit.
-- Speak newline-delimited JSON-RPC 2.0 over stdio: `initialize`, `tools/list`, `tools/call`.
-- Advertise their tools as `mcp__{server}__{tool}` when tools are enabled, with a call timeout and a capped response size.
-- Show a status dot per server (starting, connected, error), the tool count, the last error and a filtered log.
+An MCP server is an arbitrary local command running with your permissions — the same trust level as a plugin. A stored definition never starts anything by itself; enabling it is the explicit action, and disabling it (or quitting) stops the process. Read the command before enabling, and prefer servers you wrote or audited. Use absolute paths: the process starts in the app's data directory, not in your project folder.
 
-Until then, the app's own story tools are the ones the model can actually call — see the skills and story bible articles.
+## Troubleshooting
+
+- **Error on start** — run the same command in a terminal first. On Windows `npx`/`npm` are launched through `cmd.exe` automatically; other shells are not.
+- **No tools** — the server answered `initialize` but listed none. Its log shows the raw lines it printed.
+- **Tool fails** — the error text is returned to the model as the tool result, so it can recover instead of hanging.
 
 ---
 
@@ -395,7 +488,9 @@ Only the request you send: the system prompt (which may include agent.md, projec
 Images and files are sent as text. Binary files are rejected rather than uploaded.
 
 ## API keys
-Keys are stored encrypted when the OS credential vault is available; otherwise the app says so in Settings → Data. They never appear in exports, logs or error messages.
+Provider keys and the web-search key are stored encrypted when the OS credential vault is available; otherwise the app says so in Settings → Data. The web-search key never reaches the interface — it only shows whether one is stored. Keys never appear in exports, logs or error messages.
+
+MCP environment variables are different: the MCP editor needs to show and edit them, so they live in the local database rather than the OS vault. Portable copies empty them, but for long-lived production secrets prefer an OS-encrypted disk.
 
 ## Deleting
 *Reset all data* deletes every row and the file contents. Backups written during a schema migration (`.bak`) stay next to the database — remove them manually for a clean slate.
@@ -435,6 +530,7 @@ Still stuck? The repository issue tracker is the fastest route: include the vers
 | Keys | Action |
 | --- | --- |
 | `Ctrl+K` | Command palette |
+| `Ctrl+P` | Quick switch (chats and projects) |
 | `Ctrl+N` | New chat |
 | `Ctrl+Shift+N` | New project |
 | `Ctrl+F` | Focus chat search |

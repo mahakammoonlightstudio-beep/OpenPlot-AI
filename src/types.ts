@@ -30,10 +30,12 @@ export interface Project {
   created_at?: number;
   updated_at?: number;
 }
-export interface Folder { id: string; name: string; project_id: string | null; expanded: number; position: number; created_at?: number }
+export interface Folder { id: string; name: string; project_id: string | null; expanded: number; position: number; /** 'chat' | 'agent' — folders are per workspace (v1.3.0). */ workspace?: string | null; created_at?: number }
 export interface Chat { id: string; title: string; folder_id: string | null; project_id: string | null; model: string | null; system_prompt: string | null; /** 1/0 (DB) or boolean after normalize — pinned chats float to the top. */ pinned?: number | boolean; /** JSON string in the DB; parsed to skill ids this chat opted out of. */ skills_off?: string | string[]; /** JSON string in the DB; skill ids switched on for this chat (/skill). */ skills_on?: string | string[]; /** 1/0 — agent mode (tool loop) for this chat. */ agent_mode?: number | boolean;  /** 'auto' | 'off' | 'low' | 'medium' | 'high' | 'max' — persisted per chat (v8). */
   think_level?: string | null;
-  /** 'plan' | 'brainstorm' | 'write' — the chat's working mode. */ chat_mode?: string | null; created_at?: number; updated_at?: number }
+  /** 'plan' | 'brainstorm' | 'write' | 'edit' — the chat's working mode. */ chat_mode?: string | null;
+  /** Which Advance section owns this session: 'chat' or 'agent'. */ workspace?: string | null;
+  created_at?: number; updated_at?: number }
 /** Metadata for one file stored with a sent message (no body — see readMessageFile). */
 export interface MessageFileMeta { id: string; name: string; kind: 'file' | 'story' | 'chapter'; bytes: number }
 export interface Message { id: string; chat_id: string; role: 'user' | 'assistant' | 'system'; content: string; thinking: string | null; model: string | null; /** Assistant rows only: the user turn this reply answers. Replies sharing it are variants of one turn. */ parent_id?: string | null; tokens_in?: number | null; tokens_out?: number | null; /** Prompt tokens served from the provider's prompt cache (null = unknown). */ tokens_cached?: number | null; /** Files attached when this message was sent (metadata only). */ files?: MessageFileMeta[]; /** Tool calls with their readable detail, persisted with the reply. */ toolSteps?: ToolStep[]; created_at?: number }
@@ -44,6 +46,61 @@ export interface Memory { id: string; content: string; source: string; created_a
 export type StoryKind = 'world' | 'location' | 'character' | 'item' | 'lore';
 export interface StoryEntry { id: string; project_id: string; kind: StoryKind; title: string; content: string; tags: string; /** JSON array string of related entry ids. */ links?: string; created_at?: number; updated_at?: number }
 export interface Chapter { id: string; project_id: string; title: string; content: string; status: 'draft' | 'revising' | 'done'; position: number; created_at?: number; updated_at?: number }
+/** One recovery-bin row: text an AI edit or a manual save displaced. */
+export interface TextDumpRow {
+  id: string;
+  project_id: string | null;
+  chapter_id: string | null;
+  chapter_title: string;
+  source: 'writing' | 'agent' | 'manual' | 'chat';
+  action: 'delete' | 'replace' | 'edit' | 'rephrase' | 'expand' | 'shrink';
+  scope: 'passage' | 'chapter';
+  original: string;
+  replacement: string;
+  start_offset: number | null;
+  end_offset: number | null;
+  restored_at: number | null;
+  created_at: number;
+}
+/** One row of the manuscript Revision Timeline (v1.3.0).
+ * 'version' = a full-chapter snapshot taken before a save/AI append/restore;
+ * 'edit' = displaced text from text_dump (AI rewrite, delete, manual save).
+ * The listing carries metadata + a preview only; `getRevisionEntry` returns the
+ * full before/after text when a row is opened. */
+export interface RevisionEntryMeta {
+  id: string;                 // 'v:<id>' | 'd:<id>' — stable across both tables
+  kind: 'version' | 'edit';
+  rowId: string;
+  chapterId: string | null;
+  chapterTitle: string;
+  at: number;
+  source: string;
+  action: string | null;
+  scope: 'chapter' | 'passage';
+  words: number | null;       // snapshot word count (versions)
+  afterWords: number | null;  // text that replaced the snapshot (versions)
+  chars: number;              // length of the before text
+  preview: string;
+  restoredAt: number | null;  // dumps only: already rolled back
+}
+export interface RevisionEntryDetail {
+  ok?: boolean;
+  error?: string;
+  id: string;
+  kind: 'version' | 'edit';
+  chapterId: string | null;
+  chapterTitle: string;
+  at: number;
+  source: string;
+  action: string | null;
+  scope: 'chapter' | 'passage';
+  title?: string;
+  before: string;
+  after: string;
+  startOffset: number | null;
+  endOffset: number | null;
+  restoredAt: number | null;
+}
 /** One user-saved prompt in the Prompt Library. */
 export interface UserPrompt { id: string; category: string; title: string; template: string; created_at?: number; updated_at?: number }
 /** One beat on the Story Flow board (outline card grouped by act). */
@@ -92,6 +149,8 @@ export interface DbStats {
   versions: number;
 }
 export interface PluginRow { id: string; name: string; code: string; enabled: number }
+export type SkillCategory = 'chat' | 'agent' | 'writing';
+
 export interface SkillRow {
   id: string;
   name: string;
@@ -101,6 +160,8 @@ export interface SkillRow {
   enabled: number;
   /** 1 = shipped with the app: editable, resettable, never deletable. */
   builtin?: number;
+  /** Which desk the skill belongs to (v1.3.0). */
+  category?: SkillCategory;
 }
 export interface AutomationRow { id: string; name: string; trigger: string; action: string; param?: string; enabled?: number }
 export interface McpRow { id: string; name: string; command: string; args: string; env: string; enabled: number }
@@ -194,9 +255,54 @@ export interface AppInfo {
   version: string;
   platform: string;
   dataPath: string;
+  /** Active SQLite file, shown in Settings → Data. */
+  dbPath?: string;
+  dbSchema?: number | null;
   donateUrl: string;
   /** API keys encrypted at rest (OS credential vault available & used). */
   encryption?: boolean;
+}
+
+export interface LibraryEntry {
+  name: string;
+  bytes: number;
+  modified: number;
+  /** SQLite `user_version`; null when the file cannot be read. */
+  schema: number | null;
+  status: 'current' | 'legacy' | 'newer' | 'unreadable';
+  active: boolean;
+}
+
+export interface LibraryState {
+  dir: string;
+  active: string;
+  currentSchema: number;
+  entries: LibraryEntry[];
+}
+
+export interface LibraryResult<T = unknown> {
+  ok: boolean;
+  data?: T;
+  error?: string;
+}
+
+/** One whole-file copy of the active library (Library Time Machine). */
+export interface SnapshotEntry {
+  name: string;
+  /** manual | daily | pre-migration-vN | pre-import | pre-restore | pre-reset */
+  reason: string;
+  savedAt: number;
+  bytes: number;
+  schema: number | null;
+  status: 'current' | 'legacy' | 'newer' | 'unreadable';
+}
+
+export interface SnapshotState {
+  /** Snapshot folder for the active library only. */
+  dir: string;
+  active: string;
+  max: number;
+  entries: SnapshotEntry[];
 }
 
 export interface TrustEntry {
@@ -239,6 +345,20 @@ export interface InkwellApi {
   /** Fetch a remote image through the main process → a data: URL. */
   fetchImage(url: string): Promise<{ ok: boolean; data?: string; error?: string }>;
   appInfo(): Promise<AppInfo>;
+  /** Databases in the profile folder, their schema, and which one is active. */
+  libraries(): Promise<LibraryResult<LibraryState>>;
+  librarySwitch(name: string): Promise<LibraryResult<{ name: string; schema: number; legacy: boolean }>>;
+  libraryCreate(name: string): Promise<LibraryResult<{ name: string }>>;
+  libraryImport(): Promise<LibraryResult<{ entry: LibraryEntry; source: string }>>;
+  /** One-file copy for another machine; provider keys and approvals are removed. */
+  libraryExport(): Promise<LibraryResult<{ name: string; path: string; bytes: number }>>;
+  revealDataFolder(): Promise<boolean>;
+  /** Whole-file snapshots of the active library. */
+  snapshots(): Promise<LibraryResult<SnapshotState>>;
+  snapshotCreate(): Promise<LibraryResult<{ entry: SnapshotEntry; state: SnapshotState }>>;
+  snapshotRestore(name: string): Promise<LibraryResult<{ name: string }>>;
+  /** Native zoom for the whole UI (0.85–1.25). */
+  setZoom(factor: number): boolean;
   /** Unread badge for the window title; `chatTitle` is used when nothing is unread. */
   setUnreadCount(count: number, chatTitle?: string): Promise<boolean>;
   /** Window flash for the `notify` automation action (optional: browser dev). */

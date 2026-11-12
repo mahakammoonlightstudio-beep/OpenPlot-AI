@@ -95,6 +95,26 @@ check('search_story finds renamed entry', hits.some((h) => h.title === 'Sunken C
 const kindHits = parse(executeTool({ name: 'search_story', input: { query: 'storm', kind: 'character' } }));
 check('search_story kind filter returns none for mismatch', (kindHits.entries || []).length === 0);
 
+// ---------- 4e. skills: the agent switches them on and off itself ----------
+const skillChat = dbCall('createChat', { title: 'Skill chat' });
+const skillsList = parse(executeTool({ name: 'list_skills', input: {} }, { chatId: skillChat.id }));
+check('list_skills marks builtins inactive by default',
+  skillsList.length >= 4 && skillsList.every((s) => s.active === false), JSON.stringify(skillsList.slice(0, 2)));
+const usedSkill = parse(executeTool({ name: 'use_skill', input: { skill: 'continuity' } }, { chatId: skillChat.id }));
+check('use_skill matches by name and returns the instructions now',
+  usedSkill.ok === true && /continu/i.test(usedSkill.name) && (usedSkill.instructions || '').length > 20,
+  JSON.stringify(usedSkill).slice(0, 120));
+const afterOn = dbCall('listChats', {}).find((c) => c.id === skillChat.id);
+check('use_skill persists skills_on for later turns',
+  JSON.parse(afterOn.skills_on).includes(usedSkill.id), afterOn.skills_on);
+const droppedSkill = parse(executeTool({ name: 'drop_skill', input: { skill: usedSkill.name } }, { chatId: skillChat.id }));
+const afterOff = dbCall('listChats', {}).find((c) => c.id === skillChat.id);
+check('drop_skill removes it from skills_on and mutes it',
+  droppedSkill.ok === true && JSON.parse(afterOff.skills_on).length === 0 && JSON.parse(afterOff.skills_off).includes(usedSkill.id),
+  JSON.stringify({ on: afterOff.skills_on, off: afterOff.skills_off }));
+check('skill tools refuse a run with no chat',
+  !!parse(executeTool({ name: 'use_skill', input: { skill: 'continuity' } })).error);
+
 // unknown tool → error JSON, never throws
 check('unknown tool returns error JSON', !!parse(executeTool({ name: 'nope', input: {} })).error);
 

@@ -4,6 +4,7 @@ import { useWriteStats, statsSummary, dayKey, projectStreak, DayStat } from '../
 import { useT } from '../i18nReact';
 import { Icon } from './Icons';
 import { Chapter } from '../types';
+import { analyzeManuscript } from '../lib/manuscript';
 
 export function wordCount(s: string): number {
   return (s.trim().match(/\S+/g) || []).length;
@@ -94,6 +95,19 @@ export function StatsView() {
     [chapters, arcPid]
   );
   const arcStakes = arcPid ? projectStats[arcPid]?.stakes || {} : {};
+
+  // Manuscript check: a deterministic pass over the selected novel's chapters.
+  // Live and local — it reads the same chapter rows the editor saves.
+  const [checkProjectId, setCheckProjectId] = useState<string | null>(activeProjectId);
+  const checkPid = checkProjectId || activeProjectId || projects[0]?.id || null;
+  const checkChapters = useMemo(
+    () => chapters.filter((c) => c.project_id === checkPid).sort((a, b) => a.position - b.position),
+    [chapters, checkPid]
+  );
+  const report = useMemo(
+    () => analyzeManuscript(checkChapters.map((c) => ({ id: c.id, title: c.title, content: c.content || '' }))),
+    [checkChapters]
+  );
 
   function aiAnalyze() {
     if (!arcChapters.length) return;
@@ -198,6 +212,134 @@ export function StatsView() {
             );
           })}
           {perProject.size === 0 && <div className="hint">{t('story.nothing')}</div>}
+        </div>
+
+        <div className="card ms-card">
+          <div className="ms-head">
+            <h3 style={{ margin: 0, flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="search" size={15} /> {t('stats.check')}
+            </h3>
+            <select
+              value={checkPid || ''}
+              onChange={(e) => setCheckProjectId(e.target.value || null)}
+              aria-label={t('stats.checkProject')}
+            >
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <div className="hint" style={{ margin: '6px 0 12px' }}>{t('stats.checkDesc')}</div>
+
+          {!checkChapters.length ? (
+            <div className="hint">{t('stats.checkEmpty')}</div>
+          ) : (
+            <>
+              <div className="ms-facts">
+                <div className="ms-fact">
+                  <span>{t('stats.readingTime')}</span>
+                  <b>{report.readingMinutes} <em>{t('stats.minutesUnit')}</em></b>
+                </div>
+                <div className="ms-fact">
+                  <span>{t('stats.dialogue')}</span>
+                  <b>{report.dialogueShare}<em>%</em></b>
+                </div>
+                <div className="ms-fact">
+                  <span>{t('stats.avgSentence')}</span>
+                  <b>{report.avgSentence} <em>{t('stats.wordsUnit')}</em></b>
+                </div>
+                <div className="ms-fact">
+                  <span>{t('stats.longSentences')}</span>
+                  <b>{report.longSentenceCount}</b>
+                </div>
+              </div>
+
+              <div className="ms-grid">
+                <div className="ms-block">
+                  <div className="ms-block-title">{t('stats.filterWords')}</div>
+                  <div className="hint">{t('stats.filterWordsHint')}</div>
+                  {report.filterWords.length ? (
+                    <div className="ms-chips">
+                      {report.filterWords.map((w) => (
+                        <span key={w.word} className="ms-chip">{w.word}<em>{w.count}</em></span>
+                      ))}
+                    </div>
+                  ) : <div className="hint">{t('stats.checkClean')}</div>}
+                </div>
+
+                <div className="ms-block">
+                  <div className="ms-block-title">{t('stats.openings')}</div>
+                  <div className="hint">{t('stats.openingsHint')}</div>
+                  {report.openings.length ? (
+                    <div className="ms-chips">
+                      {report.openings.map((o) => (
+                        <span key={o.word} className="ms-chip">{o.word}…<em>×{o.count}</em></span>
+                      ))}
+                    </div>
+                  ) : <div className="hint">{t('stats.checkClean')}</div>}
+                </div>
+
+                <div className="ms-block">
+                  <div className="ms-block-title">{t('stats.overused')}</div>
+                  <div className="hint">{t('stats.overusedHint')}</div>
+                  {report.overused.length ? (
+                    <div className="ms-chips">
+                      {report.overused.map((w) => (
+                        <span key={w.word} className="ms-chip">{w.word}<em>{w.count}</em></span>
+                      ))}
+                    </div>
+                  ) : <div className="hint">{t('stats.checkClean')}</div>}
+                </div>
+
+                <div className="ms-block">
+                  <div className="ms-block-title">{t('stats.adverbs')}</div>
+                  <div className="hint">{t('stats.adverbsHint')}</div>
+                  {report.adverbs.length ? (
+                    <div className="ms-chips">
+                      {report.adverbs.map((w) => (
+                        <span key={w.word} className="ms-chip">{w.word}<em>{w.count}</em></span>
+                      ))}
+                    </div>
+                  ) : <div className="hint">{t('stats.checkClean')}</div>}
+                </div>
+              </div>
+
+              {report.longSentences.length > 0 && (
+                <div className="ms-block">
+                  <div className="ms-block-title">
+                    {t('stats.longSentences')} <em>{report.longSentenceCount}</em>
+                  </div>
+                  <ul className="ms-long">
+                    {report.longSentences.map((s, i) => (
+                      <li key={i}>
+                        <div className="ms-long-meta">{s.chapter} · {s.words} {t('stats.wordsUnit')}</div>
+                        <p>{s.text}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="ms-table" role="table" aria-label={t('stats.perChapter')}>
+                <div className="ms-row ms-row-head" role="row">
+                  <span role="columnheader">{t('stats.perChapter')}</span>
+                  <span role="columnheader">{t('stats.checkWords')}</span>
+                  <span role="columnheader">{t('stats.checkDialogue')}</span>
+                  <span role="columnheader">{t('stats.checkAvg')}</span>
+                  <span role="columnheader">{t('stats.checkLong')}</span>
+                </div>
+                {report.chapters.map((c, i) => (
+                  <div key={c.id || i} className="ms-row" role="row">
+                    <span className="ms-ch-title" role="cell" title={c.title}>{c.title}</span>
+                    <span role="cell">{c.words.toLocaleString()}</span>
+                    <span role="cell">{c.dialogueShare}%</span>
+                    <span role="cell">{c.avgSentence}</span>
+                    <span role="cell" className={c.longSentences > 0 ? 'ms-warn' : ''}>{c.longSentences}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="hint" style={{ marginTop: 10 }}>{t('stats.checkNote')}</div>
+            </>
+          )}
         </div>
 
         <div className="card">

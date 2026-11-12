@@ -19,3 +19,8 @@ Statistik menghitung kata yang benar-benar kamu tulis, per hari dan per proyek. 
 - **Per proyek** menunjukkan ke mana tulisannya pergi.
 
 Angkanya perkiraan: ini grafik motivasi, bukan jejak audit.
+
+## Periksa naskah
+Di bawah grafik, **Periksa naskah** membaca chapter novel terpilih dan memberi petunjuk revisi: waktu baca, porsi dialog, rata-rata panjang kalimat, kata filter (“merasa”, “melihat”, “menyadari”), pembuka kalimat berulang, kata isi yang berlebihan, kata keterangan `-ly`, dan kalimat terpanjang beserta chapter asalnya. Ada juga baris per chapter supaya kelihatan chapter mana yang melenceng.
+
+Semuanya dihitung lokal dari teks yang sudah kamu simpan — tanpa panggilan AI, tanpa unggahan. Angkanya heuristik, jadi anggap pertanyaan untuk naskah, bukan vonis: “dia” yang berulang bisa disengaja, dan kalimat panjang bisa jadi kalimat terbaik di buku itu.

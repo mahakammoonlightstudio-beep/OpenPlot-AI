@@ -28,22 +28,28 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'openplot-skills-'));
 await initDb(tmp, 'skills.db');
 
 // --------------------------------------------------------------- builtins ---
-check('seed: ships six builtin skills', DEFAULT_SKILLS.length === DEFAULT_SKILLS.length, String(DEFAULT_SKILLS.length));
+check('seed: ships the full builtin skill set', DEFAULT_SKILLS.length === 9, String(DEFAULT_SKILLS.length));
 check('seed: every builtin has an id, name, description and content',
   DEFAULT_SKILLS.every((s) => /^skill-/.test(s.id) && s.name && s.description && s.content.length > 40));
-check('seed: the database holds all six', skills().filter((s) => Number(s.builtin) === 1).length === DEFAULT_SKILLS.length);
+check('seed: the database holds every builtin', skills().filter((s) => Number(s.builtin) === 1).length === DEFAULT_SKILLS.length);
 check('seed: builtins start DISABLED (skills are opt-in via /skill)',
   skills().every((s) => Number(s.enabled) === 0));
 check('seed: descriptions are persisted', skills().every((s) => String(s.description || '').length > 10));
+check('seed: every builtin has a valid category',
+  skills().every((s) => ['chat', 'agent', 'writing'].includes(String(s.category))));
 
 // ------------------------------------------------------------ enable gate ---
 const added = handleDb('saveSkill', { name: 'My voice', content: 'Write like a tired detective.' });
 check('add: a new skill is saved disabled', Number(added?.enabled) === 0, JSON.stringify(added));
 check('add: a new skill is not builtin', Number(added?.builtin) === 0);
 check('add: it is listed right away', !!byId(added.id));
+check('add: an omitted category defaults to writing', added?.category === 'writing', String(added?.category));
 
-const enabled = handleDb('saveSkill', { id: added.id, name: 'My voice', content: 'Write like a tired detective.', enabled: true });
+const enabled = handleDb('saveSkill', { id: added.id, name: 'My voice', content: 'Write like a tired detective.', category: 'agent', enabled: true });
 check('enable: the explicit toggle sticks', Number(enabled?.enabled) === 1);
+check('category: an explicit category is stored', enabled?.category === 'agent', String(enabled?.category));
+const kept = handleDb('saveSkill', { id: added.id, name: 'My voice', content: 'Write like a tired detective.', enabled: false });
+check('category: an omitted category keeps the stored one', kept?.category === 'agent', String(kept?.category));
 
 // --------------------------------------------------------------- builtins ---
 const edited = handleDb('saveSkill', {
@@ -60,6 +66,7 @@ const reset = handleDb('resetSkill', { id: 'skill-prose' });
 const shipped = DEFAULT_SKILLS.find((s) => s.id === 'skill-prose');
 check('builtin: reset restores the shipped name and content',
   reset?.name === shipped.name && reset?.content === shipped.content && reset?.description === shipped.description);
+check('builtin: reset restores the shipped category', reset?.category === shipped.category, String(reset?.category));
 
 let resetRefused = false;
 try { handleDb('resetSkill', { id: added.id }); } catch { resetRefused = true; }

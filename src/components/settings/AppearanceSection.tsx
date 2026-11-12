@@ -1,5 +1,7 @@
 import { useSettings } from '../../store';
 import { useT } from '../../i18nReact';
+import { LANGS, type Lang } from '../../i18n';
+import { UI_FONTS, sanitizeFontFamily, uiFontStack } from '../../lib/appearance';
 
 // ---------------- Appearance ----------------
 const THEMES = [
@@ -40,6 +42,87 @@ export function AppearanceSection() {
             </div>
           ))}
         </div>
+      </div>
+      <div className="card" id="set-ui-font">
+        <h3>{t('appearance.uiFont')}</h3>
+        <div className="font-grid">
+          {UI_FONTS.map((font) => (
+            <button
+              key={font.id}
+              className={`font-choice ${settings.uiFont === font.id ? 'active' : ''}`}
+              onClick={() => settings.set('uiFont', font.id)}
+              title={font.preview}
+            >
+              <b style={{ fontFamily: uiFontStack(font.id, settings.uiFontCustom) }}>Aa</b>
+              <span>{t(font.labelKey)}</span>
+            </button>
+          ))}
+        </div>
+        {settings.uiFont === 'custom' && (
+          <div className="field" style={{ marginTop: 10 }}>
+            <label>{t('appearance.font.customHint')}</label>
+            <input
+              value={settings.uiFontCustom}
+              onChange={(e) => settings.set('uiFontCustom', sanitizeFontFamily(e.target.value))}
+              placeholder="'Atkinson Hyperlegible', 'Segoe UI', sans-serif"
+              maxLength={160}
+            />
+          </div>
+        )}
+        <div className="font-sample" style={{ fontFamily: uiFontStack(settings.uiFont, settings.uiFontCustom) }}>
+          {t('appearance.font.sample')}
+        </div>
+        <div className="hint">{t('appearance.uiFontHint')}</div>
+      </div>
+
+      <div className="card" id="set-ui-layout">
+        <h3>{t('appearance.uiLayout')}</h3>
+        <div className="field">
+          <label>{t('appearance.uiScale')}: {Math.round(settings.uiScale * 100)}%</label>
+          <input
+            type="range" min={85} max={125} step={5}
+            value={Math.round(settings.uiScale * 100)}
+            onChange={(e) => settings.set('uiScale', Number(e.target.value) / 100)}
+            style={{ width: 260 }}
+          />
+          <div className="hint">{t('appearance.uiScaleHint')}</div>
+        </div>
+        <div className="field">
+          <label>{t('appearance.density')}</label>
+          <select
+            value={settings.uiDensity}
+            onChange={(e) => settings.set('uiDensity', e.target.value as 'comfortable' | 'compact')}
+            style={{ maxWidth: 280 }}
+          >
+            <option value="comfortable">{t('appearance.density.comfortable')}</option>
+            <option value="compact">{t('appearance.density.compact')}</option>
+          </select>
+        </div>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label>{t('appearance.radius')}: {settings.uiRadius}px</label>
+          <input
+            type="range" min={4} max={18}
+            value={settings.uiRadius}
+            onChange={(e) => settings.set('uiRadius', Number(e.target.value))}
+            style={{ width: 260 }}
+          />
+        </div>
+      </div>
+
+      <div className="card" id="set-language">
+        <h3>{t('appearance.language')}</h3>
+        <select
+          value={settings.lang}
+          onChange={(e) => settings.set('lang', e.target.value as Lang)}
+          style={{ maxWidth: 280 }}
+          aria-label={t('appearance.language')}
+        >
+          {LANGS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+        </select>
+        <div className="hint" style={{ marginTop: 8 }}>{t('appearance.languageHint')}</div>
+        {(settings.lang === 'es' || settings.lang === 'hi') && (
+          <div className="hint" style={{ marginTop: 4 }}>{t('appearance.languageBeta')}</div>
+        )}
       </div>
       <div className="card" id="set-accent">
         <h3>{t('appearance.accent')}</h3>

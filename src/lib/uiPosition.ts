@@ -10,13 +10,17 @@
  * ghost row.
  */
 export const UI_ROUTES = [
+  'home',
   'chat',
   'agent',
+  'write',
+  'story-agent',
   'story',
   'chapters',
   'flow',
   'projects',
   'stats',
+  'dump',
   'settings',
   'settings-plugins',
   'settings-appearance',

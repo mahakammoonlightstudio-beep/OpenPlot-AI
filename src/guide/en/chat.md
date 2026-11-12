@@ -25,9 +25,10 @@ The header shows the model, the token meter and the project chip. Each chat keep
 - per-chat skill opt-outs.
 
 ## Organising
-- **Folders** group chats in the sidebar; move a chat into a folder from its menu.
+- **Folders** group chats in the sidebar, separately for Chat and Agent. Click a folder to open it and use its `+` to start a chat inside; drag any chat onto a folder to file it, and onto the **Chats** header to take it back out.
 - **Pin** keeps a chat at the top.
 - **Rename** from the chat row or the header.
+- **Quick switch** — `Ctrl+P` opens a chats-and-projects-only palette; type part of a title, project name or workspace and press `Enter`.
 - Deleting a chat deletes its messages and attached files. There is no undo — export from [[settings:data]] first if the chat matters.
 
 ## What the model actually sees

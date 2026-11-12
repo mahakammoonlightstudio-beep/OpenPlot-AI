@@ -10,6 +10,7 @@ order: 19
 | Keys | Action |
 | --- | --- |
 | `Ctrl+K` | Command palette |
+| `Ctrl+P` | Quick switch (chats and projects) |
 | `Ctrl+N` | New chat |
 | `Ctrl+Shift+N` | New project |
 | `Ctrl+F` | Focus chat search |

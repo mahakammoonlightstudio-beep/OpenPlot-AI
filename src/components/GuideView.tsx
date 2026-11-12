@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useData, useSettings, useUi } from '../store';
 import { useT } from '../i18nReact';
+import { guideLangFor } from '../i18n';
 import { Icon } from './Icons';
 import { useMarkdown, hardenLinks } from '../markdown';
 import { GUIDE_DOCS, DEFAULT_GUIDE_SLUG } from '../guide';
@@ -41,10 +42,11 @@ export function GuideView() {
   const bodyRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  const list = useMemo(() => articleList(lang, GUIDE_DOCS), [lang]);
+  const guideLang = guideLangFor(lang);
+  const list = useMemo(() => articleList(guideLang, GUIDE_DOCS), [guideLang]);
   const article = useMemo(
-    () => resolveArticle(slug, lang, GUIDE_DOCS) || resolveArticle(DEFAULT_GUIDE_SLUG, lang, GUIDE_DOCS),
-    [slug, lang]
+    () => resolveArticle(slug, guideLang, GUIDE_DOCS) || resolveArticle(DEFAULT_GUIDE_SLUG, guideLang, GUIDE_DOCS),
+    [slug, guideLang]
   );
   const { prev, next } = neighbours(article?.slug || '', list);
   const hits = useMemo(() => searchGuide(q, list), [q, list]);

@@ -1,9 +1,10 @@
 # OpenPlot AI Plugin API
 
-_Applies to OpenPlot AI 1.2.x — reviewed for 1.2.3 (2026-10-27)._
+_Applies to OpenPlot AI 1.3.x — reviewed for 1.3.0 (2026-11-12)._
 
-Plugins are plain JavaScript files that receive a `context` object. They run inside a
-function sandbox in the Electron main process.
+Plugins are plain JavaScript files that receive a `context` object. They run in the
+Electron main process inside a function wrapper. That wrapper is a convenience
+boundary, **not** a security sandbox: approved plugin code has the app's permissions.
 
 ```js
 // My first plugin
@@ -21,8 +22,8 @@ context.registerCommand('hello', () => {
 | Property | Signature | Description |
 |---|---|---|
 | `context.db.call` | `(op, payload) => any` | Run any DB operation (same ops as the IPC `db` channel), e.g. `context.db.call('addMemory', { content: '…', source: 'my-plugin' })` |
-| `context.settings.get` | `(key) => string \| undefined` | Read a stored setting (raw JSON string) |
-| `context.settings.set` | `(key, value) => void` | Write a setting |
+| `context.settings.get` | `(key) => string \| undefined` | Read a stored setting (raw JSON string). Credential settings may be ciphertext; do not expect decrypted keys here. |
+| `context.settings.set` | `(key, value) => void` | Write a setting (same validation as the renderer) |
 | `context.toast` | `(msg) => void` | Show a toast in the UI |
 | `context.log` | `(msg) => void` | Write to the plugin log (visible in Settings → Plugins) |
 | `context.registerHook` | `(name, fn) => void` | Subscribe to a hook |
@@ -91,8 +92,8 @@ the supported way to restore one.
 Settings → agent.md holds global instructions (Markdown) injected as high-priority system
 context in **every** chat. Use it for voice, style, formatting rules and hard constraints.
 
-The default is versioned: an untouched 1.2.x default upgrades once to the newer text, while
-any edited text is preserved exactly. The editor previews the compiled system prompt
+The default is versioned: an untouched built-in default upgrades once to the newer text,
+while any edited text is preserved exactly. The editor previews the compiled system prompt
 (agent.md + project + skills + reply style + memory) so you can see the result before saving.
 
 ## Agent tools
@@ -150,4 +151,5 @@ Automations, where **Test** runs exactly one rule.
 
 - [Changelog](../CHANGELOG.md)
 - [Stress test notes](STRESS_TEST.md)
-- [In-app guide](../README.md#new-in-123) — shipped inside the app from 1.2.3
+- [Handbook](HANDBOOK.md) · [Panduan (ID)](HANDBOOK.id.md) — also shipped inside the app
+- [Security policy](../SECURITY.md)

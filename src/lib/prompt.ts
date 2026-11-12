@@ -25,8 +25,8 @@ export interface PromptSkill {
 }
 
 /** The chat's working mode — prompt-level, so every model can follow it. */
-export type ChatMode = 'plan' | 'brainstorm' | 'write';
-export const CHAT_MODES: ChatMode[] = ['plan', 'brainstorm', 'write'];
+export type ChatMode = 'plan' | 'brainstorm' | 'write' | 'edit';
+export const CHAT_MODES: ChatMode[] = ['plan', 'brainstorm', 'write', 'edit'];
 
 export interface PromptStyle {
   id: string;
@@ -61,6 +61,8 @@ export interface BuildSystemPromptOptions {
   mode?: ChatMode;
   /** Agent mode: the model may call tools in a loop. */
   agentMode?: boolean;
+  /** Which Advance workspace this prompt belongs to (v1.3.0). */
+  workspace?: 'chat' | 'agent';
   style?: PromptStyle | null;
   goal?: string | null;
   toolsEnabled?: boolean;
@@ -87,7 +89,7 @@ const RATING_LABELS: Record<string, string> = {
   mature: 'CONTENT RATING: mature. Adult themes, strong language, and graphic violence are allowed when the story calls for it; keep sexual content non-explicit (fade to black).'
 };
 
-const TOOL_NAMES = 'create_project, save_memory, list_memories, create_story_entry, update_story_entry, search_story, read_story_bible, read_story_file, create_chapter, update_chapter, append_to_chapter, list_chapters, read_chapter, list_projects, read_project, web_search, web_fetch';
+const TOOL_NAMES = 'set_mode, list_skills, use_skill, drop_skill, create_project, save_memory, list_memories, create_story_entry, update_story_entry, search_story, read_story_bible, read_story_file, create_chapter, update_chapter, append_to_chapter, list_chapters, read_chapter, list_projects, read_project, search_text_dump, restore_text_dump, web_search, web_fetch';
 
 /**
  * Mode blocks (v1.2.5). Written short, numbered and imperative so weak models
@@ -122,6 +124,15 @@ const MODE_BLOCKS: Record<ChatMode, string> = {
     '- Use concrete sensory detail and strong verbs; cut filler transitions and adverbs that repeat the verb.',
     '- End on a turn, image or question that pulls the reader forward.',
     'If the user asks for a rewrite, return the FULL revised passage, never only the changed lines.'
+  ].join('\n'),
+  edit: [
+    '# Mode: edit',
+    'Revise the passage you were given. Return the FULL rewritten text, never a patch and never only the changed lines.',
+    '- Keep the meaning, facts, point of view, tense and voice unless the request explicitly changes them.',
+    '- Fix the problem the request names; do not add new scenes, characters or subplots.',
+    '- Preserve paragraph breaks and dialogue formatting.',
+    'After the revised text, add at most 3 short bullets naming what you changed and why.',
+    'If no passage was given, ask for it in one sentence and stop.'
   ].join('\n')
 };
 
@@ -153,7 +164,7 @@ const AGENT_BLOCK = [
 ].join('\n');
 
 export function isChatMode(value: unknown): value is ChatMode {
-  return value === 'plan' || value === 'brainstorm' || value === 'write';
+  return value === 'plan' || value === 'brainstorm' || value === 'write' || value === 'edit';
 }
 
 /** The mode instruction, plus one line that explains the current tool setting. */
@@ -302,6 +313,18 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
   // The working mode sits right under the system prompt: a reply style or a
   // long project block must not be able to outrank "plan, don't draft".
   if (opts.mode) parts.push(buildModeBlock(opts.mode, !!opts.agentMode));
+
+  // The Agent workspace is the only place the model may move itself between
+  // modes; Chat and Writing keep the mode the user picked.
+  if (opts.workspace === 'agent') {
+    parts.push([
+      '# Agent workspace',
+      'Tools are always available here and you can work across the whole app: projects, the story bible, chapters, story flow, memories and the web.',
+      'The four modes are plan, brainstorm, write and edit. Call set_mode when the task moves on (plan first, then write, then edit), then keep working in the new mode without asking the user to switch it by hand.',
+      'Do not call set_mode with the mode you are already in.',
+      'Skills ship off. Before a task, call list_skills, then use_skill for the ones that fit what you are about to do; call drop_skill when a skill stops applying. Keep two or three active at a time so they cannot contradict each other, and never ask the user to switch a skill on by hand.'
+    ].join('\n'));
+  }
 
   const project = opts.project || null;
   if (project) {

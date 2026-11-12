@@ -1,7 +1,7 @@
 {
   "name": "openplot-ai",
   "productName": "OpenPlot AI",
-  "version": "1.2.5",
+  "version": "1.3.0",
   "description": "OpenPlot AI — a local-first AI chat & story-writing studio by Mahakam Moonlight Studio, for Windows, Linux and macOS.",
   "main": "dist-electron/main.js",
   "author": "Mahakam Moonlight Studio",
@@ -22,6 +22,7 @@
     "test": "node scripts/run-all-tests.mjs",
     "test:e2e": "node scripts/run-all-tests.mjs --all",
     "bench": "node scripts/perf-test.mjs",
+    "bench:memory": "node scripts/memory-bench.mjs",
     "budget": "node scripts/bundle-budget.mjs",
     "start": "electron .",
     "release": "node scripts/release.mjs",
@@ -31,7 +32,7 @@
     "dist:mac": "vite build && tsc -p tsconfig.electron.json && electron-builder --mac"
   },
   "dependencies": {
-    "dompurify": "^3.4.16",
+    "dompurify": "^3.4.17",
     "highlight.js": "^11.10.0",
     "marked": "^15.0.0",
     "sql.js": "^1.13.0"

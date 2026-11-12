@@ -152,6 +152,12 @@
     }
     footer .wrap { display: flex; flex-wrap: wrap; gap: 14px; justify-content: space-between; align-items: center; }
     footer .donate a { margin-left: 14px; }
+    footer .donate a.paypal {
+      display: inline-block; margin-left: 10px; padding: 4px 11px;
+      border: 1px solid var(--border); border-radius: 999px;
+      color: var(--text); font-weight: 600;
+    }
+    footer .donate a.paypal:hover { border-color: var(--accent); color: var(--accent); }
 
     @media (max-width: 640px) {
       nav .links { display: none; }
@@ -227,12 +233,12 @@
           <p>Penyimpanan SQLite lokal. Tanpa akun, tanpa cloud, tanpa telemetry. Open source dengan lisensi MIT.</p>
         </div>
         <div class="card">
-          <h3>Baru di v1.2</h3>
-          <p>Plot Smith, agen cerita terpandu: tiga opsi premis, para tokoh, kerangka tiga babak, dan proyek siap pakai. Lampirkan file referensi ke entri Kitab Cerita mana pun, impor Markdown/JSON/CSV sekali jalan, dan nikmati inti yang lebih ringan — database hanya ditulis saat ada perubahan.</p>
+          <h3>Library &amp; Time Machine</h3>
+          <p>Simpan beberapa library dalam satu studio dan beralih dengan restart. Setiap library menyimpan hingga 12 snapshot utuh — sebelum migrasi, impor, reset, dan restore, plus salinan harian — jadi edit yang keliru tidak pernah final.</p>
         </div>
         <div class="card">
-          <h3>Baru di v1.2.5</h3>
-          <p>App terbuka di Home dengan sapaan sesuai waktu, quick start, dan strip kesehatan model. Sakelar Web memberi chat mana pun web_search dan web_fetch tanpa mode agen, panggilan tool diringkas jadi satu log yang mudah dibaca di bawah balasan, dan persetujuan plugin/MCP bisa ditinjau, ditandai saat kodenya berubah, serta dicabut di Settings. Gambar Markdown remote diambil oleh main process supaya jendela tetap offline, dialog tertutup pada Escape pertama, dan tiga tema baru melengkapi tigabelas yang sudah ada.</p>
+          <h3>Lebih cepat di 1.3</h3>
+          <p>Ctrl/Cmd+P membuka quick switch chat dan proyek dari mana saja. Ekspor <code>.db</code> portabel berisi seluruh studio tanpa rahasia yang terikat mesin, ikuti setiap perubahan bab di Revision Timeline, periksa skill di Skill Lab, dan atur font, zoom, kepadatan, serta sudut antarmuka.</p>
         </div>
       </div>
     </div>
@@ -240,7 +246,7 @@
 
   <section id="download" style="background: var(--panel); border-block: 1px solid var(--border);">
     <div class="wrap">
-      <h2>Unduh <span class="badge" id="ver-badge">v1.2.5</span></h2>
+      <h2>Unduh <span class="badge" id="ver-badge">v1.3.0</span></h2>
       <p style="color: var(--muted); max-width: 620px;">
         Tombol di atas otomatis memilih installer yang sesuai untuk sistem operasimu.
         Ingin memilih manual? Semua aset:
@@ -263,9 +269,15 @@
             <td></td>
           </tr>
           <tr>
-            <td>Linux</td>
+            <td>Linux (x64)</td>
             <td class="dl"><a data-os="linux" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">.AppImage</a></td>
             <td class="dl"><a data-os="linux-tar" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">.tar.gz</a></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>Linux (arm64)</td>
+            <td class="dl"><a data-os="linux-arm64" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">.AppImage</a></td>
+            <td class="dl"><a data-os="linux-arm64-tar" href="https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases/latest">.tar.gz</a></td>
             <td></td>
           </tr>
         </tbody>
@@ -305,6 +317,7 @@
       </div>
       <div class="donate">
         Dukung proyek ini:
+        <a class="paypal" href="https://www.paypal.com/paypalme/mrfozan">PayPal</a> ·
         <a href="https://sociabuzz.com/mahakam_moonlight_studio/tribe">SociaBuzz</a> ·
         <a href="https://saweria.co/MahakamMoonStudio">Saweria</a>
       </div>
@@ -323,17 +336,19 @@
       var isMac = /Mac|iPhone|iPad/i.test(ua);
       var isWindows = /Win/i.test(ua);
       var isLinux = /Linux|X11|CrOS/i.test(ua) && !isMac && !isWindows;
+      var isArm = /aarch64|arm64/i.test(ua);
 
       var OS_SUFFIX = {
         'win':      'OpenPlot.AI.Setup.VER.exe', 'win-zip': 'OpenPlot.AI-VER-win.zip',
         'mac-dmg':  'OpenPlot.AI-VER-universal.dmg', 'mac-zip': 'OpenPlot.AI-VER-universal-mac.zip',
-        'linux':    'OpenPlot.AI-VER.AppImage', 'linux-tar': 'openplot-ai-VER.tar.gz'
+        'linux':    'OpenPlot.AI-VER.AppImage', 'linux-tar': 'openplot-ai-VER.tar.gz',
+        'linux-arm64': 'OpenPlot.AI-VER-arm64.AppImage', 'linux-arm64-tar': 'OpenPlot.AI-VER-arm64.tar.gz'
       };
 
       function osKey() {
         if (isMac) return 'mac-dmg';
         if (isWindows) return 'win';
-        if (isLinux) return 'linux';
+        if (isLinux) return isArm ? 'linux-arm64' : 'linux';
         return null;
       }
 

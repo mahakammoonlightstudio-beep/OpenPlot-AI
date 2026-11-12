@@ -73,18 +73,21 @@ renderer (src/)  --window.inkwell.*-->  preload (electron/preload.ts)
 | --- | --- | --- |
 | `main.ts` | App lifecycle, window, menu, every IPC handler, provider/chat/export flows, plugin/MCP gate wiring, approval list/revoke | Adding an IPC channel or app-level behaviour |
 | `preload.ts` | The `window.inkwell` API (the renderer's only door) | You add/rename an IPC method (update `src/types.ts` too) |
-| `db.ts` | `sql.js` database, schema + versioned migrations, CRUD operations dispatched by `handleDb`, secret encryption | Adding a table/column, a DB operation, or migration |
+| `db.ts` | `sql.js` database, schema + versioned migrations, CRUD operations dispatched by `handleDb`, secret encryption and `settingSecret` | Adding a table/column, a DB operation, or migration |
+| `settingsPrivacy.ts` | The IPC redaction boundary for settings credentials | Adding a secret-bearing setting |
+| `libraryExport.ts` | Portable `.db` naming, target checks and staging-file writes | Changing library export |
+| `snapshots.ts` | Snapshot names, retention, listing and restore copies | Changing Time Machine |
 | `ai.ts` | Provider requests, SSE parsing, streaming, model listing, key/model probes | Changing how a provider is called |
 | `caps.ts` | Capability inference (context window, reasoning, cache) and the persisted registry | Changing capability heuristics |
 | `presets.ts` | Built-in provider presets and URL refresh | Adding a provider preset |
 | `tools.ts` | Agent tools the model can call (story bible, chapters, memory, projects) | Adding/changing an agent tool |
 | `prompt.ts` (in `src/lib`) | System-prompt assembly used by both sides | Changing what the model is told |
-| `plugins.ts` | Plugin sandbox (`vm`), lifecycle hooks, commands, logs | Changing the plugin API |
+| `plugins.ts` | Plugin loader (`new Function`, explicitly not a sandbox), approval check, lifecycle hooks, commands, logs | Changing the plugin API |
 | `mcp.ts` | MCP stdio bridge: spawn, handshake, tool calls, limits, teardown | Changing MCP behaviour |
 | `trust.ts` | Pure approval store: hashing, parsing, stale/orphan listing, revoke | Changing how approvals are matched |
-| `fileaccess.ts` | Attachment grants, sensitive-path refusal, file reads | Changing file access rules |
-| `webtools.ts` | `web_search` / `web_fetch`, SSRF and redirect guards | Changing outbound web research |
-| `images.ts` | Remote-image proxy: public-host check, redirects, raster-only, size/time caps | Changing how Markdown images load |
+| `fileaccess.ts` | Attachment grants, realpath/symlink checks, sensitive-path and private-root refusal, bounded reads | Changing file access rules |
+| `webtools.ts` | `web_search` / `web_fetch`, SSRF host + DNS guards, redirects, `settingSecret` for the search key | Changing outbound web research |
+| `images.ts` | Remote-image proxy: host + DNS checks, redirects, raster-only, streaming size/time caps | Changing how Markdown images load |
 
 ### Renderer — `src/`
 
@@ -97,10 +100,10 @@ renderer (src/)  --window.inkwell.*-->  preload (electron/preload.ts)
 | `i18n.ts` | English + Indonesian dictionaries (both must be updated) |
 | `i18nReact.ts` | `useT()` hook |
 | `markdown.tsx` | Markdown → sanitised HTML (DOMPurify), highlight cache |
-| `components/` | One file per view/major surface (see below) |
+| `components/` | One file per view/major surface (see below); `CommandPalette.tsx` owns quick switch and the command palette |
 | `components/settings/` | One file per Settings section + `TrustList` + `SmartSetupCard` |
 | `components/chat/` | Message bubble, streaming bubble, tool log, welcome screen, save-chapter modal |
-| `lib/` | Pure, testable logic (no React, no Electron) |
+| `lib/` | Pure, testable logic (no React, no Electron), including `shortcuts.ts` |
 | `guide/en/`, `guide/id/` | Bundled handbook articles (`?raw` imports, one article per slug) |
 | `styles/` | Ordered CSS partials; `styles.css` imports them in order |
 
@@ -157,17 +160,19 @@ one is a regression even if the UI looks fine.
    Never auto-approve, never persist the payload in the approval, never remove
    the "code changed" invalidation.
 7. **File reads stay grant-based.** `files:read` must keep refusing
-   sensitive paths even when a path was granted.
+   sensitive paths even when a path was granted. Resolve `realpath` and check
+   the target, not just the spelling the renderer sent.
 8. **Outbound guards stay on both checks.** SSRF rules apply to `web_fetch`
-   **and** the image proxy, including every redirect hop and the
-   `169.254.169.254` metadata address.
+   **and** the image proxy, including every redirect hop, the DNS answers the
+   socket actually uses, and the `169.254.169.254` metadata address.
 9. **Database changes are migrations.** Add to the ordered migration list in
    `electron/db.ts`, bump `SCHEMA_VERSION`, and keep a database written by a
    newer app from opening.
 10. **No telemetry, no cloud sync, no account.** The only outbound traffic is
     what the user configured.
-11. **Secrets never reach the renderer.** API keys stay in main, encrypted with
-    `safeStorage` when available; logs and errors must not print them.
+11. **Secrets never reach the renderer.** Provider keys and the web-search key
+    stay in main, encrypted with `safeStorage` when available and redacted at
+    the IPC boundary; logs, errors and portable exports must not print them.
 12. **Both languages, always.** `src/i18n.ts` has an English and an Indonesian
     block; a key in one and not the other breaks `scripts/guide-test.mjs`.
 
@@ -177,8 +182,8 @@ The suite is grouped by what it needs (see `scripts/run-all-tests.mjs`):
 
 | Group | Runs | Use it for |
 | --- | --- | --- |
-| `headless` | `npm test` | DB, migrations, tools, engine, parsers, security, trust, perf, bundle budget |
-| `e2e-local` | `npm run test:e2e` | boots its own Vite + Electron in an isolated profile (GUI, focus, UX, XSS) |
+| `headless` | `npm test` | DB, migrations, tools, engine, parsers, security, trust, quick switch, perf, bundle budget |
+| `e2e-local` | `npm run test:e2e` | boots its own Vite + Electron in an isolated profile (GUI, focus, UX, quick switch, XSS) |
 | `e2e-attach` | `--include=e2e-attach` | drives an already-running dev app over CDP |
 | `manual` | explicit `--include=manual` | real installed app / real profile / packaged build |
 

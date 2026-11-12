@@ -3,15 +3,18 @@ import { Provider, Project, Folder, Chat, Message, Memory, StoryEntry, Chapter, 
 import { readPosition, writePosition } from './lib/uiPosition';
 import { useUnreadStore } from './unreadStore';
 import { useWriteStats } from './writeStats';
+import { isLang, type Lang } from './i18n';
 
 // Mahakam Moonlight Studio — official links (v1.0.0 rebrand)
 export const DONATE_URL = 'https://sociabuzz.com/mahakam_moonlight_studio/tribe';
 export const SAWERIA_URL = 'https://saweria.co/MahakamMoonStudio';
+export const PAYPAL_URL = 'https://www.paypal.com/paypalme/mrfozan';
 // Donation channels — shown everywhere support is mentioned (About, Settings,
 // welcome screen, native Help menu) so users can pick their platform.
 export const DONATE_LINKS: { id: string; name: string; url: string }[] = [
   { id: 'sociabuzz', name: 'SociaBuzz', url: DONATE_URL },
-  { id: 'saweria', name: 'Saweria', url: SAWERIA_URL }
+  { id: 'saweria', name: 'Saweria', url: SAWERIA_URL },
+  { id: 'paypal', name: 'PayPal', url: PAYPAL_URL }
 ];
 export const GITHUB_URL = 'https://github.com/mahakammoonlightstudio-beep';
 export const YOUTUBE_URL = 'https://www.youtube.com/@MahakamMoonlightStudio';
@@ -72,6 +75,8 @@ interface ToastItem { id: string; msg: string; kind: 'info' | 'ok' | 'error' }
 interface UiState {
   toasts: ToastItem[];
   paletteOpen: boolean;
+  /** `commands` is Ctrl+K; `switch` is Ctrl+P, limited to chats/projects. */
+  paletteMode: 'commands' | 'switch';
   /** Zen-mode companion: slides the whole sidebar away (chat header toggle). */
   sidebarHidden: boolean;
   /**
@@ -86,7 +91,7 @@ interface UiState {
   shortcutsOpen: boolean;
   toast(msg: string, kind?: ToastItem['kind']): void;
   dismiss(id: string): void;
-  setPalette(open: boolean): void;
+  setPalette(open: boolean, mode?: 'commands' | 'switch'): void;
   setSidebarHidden(hidden: boolean): void;
   setSettingsSection(section: string | null, focusId?: string | null): void;
   clearSettingsFocus(): void;
@@ -96,6 +101,7 @@ interface UiState {
 export const useUi = create<UiState>((set) => ({
   toasts: [],
   paletteOpen: false,
+  paletteMode: 'commands',
   sidebarHidden: false,
   settingsSection: null,
   settingsFocus: null,
@@ -113,7 +119,7 @@ export const useUi = create<UiState>((set) => ({
     cancelToastTimer(id);
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
   },
-  setPalette(open) { set({ paletteOpen: open }); },
+  setPalette(open, mode = 'commands') { set({ paletteOpen: open, paletteMode: mode }); },
   setSidebarHidden(hidden) { set({ sidebarHidden: hidden }); },
   setSettingsSection(section, focusId = null) { set({ settingsSection: section, settingsFocus: focusId }); },
   clearSettingsFocus() { set({ settingsFocus: null }); },
@@ -173,7 +179,7 @@ interface SettingsState {
   version: string;
   theme: string;
   accent: string;
-  lang: 'en' | 'id';
+  lang: Lang;
   chatFontSize: number;
   temperature: number;
   maxTokens: number;
@@ -185,6 +191,8 @@ interface SettingsState {
   /** Search provider behind the agent's web_search tool (bring-your-own key). */
   webSearchProvider: 'exa' | 'serper' | 'brave';
   webSearchApiKey: string;
+  /** True when a key is stored in main; the key itself never reaches the UI. */
+  webSearchHasKey: boolean;
   /** How many links one web_search returns. */
   webSearchResults: number;
   defaultProviderId: string | null;
@@ -211,6 +219,13 @@ interface SettingsState {
   defaultModelRef: { providerId: string; model: string } | null;
   /** system follows the OS; full always animates; reduced kills motion. */
   motion: 'system' | 'full' | 'reduced';
+  /** UI typography and spacing (v1.3.0 custom appearance). */
+  uiFont: 'system' | 'serif' | 'rounded' | 'mono' | 'custom';
+  uiFontCustom: string;
+  /** Native page zoom, so every px control scales together. */
+  uiScale: number;
+  uiDensity: 'comfortable' | 'compact';
+  uiRadius: number;
   /** Last app version whose "What's new" was dismissed (shown once per version). */
   lastSeenVersion: string;
   set<K extends keyof SettingsState>(key: K, value: SettingsState[K]): void;
@@ -231,7 +246,7 @@ const strOr = (v: any, fb: string): string => (typeof v === 'string' ? v : fb);
 const SETTING_SANITIZERS: Record<string, (v: any) => any> = {
   theme: (v) => strOr(v, 'dark-classic'),
   accent: (v) => strOr(v, '#7c5cff'),
-  lang: (v) => (v === 'id' ? 'id' : 'en'),
+  lang: (v) => (isLang(v) ? v : 'en'),
   chatFontSize: (v) => clampNum(v, 14, 12, 20),
   temperature: (v) => clampNum(v, 0.7, 0, 2),
   maxTokens: (v) => clampNum(v, 4096, 64, 200000),
@@ -241,6 +256,7 @@ const SETTING_SANITIZERS: Record<string, (v: any) => any> = {
   authorName: (v) => strOr(v, ''),
   webSearchProvider: (v) => (v === 'serper' || v === 'brave' ? v : 'exa'),
   webSearchApiKey: (v) => strOr(v, ''),
+  webSearchHasKey: (v) => v === true || v === 'true' || v === 1 || v === '1',
   webSearchResults: (v) => clampNum(v, 5, 1, 10),
   defaultProviderId: (v) => (typeof v === 'string' ? v : null),
   defaultModel: (v) => (typeof v === 'string' ? v : null),
@@ -256,6 +272,11 @@ const SETTING_SANITIZERS: Record<string, (v: any) => any> = {
   settingsMode: (v) => (v === 'advanced' ? 'advanced' : 'simple'),
   smartDefaults: (v) => boolOr(v, true),
   motion: (v) => (v === 'full' || v === 'reduced' ? v : 'system'),
+  uiFont: (v) => (v === 'serif' || v === 'rounded' || v === 'mono' || v === 'custom' ? v : 'system'),
+  uiFontCustom: (v) => strOr(v, '').replace(/[;{}<>]/g, '').slice(0, 160),
+  uiScale: (v) => clampNum(v, 1, 0.85, 1.25),
+  uiDensity: (v) => (v === 'compact' ? 'compact' : 'comfortable'),
+  uiRadius: (v) => clampNum(v, 10, 4, 18),
   lastSeenVersion: (v) => strOr(v, ''),
   defaultModelRef: (v) => (v && typeof v === 'object' && typeof v.providerId === 'string' && typeof v.model === 'string'
     ? { providerId: v.providerId, model: v.model }
@@ -281,6 +302,7 @@ export const useSettings = create<SettingsState>((set, get) => ({
   authorName: '',
   webSearchProvider: 'exa',
   webSearchApiKey: '',
+  webSearchHasKey: false,
   webSearchResults: 5,
   defaultProviderId: null,
   defaultModel: null,
@@ -301,6 +323,11 @@ export const useSettings = create<SettingsState>((set, get) => ({
   smartDefaults: true,
   defaultModelRef: null,
   motion: 'system',
+  uiFont: 'system',
+  uiFontCustom: '',
+  uiScale: 1,
+  uiDensity: 'comfortable',
+  uiRadius: 10,
   lastSeenVersion: '',
   async load() {
     try {
@@ -327,7 +354,10 @@ export const useSettings = create<SettingsState>((set, get) => ({
     }
   },
   set(key, value) {
-    set({ [key]: value } as any);
+    const patch: any = { [key]: value };
+    // A new key is live as soon as it is typed; clearing it clears the badge.
+    if (key === 'webSearchApiKey') patch.webSearchHasKey = !!String(value || '').trim();
+    set(patch);
     window.inkwell.dbCall('setSetting', { key, value: JSON.stringify(value) });
   }
 }));
@@ -360,6 +390,11 @@ interface DataState {
   /** Refresh only the Story Bible rows — called after the agent writes an
    *  entry so the view is current without reloading the whole app. */
   reloadStory(): Promise<void>;
+  /** Refresh only the chapter rows — the same silent refresh for agent
+   *  chapter writes (create/update/append). */
+  reloadChapters(): Promise<void>;
+  /** Refresh only project metadata after an edit in Projects. */
+  reloadProjects(): Promise<void>;
   setActiveChat(id: string | null): void;
   setActiveProject(id: string | null): void;
   navigate(route: string): void;
@@ -443,6 +478,25 @@ export const useData = create<DataState>((set, get) => ({
       console.error('story reload failed', e);
     }
   },
+  async reloadChapters() {
+    try {
+      const chapters = await dbCall<Chapter[]>('listAllChapters');
+      set({ chapters: Array.isArray(chapters) ? chapters : [] });
+    } catch (e) {
+      console.error('chapter reload failed', e);
+    }
+  },
+  // Saving a project only changes that table. Calling load() here re-fetched
+  // every chapter, story entry and chat, which on a large library means a
+  // multi-megabyte IPC copy and a GC spike for a one-field edit.
+  async reloadProjects() {
+    try {
+      const projects = await dbCall<Project[]>('listProjects');
+      set({ projects: Array.isArray(projects) ? projects : [] });
+    } catch (e) {
+      console.error('project reload failed', e);
+    }
+  },
   async reloadChatRelated() {
     try {
       const [chats, folders] = await Promise.all([dbCall<Chat[]>('listChats'), dbCall<Folder[]>('listFolders')]);
@@ -455,7 +509,12 @@ export const useData = create<DataState>((set, get) => ({
   // Home with a chat selected, so a bare setActiveChat (test harnesses, palette,
   // automations) used to change the id while the screen stayed on Home.
   setActiveChat(id) {
-    set(id ? { activeChatId: id, route: 'chat' } : { activeChatId: id });
+    if (!id) { set({ activeChatId: id }); persistPosition(get()); return; }
+    // Open the workspace that owns the chat (v1.3.0). This used to force
+    // route 'chat', so an Agent session clicked in the sidebar (or the
+    // palette) landed in Chat and its messages looked missing.
+    const chat = get().chats.find((c) => c.id === id) as any;
+    set({ activeChatId: id, route: chat?.workspace === 'agent' ? 'agent' : 'chat' });
     persistPosition(get());
   },
   setActiveProject(id) { set({ activeProjectId: id }); persistPosition(get()); },
@@ -479,7 +538,7 @@ export const useData = create<DataState>((set, get) => ({
 //   runSkill      -> skill id (or name) to apply to the next message
 
 /** Routes a navigate automation may switch to (kept in sync with SettingsView). */
-export const NAVIGABLE_ROUTES = ['home', 'chat', 'story', 'flow', 'chapters', 'projects', 'stats', 'settings', 'about'];
+export const NAVIGABLE_ROUTES = ['home', 'chat', 'agent', 'write', 'story', 'story-agent', 'flow', 'chapters', 'projects', 'stats', 'dump', 'settings', 'about'];
 
 // ---------- automations v2 (Task 14) ----------
 
@@ -642,11 +701,18 @@ export async function createProjectUi(name: string): Promise<any> {
 // Centralized "create a chat from the UI" — every creation path (sidebar,
 // palette, menu, welcome screen) goes through here so the `chat:new`
 // automation trigger fires exactly once, with the same side effects.
-export async function createChatUi(title = 'New chat', projectId: string | null = null): Promise<any> {
-  const c = await dbCall<any>('createChat', { title, project_id: projectId });
+export async function createChatUi(
+  title = 'New chat',
+  projectId: string | null = null,
+  workspace: 'chat' | 'agent' = 'chat',
+  folderId: string | null = null
+): Promise<any> {
+  const c = await dbCall<any>('createChat', { title, project_id: projectId, workspace, folder_id: folderId });
   await useData.getState().reloadChatRelated();
   useData.getState().setActiveChat(c.id);
-  useData.getState().navigate('chat');
+  // Land in the workspace that owns the new chat: creating one from the Agent
+  // section must not throw the user back into the Chat section.
+  useData.getState().navigate(workspace === 'agent' ? 'agent' : 'chat');
   runAutomations('chat:new', { chatId: c.id, title });
   return c;
 }

@@ -20,7 +20,7 @@ Setiap baris provider butuh:
 Pengaturan → [[settings:models]] menampilkan setiap model dengan chip kemampuannya. Pilih satu sebagai bawaan, atau biarkan **Auto (disarankan)**.
 
 ## 3. Mulai chat
-`Ctrl+N` membuat chat. Ketik, `Enter` untuk kirim, `Shift+Enter` untuk baris baru. `Ctrl+K` membuka command palette dari mana saja.
+`Ctrl+N` membuat chat. Ketik, `Enter` untuk kirim, `Shift+Enter` untuk baris baru. `Ctrl+K` membuka command palette dari mana saja, dan `Ctrl+P` membuka pindah cepat untuk chat dan proyek.
 
 ## 4. Beri proyek (opsional)
 Proyek menyimpan story bible, bab, dan blok konteks. Sambungkan proyek ke chat dan model melihat kanonmu alih-alih menebak.

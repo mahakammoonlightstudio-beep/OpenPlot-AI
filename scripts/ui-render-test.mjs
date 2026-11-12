@@ -134,15 +134,19 @@ try {
 const { smoke } = require(outfile);
 const views = smoke();
 
-for (const name of ['app', 'agent', 'story', 'settings', 'chat']) {
+for (const name of ['app', 'story-agent', 'story', 'settings', 'chat']) {
   const err = views[name + 'Error'];
   check(`renders ${name} without crashing`, !err, err ? err.split('\n').slice(0, 2).join(' | ') : '');
 }
 check('app shell renders the sidebar + welcome', /nav-tree/.test(views.app || '') && /Plot/.test(views.app || ''));
-check('story agent renders Plot Smith + all four steps', /Plot Smith/.test(views.agent || '') && /Brief/.test(views.agent || '') && /Outline/.test(views.agent || ''));
-check('story agent renders the option chips (genres + tones)', /Fantasy/.test(views.agent || '') && /Hopeful/.test(views.agent || ''));
+check('story agent renders Plot Smith + all four steps', /Plot Smith/.test(views['story-agent'] || '') && /Brief/.test(views['story-agent'] || '') && /Outline/.test(views['story-agent'] || ''));
+check('story agent renders the option chips (genres + tones)', /Fantasy/.test(views['story-agent'] || '') && /Hopeful/.test(views['story-agent'] || ''));
 check('story bible renders import + attachment affordances', /Import/.test(views.story || '') && /Story Bible/.test(views.story || ''));
 check('settings data view renders the storage card', /Local database/.test(views.settings || '') || /database/i.test(views.settings || ''));
+check('data section offers a portable export and states what stays behind',
+  /set-library-export/.test(views['settings-data'] || '')
+  && /Export portable copy/.test(views['settings-data'] || '')
+  && /stay on this device/.test(views['settings-data'] || ''));
 const SETTINGS_SECTIONS = [
   'providers', 'models', 'behavior', 'styles', 'skills', 'agentmd',
   'appearance', 'memory', 'usage', 'data', 'plugins', 'automations', 'mcp', 'about'
@@ -179,9 +183,11 @@ check('welcome leads with Connect a model when nothing is connected',
   /welcome-card primary/.test(views.chat || '') && /No model connected yet/.test(views.chat || ''));
 check('composer renders an attachment card with name and size', /file-card/.test(views.composerFiles || '')
   && /notes\.md/.test(views.composerFiles || '') && /4 B/.test(views.composerFiles || ''));
-check('composer bar holds agent, three modes, thinking and skills',
-  /comp-modes/.test(views.composerFiles || '') && /agent-toggle/.test(views.composerFiles || '')
-  && (views.composerFiles.match(/mode-btn/g) || []).length === 3
+// v1.3.0: agent mode became the Agent workspace, so the composer keeps only
+// the four working modes (plan, brainstorm, write, edit) — no agent toggle.
+check('composer bar holds four modes, thinking and skills',
+  /comp-modes/.test(views.composerFiles || '') && !/agent-toggle/.test(views.composerFiles || '')
+  && (views.composerFiles.match(/mode-btn/g) || []).length === 4
   && /Skills \(0\)/.test(views.composerFiles || '')
   && /think-btn/.test(views.composerFiles || ''));
 check('composer shows the AI-fallibility disclaimer',

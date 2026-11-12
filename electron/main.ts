@@ -3,7 +3,10 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as zlib from 'zlib';
 import * as crypto from 'crypto';
-import { initDb, closeDb, handleDb, providerSecret, setSecretCrypto } from './db';
+import { initDb, closeDb, handleDb, providerSecret, setSecretCrypto, SCHEMA_VERSION, getSchemaVersion, readSchemaVersionFile, persistNow, getDbFilePath, portableDatabaseBuffer, settingSecret } from './db';
+import { settingsForRenderer } from './settingsPrivacy';
+import { SNAPSHOT_MAX, copySnapshotFile, listSnapshotFiles, snapshotDirectory, snapshotFilePath } from './snapshots';
+import { portableFileName, portableTarget, writePortableCopy } from './libraryExport';
 import { runGeneration, fetchModels, verifyModel, validateApiKey, probeCapabilities, ProviderConfig, ChatMessage, GenChunk } from './ai';
 import { PROVIDER_PRESETS, refreshPresets } from './presets';
 import { markThinkingRejected, recordCacheObservation, recordModelCaps } from './caps';
@@ -28,6 +31,14 @@ const ISOLATED_PROFILE = !!process.env.OPENPLOT_DATA_DIR;
 const SAWERIA_URL = 'https://saweria.co/MahakamMoonStudio';
 
 let win: BrowserWindow | null = null;
+// Filled before initDb so a startup failure can tell the user where their data
+// lives — the old build rejected silently and left a windowless process.
+let dataDirForErrors = '';
+let startupComplete = false;
+let revealFallback: NodeJS.Timeout | null = null;
+let startupErrorWin: BrowserWindow | null = null;
+let restartingForRecovery = false;
+const LIBRARY_CONFIG_FILE = 'library.json';
 const aborts = new Map<string, () => void>();
 // Chats with a generation in flight — db.ts refuses message deletes for
 // these so an in-flight reply can never be stranded.
@@ -248,15 +259,30 @@ function send(channel: string, ...args: any[]): void {
 function rendererCrashGuard(): void {
   app.on('render-process-gone', (_e, _wc, details) => {
     try {
-      dialog.showMessageBoxSync({
-        type: 'error',
+      const opts = {
+        type: 'error' as const,
         title: 'OpenPlot AI',
         message: 'The interface crashed and will reload.',
         detail: `Reason: ${details?.reason || 'unknown'}. Your data is safe on disk.`
-      });
+      };
+      if (win && !win.isDestroyed()) dialog.showMessageBoxSync(win, opts);
+      else dialog.showErrorBox(opts.title, opts.message);
     } catch { /* ignore */ }
     if (win && !win.isDestroyed()) win.webContents.reload();
   });
+}
+
+/**
+ * Bring the main window to the foreground. A hidden/minimized window used to
+ * make a second launch look like a no-op: the new process exited on the
+ * single-instance lock while the first one stayed invisible in the background.
+ */
+function revealWindow(): void {
+  if (revealFallback) { clearTimeout(revealFallback); revealFallback = null; }
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  if (!win.isVisible()) win.show();
+  win.focus();
 }
 
 function createWindow(): void {
@@ -302,7 +328,21 @@ function createWindow(): void {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
   });
 
-  win.once('ready-to-show', () => win?.show());
+  win.once('ready-to-show', revealWindow);
+  // If the renderer never reaches first paint (missing bundle, GPU/driver
+  // failure, corrupted profile), show the window anyway instead of leaving a
+  // live process with no visible UI. The page background is already dark, so
+  // this is a titled window, not a white flash.
+  revealFallback = setTimeout(revealWindow, 12000);
+  win.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+    if (!isMainFrame || code === -3) return; // -3 = user/navigation aborted
+    revealWindow();
+    try {
+      const detail = `The interface failed to load (${code}: ${description}).\n\n${url}`;
+      if (win && !win.isDestroyed()) dialog.showMessageBoxSync(win, { type: 'error', title: 'OpenPlot AI', message: detail });
+      else dialog.showErrorBox('OpenPlot AI', detail);
+    } catch { /* no display */ }
+  });
 
   if (process.env.INKWELL_DEV) {
     win.loadURL(DEV_URL);
@@ -320,7 +360,10 @@ function createWindow(): void {
   } else {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
-  win.on('closed', () => { win = null; });
+  win.on('closed', () => {
+    if (revealFallback) { clearTimeout(revealFallback); revealFallback = null; }
+    win = null;
+  });
 }
 
 function buildMenu(): void {
@@ -340,10 +383,11 @@ function buildMenu(): void {
       label: 'File',
       submenu: [
         { label: 'Find Chat', accelerator: 'CmdOrCtrl+F', click: () => send('ui:action', 'focus-search') },
+        { label: 'Quick Switch', accelerator: 'CmdOrCtrl+P', click: () => send('ui:action', 'quick-switch') },
         { label: 'Prompt Library', accelerator: 'CmdOrCtrl+/', click: () => send('ui:action', 'open-prompts') },
         { label: 'New Chat', accelerator: 'CmdOrCtrl+N', click: () => send('ui:action', 'new-chat') },
         { label: 'New Project', accelerator: 'CmdOrCtrl+Shift+N', click: () => send('ui:action', 'new-project') },
-        { label: 'Story Agent', accelerator: 'CmdOrCtrl+Shift+A', click: () => send('ui:navigate', 'agent') },
+        { label: 'Story Agent', accelerator: 'CmdOrCtrl+Shift+A', click: () => send('ui:navigate', 'story-agent') },
         { type: 'separator' },
         { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: () => send('ui:navigate', 'settings') }
       ]
@@ -397,7 +441,17 @@ secureHandle('db', (_e, op: string, payload?: any) => {
         : dialog.showMessageBoxSync(opts);
       if (choice !== 0) return { ok: true, data: false };
     }
-    return { ok: true, data: handleDb(op, payload ?? {}) };
+    const data = handleDb(op, payload ?? {});
+    // Secrets are capabilities, not settings values. The renderer needs to know
+    // whether a web-search key is configured, never the key itself.
+    if (op === 'getAllSettings') {
+      const rows = (data && typeof data === 'object' ? data : {}) as Record<string, string>;
+      return {
+        ok: true,
+        data: settingsForRenderer(rows, !!settingSecret('webSearchApiKey'))
+      };
+    }
+    return { ok: true, data };
   } catch (err: any) {
     return { ok: false, error: err?.message || String(err) };
   }
@@ -431,7 +485,8 @@ secureHandle('ai:generate', async (_e, req: any) => {
         thinkingEnabled: req.thinkingEnabled,
         thinkingBudget: req.thinkingBudget,
         toolsEnabled: req.toolsEnabled,
-        projectId: req.projectId
+        projectId: req.projectId,
+        chatId: req.chatId
       },
       (chunk: GenChunk) => send('ai:chunk', { reqId, chunk }),
       isAborted
@@ -676,11 +731,218 @@ secureHandle('app:info', () => ({
   data: {
     version: app.getVersion(),
     platform: process.platform,
-    dataPath: app.getPath('userData'),
+    dataPath: dataDirForErrors || app.getPath('userData'),
+    dbPath: dataDirForErrors ? path.join(dataDirForErrors, activeLibraryName(dataDirForErrors)) : '',
+    dbSchema: (() => { try { return getSchemaVersion(); } catch { return null; } })(),
     donateUrl: DONATE_URL,
     encryption: safeStorage?.isEncryptionAvailable?.() === true
   }
 }));
+
+// ---------- library / database switching ----------
+secureHandle('library:list', () => {
+  try {
+    return { ok: true, data: libraryList(dataDirForErrors) };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+secureHandle('library:switch', (_e, name: string) => {
+  try {
+    const dir = dataDirForErrors;
+    const target = libraryName(name);
+    const file = path.join(dir, target);
+    if (!fs.existsSync(file)) throw new Error(`Library not found: ${target}`);
+    const schema = readSchemaVersionFile(file);
+    if (schema === null) throw new Error('That file is not a readable SQLite database.');
+    if (schema > SCHEMA_VERSION) {
+      throw new Error(`That library was written by a newer OpenPlot AI (schema ${schema} > ${SCHEMA_VERSION}). Update the app before opening it.`);
+    }
+    setActiveLibrary(dir, target);
+    relaunchForLibrary();
+    return { ok: true, data: { name: target, schema, legacy: schema < SCHEMA_VERSION } };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+secureHandle('library:create', (_e, rawName: string) => {
+  try {
+    const dir = dataDirForErrors;
+    const name = libraryName(rawName);
+    if (fs.existsSync(path.join(dir, name))) throw new Error(`“${name}” already exists — pick another name.`);
+    setActiveLibrary(dir, name);
+    relaunchForLibrary();
+    return { ok: true, data: { name } };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+secureHandle('library:import', async () => {
+  try {
+    if (!win || win.isDestroyed()) return { ok: false, error: 'no window' };
+    const res = await dialog.showOpenDialog(win, {
+      title: 'Import an OpenPlot library',
+      properties: ['openFile'],
+      filters: [{ name: 'SQLite database', extensions: ['db', 'sqlite', 'sqlite3'] }]
+    });
+    if (res.canceled || !res.filePaths[0]) return { ok: false, error: 'cancelled' };
+    const source = res.filePaths[0];
+    const schema = readSchemaVersionFile(source);
+    if (schema === null) throw new Error('That file is not a readable SQLite database.');
+    if (schema > SCHEMA_VERSION) {
+      throw new Error(`That library is newer than this app (schema ${schema} > ${SCHEMA_VERSION}).`);
+    }
+    const dir = dataDirForErrors;
+    // The import only copies a file, but keep a discoverable copy of the
+    // current library before adding another database to the profile.
+    createActiveSnapshot('pre-import');
+    const stem = path.basename(source, path.extname(source)) || 'library';
+    let name = libraryName(`${stem}.db`);
+    let n = 2;
+    while (fs.existsSync(path.join(dir, name))) {
+      name = libraryName(`${stem} (${n}).db`);
+      n++;
+    }
+    fs.copyFileSync(source, path.join(dir, name));
+    return { ok: true, data: { entry: libraryEntry(dir, name, activeLibraryName(dir)), source } };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+/** Write one portable copy of the active library through a native save dialog. */
+secureHandle('library:export', async () => {
+  if (!win || win.isDestroyed()) return { ok: false, error: 'no window' };
+  const dbFile = getDbFilePath();
+  if (!dbFile) return { ok: false, error: 'The library is not open yet.' };
+  try {
+    const res = await dialog.showSaveDialog(win, {
+      title: 'Export a portable library',
+      defaultPath: portableFileName(dbFile),
+      filters: [{ name: 'OpenPlot library', extensions: ['db'] }]
+    });
+    if (res.canceled || !res.filePath) return { ok: false, error: 'cancelled' };
+    const target = portableTarget(res.filePath, dbFile);
+    const data = portableDatabaseBuffer();
+    if (!data) throw new Error('Could not read the open library.');
+    writePortableCopy(target, data);
+    return { ok: true, data: { name: path.basename(target), path: target, bytes: data.length } };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+secureHandle('library:reveal', () => {
+  try { void shell.openPath(dataDirForErrors); return true; } catch { return false; }
+});
+
+// ---------- library Time Machine ----------
+
+function snapshotEntry(dir: string, active: string, info: any): any {
+  const schema = readSchemaVersionFile(path.join(snapshotDirectory(dir, active), info.name));
+  return { ...info, schema, status: schemaStatus(schema) };
+}
+
+function openedLibraryName(dir: string): string {
+  const open = getDbFilePath();
+  return open ? path.basename(open) : activeLibraryName(dir);
+}
+
+function snapshotState(): any {
+  const dir = dataDirForErrors;
+  const active = openedLibraryName(dir);
+  return {
+    dir: snapshotDirectory(dir, active),
+    active,
+    max: SNAPSHOT_MAX,
+    entries: listSnapshotFiles(dir, active).map((s) => snapshotEntry(dir, active, s))
+  };
+}
+
+/** Flush the 1.2s debounce, then copy the active file into its snapshot folder. */
+function createActiveSnapshot(reason: string): any {
+  const dbFile = getDbFilePath();
+  if (!dbFile) throw new Error('The library is not open yet.');
+  const dir = dataDirForErrors;
+  const active = path.basename(dbFile);
+  if (!persistNow(true)) throw new Error('Could not flush the active library before taking a snapshot.');
+  const info = copySnapshotFile(dir, active, dbFile, reason);
+  return snapshotEntry(dir, active, info);
+}
+
+/** At most one daily copy per 24 hours; failures never block startup. */
+function ensureDailySnapshot(): void {
+  try {
+    const dir = dataDirForErrors;
+    const active = openedLibraryName(dir);
+    const newestDaily = listSnapshotFiles(dir, active).find((s) => s.reason === 'daily');
+    if (newestDaily && Date.now() - newestDaily.savedAt < 24 * 60 * 60 * 1000) return;
+    createActiveSnapshot('daily');
+  } catch (e) {
+    console.error('[openplot] daily snapshot failed:', e);
+  }
+}
+
+secureHandle('snapshot:list', () => {
+  try { return { ok: true, data: snapshotState() }; }
+  catch (err: any) { return { ok: false, error: err?.message || String(err) }; }
+});
+
+secureHandle('snapshot:create', () => {
+  try { return { ok: true, data: { entry: createActiveSnapshot('manual'), state: snapshotState() } }; }
+  catch (err: any) { return { ok: false, error: err?.message || String(err) }; }
+});
+
+secureHandle('snapshot:restore', async (_e, file: string) => {
+  const dir = dataDirForErrors;
+  const active = openedLibraryName(dir);
+  const dbFile = getDbFilePath();
+  let tmp = '';
+  try {
+    if (!dbFile || path.basename(dbFile) !== active) {
+      throw new Error('The active library is still changing. Try again after the restart.');
+    }
+    if (busyChats.size > 0) {
+      throw new Error('Stop the current reply before restoring a snapshot.');
+    }
+    const info = listSnapshotFiles(dir, active).find((s) => s.name === file);
+    if (!info) throw new Error('That snapshot no longer exists.');
+    const source = snapshotFilePath(dir, active, info.name);
+    const schema = readSchemaVersionFile(source);
+    if (schema === null) throw new Error('That snapshot is not a readable SQLite database.');
+    if (schema > SCHEMA_VERSION) {
+      throw new Error(`That snapshot was created by a newer OpenPlot AI (schema ${schema} > ${SCHEMA_VERSION}).`);
+    }
+
+    // Keep the state being replaced, so "restore" itself is reversible.
+    createActiveSnapshot('pre-restore');
+
+    // Copy first, while the DB is open. Nothing replaces the live file until
+    // a complete second copy exists beside it.
+    tmp = `${dbFile}.restore.tmp`;
+    fs.copyFileSync(source, tmp);
+    closeDb();
+    try {
+      fs.renameSync(tmp, dbFile);
+    } catch (err: any) {
+      try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+      // The live file was not replaced, so reopen it instead of leaving the
+      // renderer talking to a closed database.
+      try { await initDb(dir, active); } catch (reopenErr) {
+        console.error('[openplot] could not reopen after a failed restore:', reopenErr);
+      }
+      throw new Error(`Could not replace the active library: ${messageOf(err)}. Nothing was changed.`);
+    }
+    relaunchForLibrary();
+    return { ok: true, data: { name: info.name } };
+  } catch (err: any) {
+    if (tmp) { try { fs.unlinkSync(tmp); } catch { /* already moved or absent */ } }
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
 
 secureHandle('shell:openExternal', (_e, url: string) => {
   if (/^https?:\/\//i.test(url)) shell.openExternal(url);
@@ -919,7 +1181,9 @@ secureHandle('export:epub', async (_e, defaultName: string, author: string, chap
     // Language tag is validated against a whitelist — arbitrary strings must
     // never reach the XML metadata unescaped (it goes through xmlEsc anyway,
     // but a well-formed tag like 'id' or 'en' is what readers expect).
-    const langTag = /^(id|en)$/i.test(String(lang || '')) ? String(lang).toLowerCase() : 'en';
+    const requested = String(lang || '').toLowerCase();
+    const langTag = requested === 'en-gb' ? 'en-GB' : requested === 'en-us' ? 'en-US'
+      : ['id', 'en', 'es', 'hi'].includes(requested) ? requested : 'en';
     const buf = buildEpubBuffer(title, Array.isArray(chapters) ? chapters : [], String(author || 'Unknown Author'), langTag);
     fs.writeFileSync(res.filePath, buf);
     return { ok: true, data: res.filePath };
@@ -983,23 +1247,227 @@ secureHandle('files:grant', (_e, paths: string[]) => {
   return true;
 });
 
+// ---------- libraries ----------
+
+/**
+ * A library is just a SQLite file in the profile folder. `library.json` stores
+ * only a basename — never a path — so a tampered config cannot point the app at
+ * an arbitrary file outside its own data directory.
+ */
+function libraryName(name: unknown): string {
+  const base = path.basename(String(name || '').trim())
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '-')
+    .replace(/^\.+/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 90);
+  if (!base) return 'openplot.db';
+  return /\.db$/i.test(base) ? base : `${base}.db`;
+}
+
+function activeLibraryName(dir: string): string {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(dir, LIBRARY_CONFIG_FILE), 'utf8'));
+    if (cfg && typeof cfg.active === 'string') return libraryName(cfg.active);
+  } catch { /* first run or unreadable config */ }
+  return 'openplot.db';
+}
+
+function setActiveLibrary(dir: string, name: string): void {
+  const file = path.join(dir, LIBRARY_CONFIG_FILE);
+  fs.writeFileSync(file, JSON.stringify({ active: libraryName(name) }, null, 2));
+}
+
+function schemaStatus(schema: number | null): 'current' | 'legacy' | 'newer' | 'unreadable' {
+  return schema === null ? 'unreadable'
+    : schema > SCHEMA_VERSION ? 'newer'
+      : schema === SCHEMA_VERSION ? 'current' : 'legacy';
+}
+
+function libraryEntry(dir: string, name: string, active: string): any {
+  const file = path.join(dir, name);
+  let bytes = 0;
+  let modified = 0;
+  try {
+    const st = fs.statSync(file);
+    bytes = st.size;
+    modified = st.mtimeMs;
+  } catch { /* missing active target is created on next launch */ }
+  const schema = readSchemaVersionFile(file);
+  return { name, bytes, modified, schema, status: schemaStatus(schema), active: name === active };
+}
+
+function libraryList(dir: string): any {
+  const active = activeLibraryName(dir);
+  let names: string[] = [];
+  try {
+    names = fs.readdirSync(dir).filter((name) => /\.db$/i.test(name) && fs.statSync(path.join(dir, name)).isFile());
+  } catch { /* profile not created yet */ }
+  if (!names.includes(active)) names.push(active);
+  names.sort((a, b) => (a === active ? -1 : b === active ? 1 : a.localeCompare(b)));
+  return {
+    dir,
+    active,
+    currentSchema: SCHEMA_VERSION,
+    entries: names.map((name) => libraryEntry(dir, name, active))
+  };
+}
+
+/** Restart after a short delay so the renderer receives the IPC result first. */
+function relaunchForLibrary(): void {
+  setTimeout(() => {
+    // `app.exit` skips will-quit, so flush the debounced 1.2s DB write first —
+    // otherwise the last edit before switching libraries could be lost.
+    try { closeDb(); } catch { /* startup may have failed before init */ }
+    app.relaunch();
+    app.exit(0);
+  }, 250);
+}
+
 // ---------- lifecycle ----------
+
+function messageOf(err: unknown): string {
+  return String((err as any)?.message || err || 'Unknown error');
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string));
+}
+
+/**
+ * A native message box can crash an Electron process that has no window yet
+ * (reproduced as 0xc0000005 in the packaged app). This tiny local page is its
+ * own BrowserWindow, so a failed startup always produces something visible and
+ * actionable — the old build left a windowless process in Task Manager.
+ */
+function showStartupError(err: unknown): void {
+  const message = `The studio stopped before its main window could open.\n\n${messageOf(err)}`;
+  console.error('[openplot] startup failed:', (err as any)?.stack || message);
+  if (startupErrorWin && !startupErrorWin.isDestroyed()) {
+    startupErrorWin.show();
+    startupErrorWin.focus();
+    return;
+  }
+  const dbFile = dataDirForErrors ? path.join(dataDirForErrors, activeLibraryName(dataDirForErrors)) : '';
+  let hasDb = false;
+  try { hasDb = !!dbFile && fs.existsSync(dbFile); } catch { /* ignore */ }
+  const folder = escapeHtml(dataDirForErrors || '(unknown)');
+  const detail = escapeHtml(messageOf(err).slice(0, 1800));
+  const reset = hasDb
+    ? `<a class="button danger" href="openplot://reset-library">Start with an empty library</a>
+       <p class="hint">The current openplot.db is renamed with a timestamp; nothing is deleted.</p>`
+    : '';
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>OpenPlot AI could not start</title>
+<style>
+ :root{color-scheme:dark}*{box-sizing:border-box}
+ body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0d12;color:#e8eaf0;
+      font:14px/1.55 system-ui,Segoe UI,sans-serif;padding:32px}
+ main{width:min(640px,100%)}h1{font-size:22px;margin:0 0 10px;color:#fff}
+ p{margin:0 0 14px;color:#b9bfcc}code{color:#f4c97a;background:#171b24;padding:2px 5px;border-radius:4px;word-break:break-all}
+ .detail{white-space:pre-wrap;background:#141821;border:1px solid #272d3a;border-radius:10px;padding:14px;color:#d7dbe5;max-height:210px;overflow:auto}
+ .folder{font-size:12px;color:#8f98aa;word-break:break-all;margin:12px 0 22px}
+ .actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+ .button{display:inline-block;padding:9px 14px;border-radius:8px;text-decoration:none;background:#2a3040;color:#fff}
+ .button.primary{background:#6c8cff;color:#081020}.button.danger{background:#3a2328;color:#ffb4b4}
+ .hint{font-size:12px;color:#8f98aa;margin:8px 0 0;width:100%}
+</style></head><body><main>
+<h1>OpenPlot AI could not start</h1>
+<p>The app is running, but its window could not open. Your data has not been modified.</p>
+<div class="detail">${detail}</div>
+<p class="folder">Data folder:<br><code>${folder}</code></p>
+<div class="actions">
+  <a class="button primary" href="openplot://open-folder">Open data folder</a>
+  ${reset}
+  <a class="button" href="openplot://quit">Quit</a>
+</div>
+</main></body></html>`;
+  startupErrorWin = new BrowserWindow({
+    width: 760, height: 560, minWidth: 520, minHeight: 380,
+    title: 'OpenPlot AI could not start', backgroundColor: '#0b0d12',
+    show: true, autoHideMenuBar: true,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false }
+  });
+  startupErrorWin.setMenuBarVisibility(false);
+  startupErrorWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  startupErrorWin.webContents.on('will-navigate', (event, url) => {
+    event.preventDefault();
+    if (url === 'openplot://open-folder') {
+      try { void shell.openPath(dataDirForErrors); } catch { /* ignore */ }
+      return;
+    }
+    if (url === 'openplot://reset-library') {
+      resetLibraryAndRestart();
+      return;
+    }
+    if (url === 'openplot://quit') app.quit();
+  });
+  startupErrorWin.on('closed', () => {
+    startupErrorWin = null;
+    if (!restartingForRecovery) app.quit();
+  });
+  void startupErrorWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+}
+
+/** Rename, never delete, the file that prevented startup, then relaunch. */
+function resetLibraryAndRestart(): void {
+  const dbFile = path.join(dataDirForErrors, activeLibraryName(dataDirForErrors));
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backup = `${dbFile}.unreadable-${stamp}`;
+  try {
+    if (fs.existsSync(dbFile)) fs.renameSync(dbFile, backup);
+    restartingForRecovery = true;
+    app.relaunch();
+    app.exit(0);
+  } catch (e: any) {
+    console.error('[openplot] could not reset library:', e);
+    if (startupErrorWin && !startupErrorWin.isDestroyed()) {
+      const safe = JSON.stringify(`Could not move the database: ${messageOf(e)}`);
+      void startupErrorWin.webContents.executeJavaScript(
+        `document.querySelector('.detail').textContent = ${safe};`
+      ).catch(() => {});
+    }
+  }
+}
+
+function startupFailure(err: unknown): void {
+  const message = messageOf(err) || 'Unknown startup error';
+  console.error('[openplot] startup failed:', (err as any)?.stack || message);
+  if (win && !win.isDestroyed()) {
+    // A window exists, so a parented native dialog is safe here.
+    revealWindow();
+    try {
+      dialog.showMessageBoxSync(win, {
+        type: 'error',
+        title: 'OpenPlot AI',
+        message: `The studio could not finish starting.\n\n${message.slice(0, 1800)}`
+      });
+    } catch { /* no display */ }
+    return;
+  }
+  showStartupError(err);
+}
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (win) {
-      if (win.isMinimized()) win.restore();
-      win.focus();
+    // A second launch while the first is still initializing will be handled by
+    // the first window as soon as it appears. Once startup is done, recreate a
+    // missing window instead of silently focusing nothing.
+    if (win && !win.isDestroyed()) revealWindow();
+    else if (startupErrorWin && !startupErrorWin.isDestroyed()) {
+      startupErrorWin.show();
+      startupErrorWin.focus();
     }
+    else if (startupComplete) createWindow();
   });
 
   app.whenReady().then(async () => {
     // OPENPLOT_DATA_DIR redirects the whole profile (DB + settings) — used for
     // clean-room test runs and screenshots without touching real user data.
-    const dataDir = process.env.OPENPLOT_DATA_DIR || app.getPath('userData');
+    dataDirForErrors = process.env.OPENPLOT_DATA_DIR || app.getPath('userData');
+    const dataDir = dataDirForErrors;
     // files:read may never hand the app's own database back to the renderer.
     setPrivateRoot(dataDir);
     // API keys at rest: encrypt with the OS credential vault when available.
@@ -1010,19 +1478,30 @@ if (!gotLock) {
         (stored) => safeStorage.decryptString(Buffer.from(stored, 'latin1'))
       );
     }
+    const activeLibrary = activeLibraryName(dataDir);
     // carry over data from the pre-rename InkWell install
     try {
       const oldDb = path.join(dataDir, 'inkwell.db');
       const newDb = path.join(dataDir, 'openplot.db');
-      if (fs.existsSync(oldDb) && !fs.existsSync(newDb)) fs.renameSync(oldDb, newDb);
+      if (activeLibrary === 'openplot.db' && fs.existsSync(oldDb) && !fs.existsSync(newDb)) fs.renameSync(oldDb, newDb);
     } catch { /* non-fatal */ }
-    await initDb(dataDir, 'openplot.db');
+    try {
+      await initDb(dataDir, activeLibrary);
+    } catch (err) {
+      // Never continue into a half-initialized DB. The error window offers a
+      // safe backup+relaunch instead of leaving a background process.
+      showStartupError(err);
+      return;
+    }
     setNotify((msg) => send('ui:toast', msg));
     wireDbHooks(); // plugin hooks fire on chat:create / message:add DB events
     trustedExec = readTrust();
     buildMenu();
     rendererCrashGuard();
     createWindow();
+    startupComplete = true;
+    // Let the studio paint before copying a possibly large database.
+    setTimeout(ensureDailySnapshot, 1500);
     // Load plugin/MCP work after the window exists: an "not approved" notice
     // sent to a null window used to be dropped, so the run looked silently
     // broken. Startup never prompts — unapproved code simply stays unloaded.
@@ -1032,9 +1511,10 @@ if (!gotLock) {
     syncMcpServers().catch((e) => console.error('MCP startup failed:', e));
     runHook('app:ready', {});
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      if (win && !win.isDestroyed()) revealWindow();
+      else if (startupComplete) createWindow();
     });
-  });
+  }).catch(startupFailure);
 
   app.on('window-all-closed', () => {
     // Do NOT close the DB here: on macOS the app stays alive after all

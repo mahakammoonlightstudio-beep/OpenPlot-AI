@@ -21,7 +21,7 @@ import initSqlJs from 'sql.js';
 
 const require = createRequire(import.meta.url);
 const {
-  initDb, closeDb, handleDb, getSchemaVersion, SCHEMA_VERSION,
+  initDb, closeDb, handleDb, getSchemaVersion, SCHEMA_VERSION, readSchemaVersionFile,
   DEFAULT_AGENT_MD, DEFAULT_AGENT_MD_V1, AGENT_MD_VERSION
 } = require('../dist-electron/db.js');
 
@@ -149,9 +149,14 @@ const backups = (dir) => fs.readdirSync(dir).filter((f) => f.endsWith('.bak'));
   const dir = dirFor('fresh');
   const file = path.join(dir, 'fresh.db');
   await initDb(dir, 'fresh.db');
-  check('fresh: schema version stamped', getSchemaVersion() === SCHEMA_VERSION && SCHEMA_VERSION === 9, `got ${getSchemaVersion()}`);
+  check('fresh: schema version stamped', getSchemaVersion() === SCHEMA_VERSION && SCHEMA_VERSION === 14, `got ${getSchemaVersion()}`);
+  check('fresh: library header reader agrees', readSchemaVersionFile(file) === SCHEMA_VERSION, String(readSchemaVersionFile(file)));
   check('fresh: no backup is created', !fs.existsSync(`${file}.v0.bak`));
   check('fresh: chat file table and stats exist', db('dbStats').chatFiles === 0 && db('dbStats').chatFileBytes === 0);
+  const agentFolder = db('createFolder', { name: 'Agent folder', project_id: null, workspace: 'agent' });
+  const chatFolder = db('createFolder', { name: 'Chat folder', project_id: null });
+  check('fresh: folders belong to a workspace', agentFolder.workspace === 'agent' && chatFolder.workspace === 'chat',
+    `${agentFolder.workspace}/${chatFolder.workspace}`);
   closeDb();
   const shape = inspect(file);
   check('fresh: v4-v7 columns present', shape.columns.skills?.includes('description')
@@ -160,10 +165,44 @@ const backups = (dir) => fs.readdirSync(dir).filter((f) => f.endsWith('.bak'));
     && shape.columns.chats?.includes('skills_on')
     && shape.columns.chats?.includes('agent_mode')
     && shape.columns.chats?.includes('chat_mode')
+    && shape.columns.chats?.includes('workspace')
+    && shape.columns.folders?.includes('workspace')
     && shape.columns.messages?.includes('tokens_cached')
     && shape.columns.messages?.includes('parent_id')
+    && shape.columns.skills?.includes('category')
     && shape.columns.mcp_servers?.includes('env'));
   check('fresh: message_files table + indexes exist', shape.tables.includes('message_files'));
+  check('fresh: text_dump table exists', shape.tables.includes('text_dump'));
+
+  // ---- Text Dump: displace, restore, conflict, delete ----
+  await initDb(dir, 'fresh.db');
+  const dumpProject = db('createProject', { name: 'Dump project' });
+  const dumpChapter = db('createChapter', { projectId: dumpProject.id, title: 'Chapter one', content: 'newer prose' });
+  const dump = db('addTextDump', {
+    projectId: dumpProject.id, chapterId: dumpChapter.id, chapterTitle: 'Chapter one',
+    source: 'writing', action: 'rephrase', scope: 'passage',
+    original: 'old prose', replacement: 'newer prose', startOffset: 0, endOffset: 11
+  });
+  check('text dump: row stores the displaced text', dump?.original === 'old prose' && db('listTextDump').length === 1);
+  const chapterContent = (id) => (db('listChapters', { projectId: dumpProject.id }) || []).find((c) => c.id === id)?.content;
+  const restoredDump = db('restoreTextDump', { id: dump.id });
+  check('text dump: restore splices the original back', restoredDump.ok && chapterContent(dumpChapter.id) === 'old prose');
+  check('text dump: restore is marked', db('listTextDump')[0]?.restored_at > 0);
+
+  const conflictChapter = db('createChapter', { projectId: dumpProject.id, title: 'Changed', content: 'model rewrite' });
+  const conflictDump = db('addTextDump', {
+    projectId: dumpProject.id, chapterId: conflictChapter.id, chapterTitle: 'Changed',
+    source: 'agent', action: 'replace', scope: 'chapter', original: 'author text', replacement: 'model rewrite'
+  });
+  db('updateChapter', { id: conflictChapter.id, content: 'author edited again' });
+  const conflict = db('restoreTextDump', { id: conflictDump.id });
+  check('text dump: restore refuses to overwrite newer prose', conflict.ok === false && conflict.error === 'conflict');
+  const forced = db('restoreTextDump', { id: conflictDump.id, force: true });
+  check('text dump: forced restore replaces the chapter', forced.ok && chapterContent(conflictChapter.id) === 'author text');
+  check('text dump: selected delete removes only those rows', db('deleteTextDumps', { ids: [dump.id] }) === 1 && db('listTextDump').length === 1);
+  db('deleteAllTextDumps', {});
+  check('text dump: delete all empties the bin', db('listTextDump').length === 0);
+  closeDb();
 }
 
 {

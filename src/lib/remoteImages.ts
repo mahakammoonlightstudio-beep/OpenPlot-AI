@@ -1,3 +1,5 @@
+import { LOW_MEMORY } from './deviceProfile';
+
 /**
  * Remote Markdown images, hydrated through the main process.
  *
@@ -9,15 +11,28 @@
  * same image; the cache is bounded like the Markdown one.
  */
 const cache = new Map<string, string>();
-const CACHE_MAX = 40;
 const pending = new Map<string, Promise<string | null>>();
+// A data URL is held as a JS string AND decoded by the renderer. Forty images
+// at the 5 MB fetch cap could pin hundreds of megabytes, so the cache is
+// bounded by bytes as well as count. Low-memory machines get a smaller budget.
+const CACHE_MAX = LOW_MEMORY ? 12 : 24;
+const CACHE_BYTES_MAX = (LOW_MEMORY ? 6 : 12) * 1024 * 1024;
+let cacheBytes = 0;
 
 function remember(url: string, data: string): void {
+  // A single huge image still displays for this view, it just is not retained.
+  if (data.length > CACHE_BYTES_MAX / 2) return;
+  const prev = cache.get(url);
+  if (prev) cacheBytes -= prev.length + url.length;
   cache.set(url, data);
-  while (cache.size > CACHE_MAX) {
+  cacheBytes += data.length + url.length;
+  while ((cache.size > CACHE_MAX || cacheBytes > CACHE_BYTES_MAX) && cache.size) {
     const oldest = cache.keys().next().value as string;
+    const val = cache.get(oldest) || '';
+    cacheBytes -= val.length + oldest.length;
     cache.delete(oldest);
   }
+  if (cacheBytes < 0) cacheBytes = 0;
 }
 
 function load(url: string): Promise<string | null> {

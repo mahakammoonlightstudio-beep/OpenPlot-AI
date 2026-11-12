@@ -18,6 +18,7 @@ export interface ShortcutSpec {
 
 export const SHORTCUTS: ShortcutSpec[] = [
   { id: 'palette', keys: ['Ctrl+K'], labelKey: 'shortcut.palette', group: 'global' },
+  { id: 'quick-switch', keys: ['Ctrl+P'], labelKey: 'shortcut.quickSwitch', group: 'global' },
   { id: 'new-chat', keys: ['Ctrl+N'], labelKey: 'shortcut.newChat', group: 'global' },
   { id: 'new-project', keys: ['Ctrl+Shift+N'], labelKey: 'shortcut.newProject', group: 'global' },
   { id: 'search', keys: ['Ctrl+F'], labelKey: 'shortcut.search', group: 'global' },
@@ -64,4 +65,4 @@ export function shortcutById(id: string): ShortcutSpec | undefined {
 }
 
 /** Combos that must not fire while the user is typing in a field. */
-export const TYPING_SAFE = new Set(['guide', 'shortcuts', 'palette', 'settings']);
+export const TYPING_SAFE = new Set(['guide', 'shortcuts', 'palette', 'quick-switch', 'settings']);

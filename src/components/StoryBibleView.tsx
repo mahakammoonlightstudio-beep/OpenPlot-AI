@@ -160,7 +160,7 @@ export function StoryBibleView() {
       tags: [],
       links: []
     });
-    await useData.getState().load();
+    await useData.getState().reloadStory();
     setKind(k);
     setSelectedId(row.id);
   }
@@ -170,7 +170,7 @@ export function StoryBibleView() {
     if (!draft.title.trim()) return;
     try {
       await dbCall('updateStory', { id: selected.id, title: draft.title.trim(), content: draft.content, tags: draft.tags, links: draft.links });
-      await useData.getState().load();
+      await useData.getState().reloadStory();
       setDirty(false);
       ui.toast(t('story.saved'), 'ok');
     } catch (e: any) {
@@ -182,7 +182,7 @@ export function StoryBibleView() {
     if (!selected || !(await confirmDialog({ title: t('confirm.deleteEntry'), danger: true, confirmLabel: t('confirm.delete'), cancelLabel: t('confirm.cancel') }))) return;
     await dbCall('deleteStory', { id: selected.id });
     setSelectedId(null);
-    await useData.getState().load();
+    await useData.getState().reloadStory();
     await refreshFiles();
   }
 
@@ -300,7 +300,7 @@ export function StoryBibleView() {
     try {
       const projectId = await ensureProject();
       const res = await dbCall<{ imported: number }>('importStoryEntries', { projectId, entries: freshEntries });
-      await useData.getState().load();
+      await useData.getState().reloadStory();
       await refreshFiles();
       ui.toast(t('story.importDone').replace('{n}', String(res?.imported ?? freshEntries.length)), 'ok');
       setImportFiles(null);

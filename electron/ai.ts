@@ -31,6 +31,8 @@ export interface GenOptions {
   thinkingBudget?: number;
   toolsEnabled?: boolean;
   projectId?: string | null;
+  /** The chat this run belongs to — tools like set_mode write to its row. */
+  chatId?: string | null;
 }
 
 export interface GenChunk {
@@ -294,7 +296,7 @@ async function runOpenAINonStream(
         if (!tc?.function?.name) continue;
         let input: any = {};
         try { input = JSON.parse(tc.function.arguments || '{}'); } catch { input = {}; }
-        const result = await executeToolCall({ name: tc.function.name, input } as ToolCall, { projectId: opts.projectId });
+        const result = await executeToolCall({ name: tc.function.name, input } as ToolCall, { projectId: opts.projectId, chatId: opts.chatId });
         toolsUsed.push(tc.function.name);
         onChunk({ type: 'tool', tool: { name: tc.function.name, result } });
         messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
@@ -456,7 +458,7 @@ async function runOpenAI(
         let input: any = {};
         try { input = JSON.parse(t.args || '{}'); } catch { input = {}; }
         tcMessages.push({ id: t.id, type: 'function', function: { name: t.name, arguments: t.args || '{}' } });
-        const result = await executeToolCall({ name: t.name, input } as ToolCall, { projectId: opts.projectId });
+        const result = await executeToolCall({ name: t.name, input } as ToolCall, { projectId: opts.projectId, chatId: opts.chatId });
         toolsUsed.push(t.name);
         onChunk({ type: 'tool', tool: { name: t.name, result } });
         toolResults.push({ role: 'tool', tool_call_id: t.id, content: result });
@@ -677,7 +679,7 @@ async function runAnthropic(
       chatMsgs.push({ role: 'assistant', content: contentBlocks });
       const results: any[] = [];
       for (const t of toolUses) {
-        const result = await executeToolCall({ name: t.name, input: t.input } as ToolCall, { projectId: opts.projectId });
+        const result = await executeToolCall({ name: t.name, input: t.input } as ToolCall, { projectId: opts.projectId, chatId: opts.chatId });
         toolsUsed.push(t.name);
         onChunk({ type: 'tool', tool: { name: t.name, result } });
         results.push({ type: 'tool_result', tool_use_id: t.id, content: result });

@@ -11,11 +11,13 @@ import {
 } from '../lib/storyAgent';
 
 const BRIEF_KEY = 'openplot.agentBrief.v1';
+import type { Lang } from '../i18n';
+
 const MAX_STEP = 4;
 
 type Busy = null | 'premise' | 'cast' | 'outline';
 
-function loadBrief(lang: 'en' | 'id'): StoryBrief {
+function loadBrief(lang: Lang): StoryBrief {
   try {
     const raw = localStorage.getItem(BRIEF_KEY);
     if (raw) {
@@ -32,11 +34,11 @@ function loadBrief(lang: 'en' | 'id'): StoryBrief {
         length: LENGTHS.some((x) => x.id === p.length) ? p.length : DEFAULT_BRIEF.length,
         format: FORMATS.some((x) => x.id === p.format) ? p.format : DEFAULT_BRIEF.format,
         audience: AUDIENCES.some((x) => x.id === p.audience) ? p.audience : DEFAULT_BRIEF.audience,
-        language: p.language === 'id' || p.language === 'en' ? p.language : lang
+        language: p.language === 'id' || p.language === 'en' ? p.language : (lang === 'id' ? 'id' : 'en')
       };
     }
   } catch { /* corrupted local draft — start clean */ }
-  return { ...DEFAULT_BRIEF, language: lang };
+  return { ...DEFAULT_BRIEF, language: lang === 'id' ? 'id' : 'en' };
 }
 
 function modelsOf(providers: Provider[]): string[] {
@@ -83,7 +85,7 @@ function ChoiceChips({
   value: string | string[];
   onPick: (id: string) => void;
   multi?: boolean;
-  lang: 'en' | 'id';
+  lang: Lang;
 }) {
   const isOn = (id: string) => (Array.isArray(value) ? value.includes(id) : value === id);
   return (
@@ -387,7 +389,7 @@ export function StoryAgentView() {
     setMaxStep(1);
     setStep(1);
     setProjectName('');
-    if (clearBrief) setBrief({ ...DEFAULT_BRIEF, language: lang });
+    if (clearBrief) setBrief({ ...DEFAULT_BRIEF, language: lang === 'id' ? 'id' : 'en' });
   }
 
   async function loadPlan(id: string) {

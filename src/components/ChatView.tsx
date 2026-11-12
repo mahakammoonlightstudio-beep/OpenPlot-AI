@@ -24,7 +24,7 @@ import type { ToolStep } from '../lib/toolProgress';
 import { shortcutById, matchesCombo } from '../lib/shortcuts';
 import {
   buildSystemPrompt as composeSystemPrompt, parseSkillsOff, parseSkillsOn,
-  parseSkillCommand, matchSkills, ChatMode
+  parseSkillCommand, matchSkills, ChatMode, CHAT_MODES
 } from '../lib/prompt';
 import { MessageBubble } from './chat/MessageBubble';
 import { StreamingBubble } from './chat/StreamingBubble';
@@ -36,6 +36,7 @@ import {
   buildTranscript
 } from '../lib/chatContext';
 import type { Attachment } from '../lib/chatContext';
+import { LOW_MEMORY } from '../lib/deviceProfile';
 
 const DEGRADED_MS = 6000;
 
@@ -53,15 +54,30 @@ function budgetToThinkLevel(n: number): ThinkLevel {
 
 /** Agent tools that change story-bible rows — the view must refresh itself. */
 const STORY_WRITE_TOOLS = new Set([
-  'create_project', 'create_story_entry', 'update_story_entry',
-  'create_chapter', 'update_chapter', 'append_to_chapter'
+  'create_project', 'create_story_entry', 'update_story_entry'
+]);
+/** Agent tools that change chapter rows — Chapters/Flow/Stats read the store,
+ *  so they refresh the same way the Story Bible does. */
+const CHAPTER_WRITE_TOOLS = new Set([
+  'create_chapter', 'update_chapter', 'append_to_chapter', 'restore_text_dump'
 ]);
 
 // Messages above the visible window render as cheap skeletons until the user
 // scrolls up — keeps long chats fast without breaking autoscroll anchoring.
-const RENDER_WINDOW = 60;
+// Low-memory machines mount 40 turns and page 120 rows at a time instead of
+// 60/200. Both are still "load earlier" expandable; the smaller starting slice
+// keeps DOM, Markdown and IPC payloads proportional to the hardware.
+const RENDER_WINDOW = LOW_MEMORY ? 40 : 60;
 /** Rows loaded from the DB per page. Memory stays bounded; readers page back. */
-const MESSAGE_PAGE = 200;
+const MESSAGE_PAGE = LOW_MEMORY ? 120 : 200;
+/**
+ * Streaming paint interval. A token burst used to schedule one React render +
+ * Markdown parse per animation frame (60/s). On a low-end CPU the parse grows
+ * with the whole reply, so the 60th frame parses 60 replies' worth of text per
+ * second. 80ms (12.5 fps) still reads as live typing while cutting that work
+ * by ~5x and leaving the main thread for scrolling and the composer.
+ */
+const STREAM_RENDER_MS = 80;
 
 // A draft handed to the NEXT ChatView instance. App mounts the view with
 // `key={activeChatId}`, so creating a chat remounts it — calling setInput right
@@ -75,7 +91,7 @@ let pendingChatDraft: string | null = null;
  * passed from ChatView are stable (they read the latest logic from a ref), so
  * only the message whose data actually changed re-renders.
  */
-export function ChatView() {
+export function ChatView({ workspace = 'chat' }: { workspace?: 'chat' | 'agent' } = {}) {
   const t = useT();
   const settings = useSettings();
   // Field-level selectors: ChatView used to subscribe to the WHOLE data store,
@@ -95,7 +111,9 @@ export function ChatView() {
   const reloadChatRelated = useData((s) => s.reloadChatRelated);
   const ui = useUi();
 
-  const chat = chats.find((c) => c.id === activeChatId) || null;
+  // Each Advance workspace only ever shows its own sessions: a Chat row and an
+  // Agent row never share the screen, even when both exist.
+  const chat = chats.find((c) => c.id === activeChatId && (c.workspace === 'agent') === (workspace === 'agent')) || null;
   const [messages, setMessages] = useState<Message[]>([]);
   // Paging state (Task 11): the view holds the newest MESSAGE_PAGE rows plus
   // whatever the reader pulled in, and never the whole 5,000-message chat.
@@ -274,13 +292,18 @@ export function ChatView() {
   useEffect(() => { setGoal(null); }, [activeChatId]);
   // Working mode + agent mode are per-chat rows. Local state makes the switch
   // instant; the row is the source of truth on the next load.
-  const [agentMode, setAgentMode] = useState<boolean | null>(null);
   const [chatMode, setChatMode] = useState<ChatMode | null>(null);
   // Web research without agent mode: the same web_search / web_fetch tools,
   // offered as one switch, per chat (session-scoped — the chat row is full).
   const [webSearchOn, setWebSearchOn] = useState(false);
-  const chatAgentOn = agentMode ?? (Number((chat as any)?.agent_mode) === 1);
-  const chatModeOn: ChatMode = chatMode ?? (((chat as any)?.chat_mode as ChatMode) || 'write');
+  // Agent mode is the Agent workspace itself now (v1.3.0): no per-chat toggle
+  // in the message bar, and tools are always on there.
+  const chatAgentOn = workspace === 'agent';
+  // Chat only plans and brainstorms (v1.3.0): writing prose and revising it
+  // belong to the Agent workspace, so a stored write/edit falls back here.
+  const allowedModes: ChatMode[] = chatAgentOn ? CHAT_MODES : ['plan', 'brainstorm'];
+  const storedMode: ChatMode = chatMode ?? (((chat as any)?.chat_mode as ChatMode) || 'write');
+  const chatModeOn: ChatMode = allowedModes.includes(storedMode) ? storedMode : allowedModes[0];
   const chatSkillsOn = parseSkillsOn((chat as any)?.skills_on);
 
   // ---- attachments: files & story content as chips (never inline text) ----
@@ -374,7 +397,7 @@ export function ChatView() {
     // reset overrides that aren't persisted per chat
     setOvTemp(null); setOvMaxTok(null); setOvTopP(null);
     setThinkOn(null); setThinkBudget(null); setThinkLevel(null); setToolsOn(null); setMemOn(null);
-    setAgentMode(null); setChatMode(null); setWebSearchOn(false);
+    setChatMode(null); setWebSearchOn(false);
     setHasOlder(false);
     dbCall<{ rows: Message[]; hasMore: boolean }>('getMessagePage', { chatId: chat.id, limit: MESSAGE_PAGE }).then((page) => {
       if (cancelled) return;
@@ -474,7 +497,7 @@ export function ChatView() {
   // `chat:new` automation fires exactly once with identical side effects.
   async function ensureChat(): Promise<Chat> {
     if (chat) return chat;
-    const c = await createChatUi('New chat', activeProjectId);
+    const c = await createChatUi('New chat', activeProjectId, workspace);
     return c as Chat;
   }
 
@@ -582,6 +605,7 @@ export function ChatView() {
       skillsOn: parseSkillsOn(chatRow.skills_on),
       mode: chatModeOn,
       agentMode: chatAgentOn,
+      workspace,
       style: state.styles.find((s) => s.id === settings.defaultStyleId) || null,
       goal,
       toolsEnabled: chatAgentOn || webSearchOn || (toolsOn ?? settings.toolsEnabled),
@@ -776,26 +800,45 @@ export function ChatView() {
     // The same rows the live panel shows are the ones saved with the reply, so
     // reopening the chat tells the same story instead of just listing names.
     const accSteps: ToolStep[] = [];
-    // Coalesce chunk bursts into one render per animation frame — tokens can
-    // arrive faster than 60fps and each setState used to mean a full re-render.
-    let rafPending = false;
+    // Throttle the live transcript to STREAM_RENDER_MS instead of one render per
+    // animation frame. The final text is still committed when the run ends.
+    let streamTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastFlushAt = Date.now();
     let dirtyText = '';
     let dirtyThink = '';
     const flushStreamFrame = () => {
-      rafPending = false;
+      streamTimer = null;
+      lastFlushAt = Date.now();
       setStreamText(dirtyText);
       setStreamThink(dirtyThink);
     };
+    const scheduleStreamFlush = () => {
+      if (streamTimer) return;
+      const wait = Math.max(0, STREAM_RENDER_MS - (Date.now() - lastFlushAt));
+      streamTimer = setTimeout(flushStreamFrame, wait);
+    };
     // Agent writes happen in the main process, so the renderer store went
     // stale until the whole app was reloaded (users had to "reset" to see a
-    // profile the AI just created). Refresh just the Story Bible rows when a
-    // write tool returns — silent, debounced, no navigation.
-    let storyReloadTimer: ReturnType<typeof setTimeout> | null = null;
-    const scheduleStoryReload = () => {
-      if (storyReloadTimer) clearTimeout(storyReloadTimer);
-      storyReloadTimer = setTimeout(() => {
-        storyReloadTimer = null;
-        useData.getState().reloadStory();
+    // profile the AI just created). Refresh just the rows a write tool touched
+    // (Story Bible entries, chapters) when it returns — silent, debounced, no
+    // navigation.
+    let canonReloadTimer: ReturnType<typeof setTimeout> | null = null;
+    const reloadCanon = (wroteStory: boolean, wroteChapter: boolean) => {
+      const data = useData.getState();
+      if (wroteStory) data.reloadStory();
+      if (wroteChapter) data.reloadChapters();
+    };
+    // What this run wrote, so a refresh that arrives after the next tool call
+    // still covers every kind of row the run touched.
+    let ranStoryWrite = false;
+    let ranChapterWrite = false;
+    const scheduleCanonReload = (wroteStory: boolean, wroteChapter: boolean) => {
+      ranStoryWrite = ranStoryWrite || wroteStory;
+      ranChapterWrite = ranChapterWrite || wroteChapter;
+      if (canonReloadTimer) clearTimeout(canonReloadTimer);
+      canonReloadTimer = setTimeout(() => {
+        canonReloadTimer = null;
+        reloadCanon(ranStoryWrite, ranChapterWrite);
       }, 250);
     };
     const off = window.inkwell.onAiChunk(({ reqId, chunk }) => {
@@ -815,11 +858,35 @@ export function ChatView() {
         accTools.push(c.tool.name);
         const step = describeToolStep(c.tool!.name, c.tool!.result);
         accSteps.push(step);
+        // The agent moved itself between modes: drop the local pick so the row
+        // it just wrote wins, and refresh the mode pills.
+        if (c.tool.name === 'set_mode') {
+          setChatMode(null);
+          useData.getState().reloadChatRelated();
+          // Say it out loud too: the tool row and the composer chip change, but
+          // a toast is what makes an automatic switch impossible to miss.
+          const switched = /"mode"\s*:\s*"(plan|brainstorm|write|edit)"/.exec(String(c.tool.result || ''))?.[1] as ChatMode | undefined;
+          if (switched) ui.toast(t('mode.switched').replace('{mode}', t('mode.' + switched)), 'ok');
+        }
+        // The agent switched a skill on or off for this chat: refresh the
+        // composer chip and say which skill changed.
+        if (c.tool.name === 'use_skill' || c.tool.name === 'drop_skill') {
+          useData.getState().reloadChatRelated();
+          try {
+            const changed = JSON.parse(String(c.tool.result || '{}'));
+            if (changed?.ok && changed.name) {
+              ui.toast(
+                t(c.tool.name === 'use_skill' ? 'skill.autoOn' : 'skill.autoOff').replace('{name}', String(changed.name)),
+                'ok'
+              );
+            }
+          } catch { /* a non-JSON result has nothing to announce */ }
+        }
         setStreamTools((a) => [...a, c.tool!.name]);
         setStreamSteps((a) => [...a, step]);
-        if (STORY_WRITE_TOOLS.has(c.tool.name)) scheduleStoryReload();
+        scheduleCanonReload(STORY_WRITE_TOOLS.has(c.tool.name), CHAPTER_WRITE_TOOLS.has(c.tool.name));
       }
-      if (!rafPending) { rafPending = true; requestAnimationFrame(flushStreamFrame); }
+      scheduleStreamFlush();
     });
 
     const startedAt = Date.now();
@@ -827,7 +894,7 @@ export function ChatView() {
     try {
       res = await window.inkwell.generate(req);
     } finally {
-      if (rafPending) { cancelAnimationFrame(rafPending); rafPending = false; }
+      if (streamTimer) { clearTimeout(streamTimer); streamTimer = null; }
       off();
     }
 
@@ -929,10 +996,12 @@ export function ChatView() {
       setStreamThink('');
       setStreamTools([]); setStreamSteps([]);
       reqIdRef.current = null;
-      if (storyReloadTimer) { clearTimeout(storyReloadTimer); storyReloadTimer = null; }
+      if (canonReloadTimer) { clearTimeout(canonReloadTimer); canonReloadTimer = null; }
       // Guarantee a final refresh even when a write tool finished right before
       // the reply ended (the debounce may not have fired yet).
-      if (accTools.some((n) => STORY_WRITE_TOOLS.has(n))) useData.getState().reloadStory();
+      const wroteStory = ranStoryWrite || accTools.some((n) => STORY_WRITE_TOOLS.has(n));
+      const wroteChapter = ranChapterWrite || accTools.some((n) => CHAPTER_WRITE_TOOLS.has(n));
+      if (wroteStory || wroteChapter) reloadCanon(wroteStory, wroteChapter);
     }
   }
 
@@ -1249,7 +1318,9 @@ export function ChatView() {
       });
     }
 
-    await useData.getState().load();
+    // Saving to a chapter touches chapters only (projects were unchanged; a
+    // missing project was already created via createProjectUi, which loads).
+    await useData.getState().reloadChapters();
     const totalWords = useData
       .getState()
       .chapters.filter((c) => c.project_id === projectId)
@@ -1353,7 +1424,7 @@ export function ChatView() {
       ? t('header.cacheUnknown')
       : t(cacheProfile.mode === 'explicit' ? 'header.cacheExplicit' : 'header.cacheAuto');
 
-  const recentChats = chats.slice(0, 3);
+  const recentChats = chats.filter((c) => (c.workspace === 'agent') === (workspace === 'agent')).slice(0, 3);
   const latestChapter = allChapters.slice().sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0))[0];
 
   // Empty-chat starters: built from what the project actually has, so the
@@ -1375,13 +1446,6 @@ export function ChatView() {
     list.push({ label: t('chat.suggest.outline'), prompt: t('chat.suggest.outlinePrompt') });
     return list.slice(0, 4);
   }, [latestChapter, projectChapters, allStory, t]);
-
-  async function setAgentPersist(on: boolean) {
-    setAgentMode(on);
-    if (!chat) return;
-    await dbCall('updateChat', { id: chat.id, agent_mode: on });
-    await useData.getState().reloadChatRelated();
-  }
 
   async function setModePersist(mode: ChatMode) {
     setChatMode(mode);
@@ -1711,11 +1775,12 @@ export function ChatView() {
         onPickThinkLevel={(l) => { void setThinkLevelPersist(l); }}
         thinkLevelMode={activeThinkLevel}
         maxThinkBudget={maxThinkBudget}
-        agentMode={chatAgentOn}
-        onToggleAgent={(v) => { void setAgentPersist(v); }}
         webSearchOn={webSearchOn}
         onToggleWebSearch={(v) => setWebSearchOn(v)}
         mode={chatModeOn}
+        modes={allowedModes}
+        agentWorkspace={chatAgentOn}
+        workspace={workspace}
         onPickMode={(m) => { void setModePersist(m); }}
         skillsOn={chatSkillsOn}
         onRunSkillCommand={(cmd) => { if (!streaming) void runSkillCommand(cmd); }}

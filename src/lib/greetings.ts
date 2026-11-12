@@ -5,7 +5,9 @@
  * matches the hour (and rotates every minute) makes Home feel like a desk that
  * is ready, not a poster. Pure and dependency-free so it can be unit-tested.
  */
-export type GreetLang = 'en' | 'id';
+import type { Lang } from '../i18n';
+
+export type GreetLang = 'en' | 'id' | 'es' | 'hi';
 export type DaySlot = 'morning' | 'afternoon' | 'evening' | 'night';
 
 export function slotOf(hour: number): DaySlot {
@@ -16,10 +18,10 @@ export function slotOf(hour: number): DaySlot {
 }
 
 const SALUTATION: Record<DaySlot, Record<GreetLang, string>> = {
-  morning: { en: 'Good morning', id: 'Selamat pagi' },
-  afternoon: { en: 'Good afternoon', id: 'Selamat siang' },
-  evening: { en: 'Good evening', id: 'Selamat malam' },
-  night: { en: 'Late night', id: 'Malam larut' }
+  morning: { en: 'Good morning', id: 'Selamat pagi', es: 'Buenos días', hi: 'सुप्रभात' },
+  afternoon: { en: 'Good afternoon', id: 'Selamat siang', es: 'Buenas tardes', hi: 'नमस्कार' },
+  evening: { en: 'Good evening', id: 'Selamat malam', es: 'Buenas noches', hi: 'शुभ संध्या' },
+  night: { en: 'Late night', id: 'Malam larut', es: 'Madrugada', hi: 'देर रात' }
 };
 
 /** Short openers — one line, never instructions the user has to read twice. */
@@ -39,16 +41,35 @@ const OPENERS: Record<GreetLang, string[]> = {
     'Lanjutkan benang dari kemarin.',
     'Tanya kanon sebelum mengarang.',
     'Satu ide cukup untuk mulai.'
+  ],
+  es: [
+    '¿Qué escribimos hoy?',
+    '¿Una escena, un capítulo o un plan?',
+    'La página en blanco es tuya.',
+    'Retoma un hilo de ayer.',
+    'Pregunta al canon antes de inventar.',
+    'Una idea basta para empezar.'
+  ],
+  hi: [
+    'आज क्या लिखें?',
+    'एक दृश्य, एक अध्याय, या योजना?',
+    'खाली पन्ना आपका है।',
+    'कल के धागे से आगे बढ़ें।',
+    'कुछ गढ़ने से पहले कहानी से पूछें।',
+    'शुरू करने के लिए एक विचार काफ़ी है।'
   ]
 };
 
-export function greetingFor(lang: GreetLang, now: Date = new Date()): string {
-  return SALUTATION[slotOf(now.getHours())][lang];
+const greetLang = (lang: Lang): GreetLang =>
+  lang === 'id' || lang === 'es' || lang === 'hi' ? lang : 'en';
+
+export function greetingFor(lang: Lang, now: Date = new Date()): string {
+  return SALUTATION[slotOf(now.getHours())][greetLang(lang)];
 }
 
 /** Deterministic rotation: the line changes each minute, not on every pill. */
-export function openingFor(lang: GreetLang, now: Date = new Date()): string {
-  const list = OPENERS[lang];
+export function openingFor(lang: Lang, now: Date = new Date()): string {
+  const list = OPENERS[greetLang(lang)];
   const minuteOfDay = now.getHours() * 60 + now.getMinutes();
   return list[minuteOfDay % list.length];
 }

@@ -3,7 +3,7 @@ import { useData, useSettings, useUi, dbCall } from '../store';
 import { useT } from '../i18nReact';
 import { Icon } from './Icons';
 import { Popover, MenuItem } from './Ui';
-import { Provider, StyleRow, ThinkingSupport } from '../types';
+import { Provider, SkillCategory, SkillRow, StyleRow, ThinkingSupport } from '../types';
 import {
   PROMPT_LIBRARY, PROMPT_CATEGORIES, applyPromptTemplate, mergePrompts,
   buildPromptBundle, parsePromptImport, notePromptUse, promptUsage,
@@ -29,7 +29,7 @@ export function Composer({
   input, setInput, onSend, streaming, onAbort,
   effModel, effProvider, allModels, onPickModel,
   thinkOn, setThinkOn,  thinkSupport, thinkingUi, thinkBudget, setThinkBudget, maxThinkBudget, onPickThinkLevel, thinkLevelMode,
-  agentMode, onToggleAgent, webSearchOn, onToggleWebSearch, mode, onPickMode, skillsOn, onRunSkillCommand,
+  webSearchOn, onToggleWebSearch, mode, onPickMode, modes, agentWorkspace, workspace, skillsOn, onRunSkillCommand,
   chatProjectId, onPickProject, onDetachProject,
   goal, setGoal,
   wordCount,
@@ -60,15 +60,18 @@ export function Composer({
   /** The level stored on the chat row; 'auto' = follow Settings. */
   thinkLevelMode?: 'auto' | 'off' | 'low' | 'medium' | 'high' | 'max';
   maxThinkBudget: number;
-  /** Agent mode: the model may call tools in a loop. */
-  agentMode: boolean;
-  onToggleAgent: (v: boolean) => void;
   /** Web research for this chat: search + fetch without the agent loop. */
   webSearchOn: boolean;
   onToggleWebSearch: (v: boolean) => void;
   /** Working mode — prompt-level, works with any model, agent mode or not. */
   mode: ChatMode;
   onPickMode: (m: ChatMode) => void;
+  /** Which modes this desk offers: Chat = plan + brainstorm, Agent = all four. */
+  modes?: ChatMode[];
+  /** True in the Agent workspace, where the bar shows an agent status chip. */
+  agentWorkspace?: boolean;
+  /** Which desk this composer belongs to; the skill picker recommends its category first. */
+  workspace?: 'chat' | 'agent';
   /** Skill ids switched on for this chat (/skill). */
   skillsOn: string[];
   onRunSkillCommand: (cmd: { all: true } | { name: string }) => void;
@@ -95,6 +98,8 @@ export function Composer({
 }) {
   const t = useT();
   const ui = useUi();
+  // Chat plans and brainstorms; writing/revising lives in the Agent workspace.
+  const modeList = modes && modes.length ? modes : CHAT_MODES;
   // Narrow selectors (Task 11): the composer re-rendered on every data-store
   // write — including story-bible edits and message reloads — because it
   // subscribed to the whole store.
@@ -110,15 +115,48 @@ export function Composer({
   // Skills that actually reach the prompt: on globally OR switched on for this
   // chat with /skill, and not muted here.
   const onSkills = skillsOn || [];
-  const enabledSkills = skills.filter(
-    (s) => (Number(s.enabled) === 1 || onSkills.includes(s.id)) && !offSkills.includes(s.id)
-  );
-  // "/skill" opens skill search instead of the prompt library.
+  const isSkillActive = (s: SkillRow) =>
+    (Number(s.enabled) === 1 || onSkills.includes(s.id)) && !offSkills.includes(s.id);
+  const enabledSkills = skills.filter(isSkillActive);
+  // Categories are a recommendation, not a second permission gate: this desk's
+  // skills come first, while active skills from another desk stay reachable
+  // instead of disappearing from a picker that claims to show what is on.
+  const categoryOf = (s: { category?: string }): SkillCategory =>
+    s.category === 'chat' || s.category === 'agent' || s.category === 'writing' ? s.category : 'writing';
+  const desk: SkillCategory = workspace === 'agent' ? 'agent' : 'chat';
+  const deskSkills = skills.filter((s) => categoryOf(s) === desk);
+  const otherSkills = skills.filter((s) => categoryOf(s) !== desk);
+  const orderedSkills = [...deskSkills, ...otherSkills];
   const skillCmd = /^\/skill\b\s*\/?\s*(.*)$/i.exec(input);
   const skillCmdQuery = skillCmd ? (skillCmd[1] || '').trim() : null;
   const skillCmdItems = skillCmdQuery === null
     ? []
-    : (skillCmdQuery ? matchSkills(skills, skillCmdQuery) : skills).slice(0, 8);
+    : (skillCmdQuery ? matchSkills(orderedSkills, skillCmdQuery) : orderedSkills).slice(0, 8);
+
+  function skillToggleRow(s: SkillRow) {
+    const active = isSkillActive(s);
+    const muted = offSkills.includes(s.id);
+    return (
+      <label
+        key={s.id}
+        className={`skill-toggle ${active ? '' : 'off'} ${muted ? 'muted' : ''}`}
+        title={s.description || s.content.slice(0, 120)}
+      >
+        <input
+          type="checkbox"
+          checked={active}
+          disabled={!onToggleSkill}
+          onChange={() => onToggleSkill?.(s.id)}
+        />
+        <span className="skill-toggle-text">
+          <span className="t">{s.name}</span>
+          {s.description ? <small>{s.description}</small> : null}
+        </span>
+        <span className="skill-toggle-cat">{t(`skills.category.${categoryOf(s)}`)}</span>
+        {!active && <span className="badge">{t('composer.skillOff')}</span>}
+      </label>
+    );
+  }
   const draftTokens = Math.ceil((input || '').length / 4);
   // Hide the thinking control entirely when the model cannot expose reasoning;
   // the `always` preference keeps the familiar On/Off switch (with a hint that
@@ -521,10 +559,10 @@ export function Composer({
                   <button key={s.id} className="prompt-item skill-cmd" role="menuitem"
                     onClick={() => runSkill(s.name)}>
                     <span className="pi-text">
-                      <span className="pi-label">{s.name}</span>
+                      <span className="pi-label">{s.name} <span className="skill-card-category">{t(`skills.category.${categoryOf(s)}`)}</span></span>
                       {s.description ? <span className="pi-desc">{s.description}</span> : null}
                     </span>
-                    <span className="pi-insert">{((Number(s.enabled) === 1 || onSkills.includes(s.id)) && !offSkills.includes(s.id)) ? t('skill.active') : t('skill.enable')}</span>
+                    <span className="pi-insert">{isSkillActive(s) ? t('skill.active') : t('skill.enable')}</span>
                   </button>
                 ))}
                 {skillCmdItems.length === 0 && <div className="prompt-empty">{t('palette.noResults')}</div>}
@@ -802,37 +840,39 @@ export function Composer({
         </div>
 
         <div className="comp-modes">
-          <button className={`agent-toggle ${agentMode ? 'on' : ''}`} onClick={() => onToggleAgent(!agentMode)}
-            aria-pressed={agentMode} title={t('agentMode.hint')}>
-            <Icon name="tools" size={13} /> {t('agentMode.label')}
-            <span className="ag-state">{agentMode ? t('composer.on') : t('composer.off')}</span>
-          </button>
-
           <button className={`web-toggle ${webSearchOn ? 'on' : ''}`} onClick={() => onToggleWebSearch(!webSearchOn)}
             aria-pressed={webSearchOn} title={t('composer.webHint')}>
             <Icon name="search" size={13} /> {t('composer.web')}
             <span className="wb-state">{webSearchOn ? t('composer.on') : t('composer.off')}</span>
           </button>
 
-          {/* The three working modes get their own framed box so they read as
-              one control instead of three loose pills next to agent mode. */}
+          {/* Working modes: one framed control, each mode with its own colour. */}
           <div className="mode-box">
           <div
             className={`mode-seg mode-${mode}`}
             role="group"
             aria-label={t('mode.label')}
-            style={{ ['--mi' as any]: String(Math.max(0, CHAT_MODES.indexOf(mode))) }}
+            style={{ ['--mi' as any]: String(Math.max(0, modeList.indexOf(mode))), ['--mn' as any]: String(modeList.length) }}
           >
             <span className="mode-thumb" aria-hidden="true" />
-            {CHAT_MODES.map((m) => (
+            {modeList.map((m) => (
               <button key={m} className={`mode-btn mode-${m} ${mode === m ? 'on' : ''}`}
                 aria-pressed={mode === m} onClick={() => onPickMode(m)} title={t('mode.' + m + 'Hint')}>
-                <Icon name={m === 'plan' ? 'target' : m === 'brainstorm' ? 'sparkle' : 'pencil'} size={12} />
+                <Icon name={m === 'plan' ? 'target' : m === 'brainstorm' ? 'sparkle' : m === 'edit' ? 'pencil' : 'quill'} size={13} />
                 {t('mode.' + m)}
               </button>
             ))}
           </div>
           </div>
+
+          {agentWorkspace && (
+            /* The agent moves itself between modes: this chip is the visible
+               "mode switched" status, like the thinking / web-search chips. */
+            <span key={mode} className="agent-chip" title={t('mode.hintAgent')}>
+              <Icon name="tools" size={12} /> {t('advance.agent')}
+              <b>{t('mode.' + mode)}</b>
+            </span>
+          )}
 
           {thinkingControl}
 
@@ -843,32 +883,25 @@ export function Composer({
               <Icon name="sparkle" size={13} /> {t('composer.skills').replace('{n}', String(enabledSkills.length))}
               <Icon name="chevronDown" size={11} />
             </button>
-            <Popover open={skillsOpen} onClose={() => setSkillsOpen(false)} width={320}>
+            <Popover open={skillsOpen} onClose={() => setSkillsOpen(false)} width={340}>
               {skills.length === 0 && <div className="ui-menu-empty">{t('composer.skillsNone')}</div>}
-              {skills.map((s) => {
-                const globallyOn = Number(s.enabled) === 1;
-                const muted = offSkills.includes(s.id);
-                const active = (globallyOn || onSkills.includes(s.id)) && !muted;
-                return (
-                  <label
-                    key={s.id}
-                    className={`skill-toggle ${active ? '' : 'off'} ${muted ? 'muted' : ''}`}
-                    title={s.description || s.content.slice(0, 120)}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={active}
-                      disabled={!onToggleSkill}
-                      onChange={() => onToggleSkill?.(s.id)}
-                    />
-                    <span className="skill-toggle-text">
-                      <span className="t">{s.name}</span>
-                      {s.description ? <small>{s.description}</small> : null}
-                    </span>
-                    {!active && <span className="badge">{t('composer.skillOff')}</span>}
-                  </label>
-                );
-              })}
+              {deskSkills.length > 0 && (
+                <div className="skill-group-label">
+                  {t('composer.skillsDesk').replace('{desk}', t(`skills.category.${desk}`))}
+                </div>
+              )}
+              {deskSkills.map(skillToggleRow)}
+              {deskSkills.length === 0 && skills.length > 0 && (
+                <div className="skill-group-empty">
+                  {t('composer.skillsDeskEmpty').replace('{desk}', t(`skills.category.${desk}`))}
+                </div>
+              )}
+              {otherSkills.length > 0 && (
+                <details className="skill-other" open={otherSkills.some(isSkillActive)}>
+                  <summary>{t('composer.skillsOther').replace('{n}', String(otherSkills.length))}</summary>
+                  <div className="skill-other-list">{otherSkills.map(skillToggleRow)}</div>
+                </details>
+              )}
               <div className="skill-cmd-hint">{t('skill.cmdHint')}</div>
               <button className="link skills-manage" onClick={() => { setSkillsOpen(false); useData.getState().navigate('settings'); }}>
                 {t('composer.manageSkills')}
@@ -879,7 +912,7 @@ export function Composer({
       </div>
 
       <div className="comp-hints">
-        <span className="composer-mode-hint">{agentMode ? t('agentMode.hint') : t('mode.hint')}</span>
+        <span className="composer-mode-hint">{agentWorkspace ? t('mode.hintAgent') : t('mode.hintChat')}</span>
         <span className="spacer" />
         {draftTokens > 0 && (
           <span className="composer-words">

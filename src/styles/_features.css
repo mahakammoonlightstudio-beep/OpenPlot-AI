@@ -432,12 +432,16 @@ button.small.ghost.active { color: var(--accent); background: var(--accent-soft)
 .welcome-hero .logo-big { font-size: 42px; font-weight: 800; letter-spacing: 0.5px; }
 .welcome-hero .logo-big .ink { color: var(--accent); }
 .welcome-hero p { color: var(--text-dim); line-height: 1.6; }
-.welcome-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; max-width: 860px; margin: 0 auto; }
+/* Four doors read best as a balanced 2x2 block; the old auto-fit row left the
+   fourth card alone on a second row at desktop widths. */
+.welcome-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-width: 720px; margin: 0 auto; }
+@media (max-width: 620px) { .welcome-cards { grid-template-columns: 1fr; } }
 .welcome-card {
   background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px;
   padding: 16px; cursor: pointer; transition: border-color 0.15s;
 }
-.welcome-card:hover { border-color: var(--accent); }
+.welcome-card:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); transform: translateY(-1px); box-shadow: var(--shadow); }
+.welcome-card { transition: border-color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out); }
 .welcome-card .ic { font-size: 22px; margin-bottom: 8px; }
 .welcome-card .t { font-weight: 600; margin-bottom: 4px; }
 .welcome-card .d { font-size: 12px; color: var(--text-dim); line-height: 1.5; }

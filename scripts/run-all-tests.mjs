@@ -36,11 +36,14 @@ const GROUPS = {
   headless: [
     'db-test.mjs',        // sql.js schema/migrations/CRUD — no build output needed
     'db-migration-test.mjs', // versioned migrations, pre-upgrade backup, newer-DB refusal
+    'snapshot-test.mjs',     // Time Machine: naming, isolation, retention, path safety
+    'library-export-test.mjs', // portable copy: whole library, no keys/approvals, live DB untouched
     'model-caps-test.mjs',   // capability inference, cache profiles, persisted registry
     'settings-index-test.mjs', // settings IA: groups, search, mode gating, reset defaults
     'chat-files-test.mjs',   // chat attachments: metadata, lazy read, caps, cascade cleanup
     'thinking-test.mjs',     // thinking parameter gating + reject-and-retry (mock Anthropic)
     'skills-test.mjs',       // skills v2: idempotent seeding, enable gate, builtin reset
+    'skill-lab-test.mjs',    // Skill Lab: exact preview, tokens, overlap/tension, budget
     'prompt-test.mjs',       // system-prompt order, skill gating, budgets
     'prompt-bundle-test.mjs', // prompt-library import/export: shape, dedupe, caps
     'guide-test.mjs',        // guide articles: parsing, tokens, search, EN/ID coverage
@@ -51,6 +54,10 @@ const GROUPS = {
     'tools-test.mjs',     // agent tools vs a real temp DB
     'agent-e2e-test.mjs', // one agent run: project + 12 bible entries + chapter (15 rounds)
     'tool-progress-test.mjs', // tool result → readable progress step (kind, title, ok)
+    'manuscript-test.mjs',  // offline manuscript check: dialogue, filter words, long sentences
+    'i18n-test.mjs',        // locale registry, UK spelling pass, fallbacks, placeholders
+    'text-diff-test.mjs',   // word diff + bounded fallback for the Writing preview
+    'revision-timeline-test.mjs', // manuscript timeline: snapshots + displaced edits, restore, scoping
     'story-import-test.mjs', // story-bible file import parser (markdown/json/csv/txt)
     'story-agent-test.mjs',  // Plot Smith prompts, JSON recovery, plan → project
     'story-vault-test.mjs',  // attachments, saved plans, stats + compaction (temp DB)
@@ -65,6 +72,7 @@ const GROUPS = {
   'e2e-local': [
     'gui-test.mjs',       // boots vite+electron, drives the real UI (chat, tools, prompts)
     'focus-test.mjs',     // boots vite+electron, keyboard-focus regression suite
+    'quick-switch-test.mjs', // boots vite+electron, Ctrl+P chat/project switcher
     'ui-task5-test.mjs',  // boots vite+electron, Task 5 studio UX (ability row, meter, drop, regen)
     'xss-test.mjs'        // boots vite+electron, injects hostile markdown, asserts the live DOM
   ],

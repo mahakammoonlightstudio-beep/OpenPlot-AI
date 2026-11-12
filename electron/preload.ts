@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron';
 
 const api = {
   platform: process.platform,
@@ -37,6 +37,22 @@ const api = {
   // expects the AppInfo object itself — the wrapper used to leak through and
   // made info.version / info.dataPath silently undefined.
   appInfo: () => ipcRenderer.invoke('app:info').then((r: any) => (r && r.data) ? r.data : r),
+  // Library switching is a main-process decision (validated basename + schema).
+  libraries: () => ipcRenderer.invoke('library:list'),
+  librarySwitch: (name: string) => ipcRenderer.invoke('library:switch', name),
+  libraryCreate: (name: string) => ipcRenderer.invoke('library:create', name),
+  libraryImport: () => ipcRenderer.invoke('library:import'),
+  libraryExport: () => ipcRenderer.invoke('library:export'),
+  revealDataFolder: () => ipcRenderer.invoke('library:reveal'),
+  // Library Time Machine: whole-file snapshots kept beside the profile.
+  snapshots: () => ipcRenderer.invoke('snapshot:list'),
+  snapshotCreate: () => ipcRenderer.invoke('snapshot:create'),
+  snapshotRestore: (name: string) => ipcRenderer.invoke('snapshot:restore', name),
+  /** UI scale is native zoom so every px-based control scales together. */
+  setZoom: (factor: number) => {
+    const f = Math.min(1.25, Math.max(0.85, Number(factor) || 1));
+    try { webFrame.setZoomFactor(f); return true; } catch { return false; }
+  },
   setUnreadCount: (count: number, chatTitle?: string) => ipcRenderer.invoke('ui:unreadCount', count, chatTitle),
   /** Flash the window (taskbar/dock) — used by the `notify` automation action. */
   flashWindow: () => ipcRenderer.invoke('ui:flashWindow'),

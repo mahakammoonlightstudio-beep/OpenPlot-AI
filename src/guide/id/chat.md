@@ -25,9 +25,10 @@ Header menampilkan model, meter token, dan chip proyek. Setiap chat menyimpan:
 - pengecualian skill per chat.
 
 ## Merapikan
-- **Folder** mengelompokkan chat di sidebar.
+- **Folder** mengelompokkan chat di sidebar, terpisah untuk Chat dan Agent. Klik folder untuk membukanya dan pakai `+` di sana untuk mulai chat di dalamnya; tarik chat mana pun ke folder untuk memasukkannya, dan ke judul **Chat** untuk mengeluarkannya lagi.
 - **Pin** menahan chat di atas.
 - **Ganti nama** dari baris chat atau header.
+- **Pindah cepat** — `Ctrl+P` membuka palette khusus chat dan proyek; ketik sebagian judul, nama proyek, atau workspace lalu tekan `Enter`.
 - Menghapus chat menghapus pesan dan file terlampirnya. Tidak ada undo — ekspor dulu lewat [[settings:data]] bila chat itu penting.
 
 ## Apa yang benar-benar dilihat model

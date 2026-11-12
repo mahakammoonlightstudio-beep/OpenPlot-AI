@@ -91,6 +91,9 @@ export function BehaviorSection({ mode }: { mode?: 'simple' | 'advanced' }) {
           <input type="password" value={settings.webSearchApiKey}
             placeholder={t('web.keyPh')}
             onChange={(e) => settings.set('webSearchApiKey', e.target.value)} />
+          {settings.webSearchHasKey && !settings.webSearchApiKey && (
+            <div className="hint">{t('web.keyStored')}</div>
+          )}
           <div className="hint">{t('web.hint')}</div>
         </div>
       </div>

@@ -3,6 +3,7 @@ import { marked } from 'marked';
 import hljs from 'highlight.js/lib/core';
 import DOMPurify from 'dompurify';
 import 'highlight.js/styles/github-dark.css';
+import { LOW_MEMORY } from './lib/deviceProfile';
 
 // PERF: importing the 'highlight.js' barrel pulled in ALL 386 languages
 // (~2.3MB) and made every highlightAuto scan them all. We register only the
@@ -55,12 +56,14 @@ const ALIAS_LANGS: Record<string, string> = {
 
 // Streaming re-renders the same code block many times as tokens arrive;
 // highlight.js is expensive, so cache results by raw code text.
+// Low-memory machines (≤4 GB) still get the speed benefit, just with smaller
+// ceilings: every cache here is a bounded trade of RAM for re-parsing.
 const HL_CACHE = new Map<string, string>();
-const HL_CACHE_MAX = 300;
+const HL_CACHE_MAX = LOW_MEMORY ? 140 : 300;
 const HL_CACHE_SKIP = 64 * 1024; // don't cache huge blocks
 // Byte budget (v1.2.3 Task 11): 300 long code blocks could still hold tens of
 // megabytes, so the cache is bounded by the size of what it stores.
-const HL_CACHE_BYTES_MAX = 4 * 1024 * 1024;
+const HL_CACHE_BYTES_MAX = (LOW_MEMORY ? 2 : 4) * 1024 * 1024;
 let hlCacheBytes = 0;
 function hlCacheEvict(): void {
   while ((HL_CACHE.size > HL_CACHE_MAX || hlCacheBytes > HL_CACHE_BYTES_MAX) && HL_CACHE.size) {
@@ -175,8 +178,8 @@ function hardenLinks(container: HTMLElement): void {
 // text, with the same bounded-budget discipline as code highlighting so a long
 // session cannot grow the cache without limit.
 const MD_CACHE = new Map<string, string>();
-const MD_CACHE_MAX = 240;
-const MD_CACHE_BYTES_MAX = 6 * 1024 * 1024;
+const MD_CACHE_MAX = LOW_MEMORY ? 120 : 240;
+const MD_CACHE_BYTES_MAX = (LOW_MEMORY ? 3 : 6) * 1024 * 1024;
 const MD_CACHE_SKIP = 64 * 1024;
 let mdCacheBytes = 0;
 

@@ -16,8 +16,9 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { initDb, handleDb, persistNow, closeDb, providerSecret } = require('../dist-electron/db.js');
-const { isBlockedHost, runWebFetch } = require('../dist-electron/webtools.js');
+const { initDb, handleDb, persistNow, closeDb, providerSecret, setSecretCrypto, settingSecret } = require('../dist-electron/db.js');
+const { settingsForRenderer } = require('../dist-electron/settingsPrivacy.js');
+const { isBlockedHost, runWebFetch, publicLookup } = require('../dist-electron/webtools.js');
 const { grantPaths, clearGrants, checkReadable, readTextFiles, isSensitivePath, setPrivateRoot } = require('../dist-electron/fileaccess.js');
 const { loadPlugins, listLoadedPlugins, getLogs } = require('../dist-electron/plugins.js');
 const { restartMcpServer } = require('../dist-electron/mcp.js');
@@ -249,6 +250,12 @@ const timeIt = (fn) => { const t = performance.now(); const out = fn(); return [
 
 // ------------------------------------- S8: provider secrets stay in main only ---
 {
+  // Deterministic stand-in for Electron's safeStorage, so the at-rest checks
+  // work in a headless run as well as in the packaged app.
+  setSecretCrypto(
+    (plain) => 'test:' + Buffer.from(plain, 'utf8').toString('base64'),
+    (sealed) => Buffer.from(String(sealed).slice(5), 'base64').toString('utf8')
+  );
   const created = db('createProvider', {
     name: 'Key Probe', baseUrl: 'https://example.com/v1', apiKey: 'sk-very-secret',
     models: [], kind: 'openai', enabled: true
@@ -262,6 +269,43 @@ const timeIt = (fn) => { const t = performance.now(); const out = fn(); return [
   check('providers: updating without a key keeps the stored one',
     db('updateProvider', { id: created.id, name: 'Renamed' }) &&
     providerSecret(created.id)?.apiKey === 'sk-very-secret');
+}
+
+// ---------------------------- S8b: web-search key is sealed and redacted ---
+{
+  const secret = 'sk-search-very-secret';
+  db('setSetting', { key: 'webSearchApiKey', value: JSON.stringify(secret) });
+  const stored = String(db('getAllSettings').webSearchApiKey || '');
+  check('settings: web-search key is encrypted at rest',
+    stored.startsWith('enc:v1:') && !stored.includes(secret), stored.slice(0, 24));
+  check('settings: main can still read the web-search key',
+    settingSecret('webSearchApiKey') === secret);
+  const view = settingsForRenderer(db('getAllSettings'), true);
+  check('settings: the renderer view never contains the key',
+    view.webSearchApiKey === '' && view.webSearchHasKey === 'true' && !JSON.stringify(view).includes(secret));
+
+  db('setSetting', { key: 'webSearchApiKey', value: JSON.stringify('   ') });
+  check('settings: clearing the key leaves no ciphertext',
+    db('getAllSettings').webSearchApiKey === '' && settingSecret('webSearchApiKey') === '');
+}
+
+// --------------------------------- S8c: DNS answers are checked before use ---
+{
+  const dns = require('node:dns');
+  const original = dns.lookup;
+  // Simulate DNS rebinding: a public name resolves to loopback at connect time.
+  dns.lookup = (hostname, options, callback) =>
+    callback(null, [{ address: '127.0.0.1', family: 4 }]);
+  let error = null;
+  try {
+    await new Promise((resolve) => {
+      publicLookup('public.example', {}, (err) => { error = err; resolve(); });
+    });
+  } finally {
+    dns.lookup = original;
+  }
+  check('SSRF: a DNS answer in a private range is refused',
+    !!error && /private|local network|own machine/i.test(String(error.message || error)));
 }
 
 // ------------------------------------------ S9: the app's own data directory ---
@@ -284,6 +328,29 @@ const timeIt = (fn) => { const t = performance.now(); const out = fn(); return [
     readTextFiles([dbLike]).length === 0);
   check('files: a database file is refused by name',
     isSensitivePath('/x/openplot.db') && isSensitivePath('C:\\x\\inkwell.db'));
+  check('files: absurdly long paths are refused',
+    checkReadable('C:\\' + 'a'.repeat(5000)).error === 'path too long');
+
+  const links = path.join(dir, 'links');
+  const secretDir = path.join(dir, '.ssh');
+  fs.mkdirSync(links, { recursive: true });
+  fs.mkdirSync(secretDir, { recursive: true });
+  const secretFile = path.join(secretDir, 'id_rsa');
+  fs.writeFileSync(secretFile, 'PRIVATE KEY');
+  const linkDir = path.join(links, 'reading-list');
+  try {
+    fs.symlinkSync(secretDir, linkDir, process.platform === 'win32' ? 'junction' : 'dir');
+    const throughLink = path.join(linkDir, 'id_rsa');
+    clearGrants();
+    grantPaths([throughLink]);
+    const verdict = checkReadable(throughLink);
+    check('files: a symlink cannot smuggle a sensitive target',
+      verdict.ok === false && verdict.error === 'sensitive path', JSON.stringify(verdict));
+    check('files: readTextFiles refuses the symlinked secret',
+      readTextFiles([throughLink]).length === 0);
+  } catch (e) {
+    console.log('SKIP  files: symlink test unavailable — ' + String(e?.code || e));
+  }
 }
 
 // ------------------------------------------- S10: plugin execution is gated ---

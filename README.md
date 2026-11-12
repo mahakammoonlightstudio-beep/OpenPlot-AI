@@ -83,35 +83,32 @@ _Captured from a demo workspace using a local mock provider._
   </tr>
 </table>
 
-## New in 1.2.5
+## New in 1.3.0
 
-The “quiet studio” patch: the app opens on Home, tools stop pushing the answer
-around, and the two switches people asked for finally behave the way they look.
+**One studio, many libraries — and a faster way to move around it.**
 
-- **Home instead of your last chat.** A greeting that follows the clock, recent
-  chats, quick starts and the model-health strip — with `Home` in the sidebar.
-- **Web research without agent mode.** A **Web** switch gives the open chat
-  `web_search` and `web_fetch`, in their own terminal-style panel.
-- **A tool log that stays out of the way.** One collapsed row
-  (`Tools used · 4`) that expands into readable steps, folds itself when the run
-  ends, and is stored with the reply so a reopened chat still explains it.
-- **Canon in plain chats.** A project-bound chat receives its Story Bible even
-  with agent mode off.
-- **Every approval in one place.** Settings → Plugins/MCP lists the plugin and
-  MCP approvals you have given, marks approvals whose code or command changed,
-  marks rows that were deleted, and revokes one instantly. Approval is still per
-  exact payload: edit the code and the app asks again.
-- **Remote images, without the renderer.** Markdown images are fetched by the
-  main process — public http(s) hosts only, no credentials, redirects
-  re-checked, raster only, 5 MB / 15 s cap — and handed to the page as `data:`
-  URLs. The window itself still has `connect-src 'none'`.
-- **A dialog you can actually dismiss.** Focus moves into a dialog on commit, a
-  background editor can no longer steal it, and the first `Escape` closes it.
-- **Controls you recognise.** Plan / Brainstorm / Write each keep one fixed
-  colour across themes; version arrows moved below the bubble; three new themes
-  (Gruvbox, Catppuccin, Sandstone).
-- **Validate stops eating keys.** Pressing *Validate key* no longer reverts the
-  API key input to the stored value.
+- **Separate libraries.** **Settings → Data** lists every library in your profile
+  with its schema and size, and switches with a restart. Import a portable `.db`
+  without touching the source, or start a new, empty one.
+- **Library Time Machine.** Up to 12 whole-library snapshots per library:
+  before a migration, import, reset or restore, plus one daily and any manual
+  copy. Restore confirms, snapshots the current state first, then restarts into
+  the chosen copy.
+- **Portable library export.** One `.db` carries chats, projects, canon,
+  chapters, attachments, prompts, styles, skills and settings to another
+  machine. Provider keys, the web-search key, MCP environment variables and
+  execution approvals stay behind.
+- **Quick switch.** `Ctrl/Cmd+P` opens a chats-and-projects palette from
+  anywhere: every chat is searchable, results name their project, and the
+  current chat and project lead the list.
+- **Revision Timeline.** Chapter snapshots and passages displaced by AI edits
+  in one newest-first timeline, with a word-level before/after diff and a
+  one-click restore that is itself undoable.
+- **Skill Lab.** Categories for Chat, Agent and Writing desks, a full
+  instruction inspector, a live preview of the prompt block, a 12,000-character
+  budget, and duplicate/overlap/tension warnings.
+- **Appearance controls.** Font stack, whole-UI zoom, comfortable/compact
+  density and corner radius — applied immediately and stored locally.
 
 [Full changelog →](CHANGELOG.md)
 
@@ -181,15 +178,16 @@ hosted gateways that reject probe models work too.
 
 ## Install
 
-Prebuilt binaries for **v1.2.5** are attached to the
+Prebuilt binaries for **v1.3.0** are attached to the
 [GitHub releases](https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/releases).
 Each platform has a full installer/app and a portable folder build.
 
 | Platform | Full app | Folder |
 | --- | --- | --- |
-| Windows | `OpenPlot.AI.Setup.1.2.5.exe` (NSIS installer) | `OpenPlot.AI-1.2.5-win.zip` |
-| macOS | `OpenPlot.AI-1.2.5-universal.dmg` (universal) | `OpenPlot.AI-1.2.5-universal-mac.zip` / `OpenPlot.AI-1.2.5-arm64-mac.zip` |
-| Linux | `OpenPlot.AI-1.2.5.AppImage` | `openplot-ai-1.2.5.tar.gz` |
+| Windows | `OpenPlot.AI.Setup.1.3.0.exe` (NSIS installer) | `OpenPlot.AI-1.3.0-win.zip` |
+| macOS | `OpenPlot.AI-1.3.0-universal.dmg` (universal) | `OpenPlot.AI-1.3.0-universal-mac.zip` / `OpenPlot.AI-1.3.0-arm64-mac.zip` |
+| Linux (x64) | `OpenPlot.AI-1.3.0.AppImage` | `openplot-ai-1.3.0.tar.gz` |
+| Linux (arm64) | `OpenPlot.AI-1.3.0-arm64.AppImage` | `OpenPlot.AI-1.3.0-arm64.tar.gz` |
 
 The macOS disk image and the main macOS zip are universal (Intel + Apple
 silicon); the `arm64-mac.zip` is smaller and Apple-silicon only.
@@ -267,10 +265,17 @@ OpenPlot AI stores its database in the OS user-data path
 on macOS, `~/.config/openplot-ai` on Linux). Uninstalling does not delete it;
 **Settings → Data** can reset everything, including memories and chapters.
 
-API keys are encrypted at rest with the OS credential vault when available
-(DPAPI, Keychain or libsecret). There is no account, no analytics and no
-background update ping. Attachments are read only through grants, `web_fetch`
-refuses your own network, and plugins/MCP run only after explicit approval.
+Provider API keys and the web-search key are encrypted at rest with the OS
+credential vault when available (DPAPI, Keychain or libsecret). The web-search
+key is also redacted from every renderer reply; the UI learns only that a key is
+stored. There is no account, no analytics and no background update ping.
+Attachments are read only through grants, `web_fetch` refuses private addresses
+both by hostname and by the DNS answer it actually connects to, and plugins/MCP
+run only after explicit approval.
+
+Portable library copies deliberately strip provider keys, the web-search key,
+MCP environment variables and stored execution approvals. See
+[SECURITY.md](SECURITY.md#data-at-rest) for the full boundary.
 
 The full threat model, scope, hardening details and disclosure timeline are in
 [**SECURITY.md**](SECURITY.md). To report a vulnerability, email
@@ -293,6 +298,7 @@ open a public issue.
 ## Support
 
 Development is funded through
+[PayPal](https://www.paypal.com/paypalme/mrfozan),
 [SociaBuzz](https://sociabuzz.com/mahakam_moonlight_studio/tribe) and
 [Saweria](https://saweria.co/MahakamMoonStudio). Starring the repo, filing a
 clear bug report and telling another writer about it help just as much.

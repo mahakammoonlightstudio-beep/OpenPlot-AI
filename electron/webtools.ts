@@ -10,12 +10,13 @@
  * Responses are bounded: a 2 MB download cap and a 20k character text cap keep
  * one page from eating the whole context window.
  */
+import * as dns from 'dns';
 import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
-import { handleDb } from './db';
+import { handleDb, settingSecret } from './db';
 
-const USER_AGENT = 'OpenPlotAI/1.2.5 (+local web research; no crawler)';
+const USER_AGENT = 'OpenPlotAI/1.3.0 (+local web research; no crawler)';
 const MAX_BYTES = 2_000_000;
 const MAX_TEXT = 20_000;
 const REQUEST_MS = 20_000;
@@ -59,6 +60,12 @@ function readSettings(): Record<string, string> {
 
 /** Settings are JSON-encoded strings; accept both shapes. */
 function readSetting(key: string, fallback = ''): string {
+  // The web-search key is sealed in the settings table; decrypt it only here
+  // rather than asking a generic reader for ciphertext.
+  if (key === 'webSearchApiKey') {
+    const secret = settingSecret(key);
+    return secret || fallback;
+  }
   const raw = readSettings()[key];
   if (raw == null || raw === '') return fallback;
   try {
@@ -95,6 +102,13 @@ export function isBlockedHost(hostname: string): boolean {
     if (host === '::' || host === '::1') return true;
     const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(host);
     if (mapped) return isBlockedHost(mapped[1]);
+    // Some resolvers render an IPv4-mapped address as two hex groups.
+    const mappedHex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
+    if (mappedHex) {
+      const hi = parseInt(mappedHex[1], 16);
+      const lo = parseInt(mappedHex[2], 16);
+      return isBlockedHost([hi >> 8, hi & 255, lo >> 8, lo & 255].join('.'));
+    }
     if (/^f[cd][0-9a-f]{2}:/.test(host)) return true;   // fc00::/7 unique-local
     if (/^fe[89ab][0-9a-f]:/.test(host)) return true;    // fe80::/10 link-local
     return false;
@@ -118,6 +132,32 @@ export function isBlockedHost(hostname: string): boolean {
     if (a >= 224) return true;                           // multicast + reserved
   }
   return false;
+}
+
+/**
+ * DNS lookup used for every outbound web request.
+ *
+ * Checking only the hostname is not enough: a public name can resolve to
+ * 127.0.0.1 or 169.254.169.254 (DNS rebinding). This lookup rejects any answer
+ * in a private range and returns the exact addresses the socket will use, so
+ * the check and the connection cannot disagree.
+ */
+export function publicLookup(
+  hostname: string,
+  options: any,
+  callback: (err: NodeJS.ErrnoException | null, address?: any, family?: number) => void
+): void {
+  dns.lookup(hostname, { all: true, verbatim: true }, (err, addresses) => {
+    if (err) return callback(err);
+    const list = (addresses || []) as Array<{ address: string; family: number }>;
+    if (!list.length) return callback(new Error('That host could not be resolved.'));
+    const blocked = list.find((entry) => isBlockedHost(entry.address));
+    if (blocked) {
+      return callback(new Error('That host resolves to your own machine or local network.'));
+    }
+    if (options && options.all) return callback(null, list);
+    return callback(null, list[0].address, list[0].family);
+  });
 }
 
 function request(
@@ -156,6 +196,8 @@ function request(
         port: parsed.port || undefined,
         path: parsed.pathname + parsed.search,
         method: init.method || 'GET',
+        // Pin the socket to the same public answers that were just checked.
+        ...(ALLOW_LOCAL_FETCH ? {} : { lookup: publicLookup as any }),
         headers: {
           'user-agent': USER_AGENT,
           accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',

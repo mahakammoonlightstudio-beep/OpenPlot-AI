@@ -19,6 +19,7 @@
 - [Ekspor](export)
 - [Pengaturan](settings)
 - [Plugin](plugins)
+- [Otomatisasi](automations)
 - [Server MCP](mcp)
 - [Privasi dan data](privacy)
 - [Pemecahan masalah](troubleshooting)
@@ -42,7 +43,7 @@ Setiap baris provider butuh:
 Pengaturan → Settings → Models menampilkan setiap model dengan chip kemampuannya. Pilih satu sebagai bawaan, atau biarkan **Auto (disarankan)**.
 
 ## 3. Mulai chat
-`Ctrl+N` membuat chat. Ketik, `Enter` untuk kirim, `Shift+Enter` untuk baris baru. `Ctrl+K` membuka command palette dari mana saja.
+`Ctrl+N` membuat chat. Ketik, `Enter` untuk kirim, `Shift+Enter` untuk baris baru. `Ctrl+K` membuka command palette dari mana saja, dan `Ctrl+P` membuka pindah cepat untuk chat dan proyek.
 
 ## 4. Beri proyek (opsional)
 Proyek menyimpan story bible, bab, dan blok konteks. Sambungkan proyek ke chat dan model melihat kanonmu alih-alih menebak.
@@ -72,9 +73,10 @@ Header menampilkan model, meter token, dan chip proyek. Setiap chat menyimpan:
 - pengecualian skill per chat.
 
 ## Merapikan
-- **Folder** mengelompokkan chat di sidebar.
+- **Folder** mengelompokkan chat di sidebar, terpisah untuk Chat dan Agent. Klik folder untuk membukanya dan pakai `+` di sana untuk mulai chat di dalamnya; tarik chat mana pun ke folder untuk memasukkannya, dan ke judul **Chat** untuk mengeluarkannya lagi.
 - **Pin** menahan chat di atas.
 - **Ganti nama** dari baris chat atau header.
+- **Pindah cepat** — `Ctrl+P` membuka palette khusus chat dan proyek; ketik sebagian judul, nama proyek, atau workspace lalu tekan `Enter`.
 - Menghapus chat menghapus pesan dan file terlampirnya. Tidak ada undo — ekspor dulu lewat Settings → Data bila chat itu penting.
 
 ## Apa yang benar-benar dilihat model
@@ -162,7 +164,7 @@ Teks reasoning disimpan bersama pesan dan tidak pernah dimasukkan kembali ke pro
 Skill adalah blok instruksi bernama yang disuntikkan ke system prompt: aturan kontinuitas, protokol kritik, panduan genre. Skill bersifat global; setiap chat bisa membisukannya.
 
 ## Bawaan
-Enam skill ikut terpasang: continuity, prose, dialogue, pacing, beta reader, dan architect. Semuanya bertanda **Builtin**:
+Sembilan skill ikut terpasang: continuity, prose, dialogue, pacing, beta reader, architect, voice, hook, dan line editor. Semuanya bertanda **Builtin**:
 - teksnya bisa kamu ubah,
 - **Reset** mengembalikan versi bawaan,
 - tidak bisa dihapus.
@@ -173,7 +175,22 @@ Settings → Skills → **Tambah skill** membuka editor dengan nama, deskripsi, 
 Mulai dari templat (Kosong, Line editor, Beta reader, Worldbuilding) atau impor file `.md`. Ekspor menghasilkan file markdown portabel.
 
 ## Kontrol per chat
-Composer menampilkan chip `Skill n` saat ada skill aktif. Popover-nya mendaftar semua skill aktif dengan switch; mematikan satu menyimpan id-nya di daftar pengecualian chat tersebut.
+Composer menampilkan chip `Skill n` saat ada skill aktif. Popover-nya menaruh skill untuk desk **Chat** atau **Agent** di atas, lalu melipat desk lain ke *Desk lain* — skill yang sudah aktif dari desk lain tetap muncul di sana, jadi filter tidak pernah menyembunyikannya. Mematikan satu menyimpan id-nya di daftar pengecualian chat tersebut.
+
+Workspace **Menulis** tidak punya baris chat, jadi editor AI-nya memakai skill kategori Menulis yang aktif secara global; header editor menampilkan jumlahnya.
+
+## Skill Lab
+Buka skill di Settings → Skills untuk melihat **Skill Lab**:
+- blok persis yang ditambahkan ke system prompt,
+- perkiraan karakter dan token,
+- pemakaian anggaran 12.000 karakter dari set aktif,
+- peringatan bila skill aktif lain punya instruksi duplikat, fokus yang sama, atau arah yang berbeda (pendek vs panjang, tulis ulang vs pertahankan, bertanya vs jangan bertanya, formal vs santai),
+- **Pakai di chat ini** untuk mengaktifkannya tanpa keluar dari Pengaturan.
+
+Hitungan token memakai perkiraan 4 karakter per token, bukan tokenizer provider, tapi konsisten dengan penghitung di composer.
+
+## Agent memilih skill sendiri
+Di mode Agent, model bisa menyalakan dan mematikan skill sendiri, per chat. Sebelum mengerjakan sesuatu ia memanggil `list_skills`, lalu `use_skill` untuk paket yang cocok — continuity sebelum memeriksa kanon, prose saat menulis, beta reader saat mengkritik — dan `drop_skill` saat sudah tidak berlaku. Setiap perubahan muncul di log tool dan sebagai toast, chip di composer ikut berubah, jadi tidak ada perubahan otomatis yang diam-diam. Karena pilihannya disimpan di chat, skill tetap aktif untuk giliran berikutnya.
 
 ## Ukuran prompt
 Blok skill dibatasi 12.000 karakter. Skill yang tidak muat diganti `[skill truncated: …]` alih-alih dipotong di tengah instruksi.
@@ -240,10 +257,14 @@ Chat yang terikat proyek mendapat deskripsi proyek sebagai konteks. Tarik entri 
 Bab menyimpan naskah sesungguhnya. Setiap bab punya judul, isi, status (`draft`, `revising`, `done`), posisi, dan jumlah kata.
 
 ## Menulis di aplikasi
-Editor menyimpan saat kamu menekan **Simpan** — tidak ada penulisan diam-diam di tengah kalimat. Riwayat versi menyimpan snapshot tiap simpan sehingga kamu bisa membandingkan atau kembali.
+Editor menyimpan saat kamu menekan **Simpan** — tidak ada penulisan diam-diam di tengah kalimat. Setiap simpan menyimpan snapshot teks sebelumnya.
+
+**Riwayat** membuka Timeline Revisi bab: semua snapshot tersimpan dan setiap bagian teks yang tergeser oleh edit AI, terbaru dulu. Buka satu baris untuk melihat diff sebelum/sesudah dengan jumlah kata yang ditambah/dihapus, salin salah satu sisi, atau pulihkan. Saat memulihkan snapshot, teks yang sekarang disimpan dulu ke riwayat, jadi pemulihannya masih bisa dibatalkan. **Timeline** di atas halaman Bab menampilkan garis waktu yang sama untuk seluruh naskah, lengkap dengan saringan bab. Board Writing punya tombol yang sama di sebelah Simpan.
 
 ## Dengan model
 Minta satu adegan dan model bisa `create_chapter`, `update_chapter`, `append_to_chapter`, dan `read_chapter`. Menambahkan lebih aman daripada menulis ulang: tulisanmu tidak tersentuh.
+
+Setiap tulisan ulang AI atau simpan manual juga menyisakan prosa yang tergeser di **Text Dump**, di sidebar. Pratinjau atau salin, pulihkan ke posisi lamanya, atau hapus entri terpilih secara permanen. Pemulihan bertanya dulu sebelum menimpa teks yang lebih baru, dan agent bisa mencari tempat ini dengan `search_text_dump` saat kamu minta mengembalikan kalimat yang terpotong.
 
 Agen menulis ke bab, bukan ke chat, saat keluarannya panjang. Prosa tetap di luar transkrip dan riwayat prompt.
 
@@ -285,6 +306,11 @@ Statistik menghitung kata yang benar-benar kamu tulis, per hari dan per proyek. 
 
 Angkanya perkiraan: ini grafik motivasi, bukan jejak audit.
 
+## Periksa naskah
+Di bawah grafik, **Periksa naskah** membaca chapter novel terpilih dan memberi petunjuk revisi: waktu baca, porsi dialog, rata-rata panjang kalimat, kata filter (“merasa”, “melihat”, “menyadari”), pembuka kalimat berulang, kata isi yang berlebihan, kata keterangan `-ly`, dan kalimat terpanjang beserta chapter asalnya. Ada juga baris per chapter supaya kelihatan chapter mana yang melenceng.
+
+Semuanya dihitung lokal dari teks yang sudah kamu simpan — tanpa panggilan AI, tanpa unggahan. Angkanya heuristik, jadi anggap pertanyaan untuk naskah, bukan vonis: “dia” yang berulang bisa disengaja, dan kalimat panjang bisa jadi kalimat terbaik di buku itu.
+
 ---
 
 ## Ekspor
@@ -297,10 +323,12 @@ Angkanya perkiraan: ini grafik motivasi, bukan jejak audit.
 ## Bab dan proyek
 Proyek diekspor sebagai satu file Markdown atau EPUB, bab berurutan, dengan story bible sebagai lampiran bila diminta.
 
-## Backup penuh
-Settings → Data mengekspor semuanya sebagai JSON: chat, proyek, story bible, bab, prompt, gaya, skill, pengaturan. API key tidak disertakan.
+## Library utuh
+Settings → Data → **Ekspor salinan portabel** menulis satu `.db` berisi semua chat, proyek, entri story bible, bab, lampiran, prompt, gaya, skill, dan pengaturan. Di mesin lain, pakai **Impor .db** lalu tekan **Pakai** untuk membukanya.
 
-Restore bersifat merge, bukan replace: baris dengan id sama diperbarui, baris baru ditambahkan, tidak ada yang dihapus.
+Beberapa hal sengaja tidak ikut: kunci API provider dan kunci web-search (vault OS mengikatnya ke mesin ini, jadi masukkan ulang setelah impor), variabel lingkungan MCP (sering berisi token), dan approval eksekusi plugin/MCP yang tersimpan. Snapshot Time Machine juga bukan bagian dari file ini.
+
+> Ini salinan, bukan sinkronisasi. Impor menambahkan library terpisah dan tidak pernah menggabung atau menimpa library yang sedang terbuka.
 
 > Ekspor sebelum upgrade versi. Biayanya satu klik dan itu satu-satunya backup yang tidak dibuat aplikasi untukmu.
 
@@ -312,47 +340,107 @@ Pengaturan dikelompokkan berdasarkan tujuanmu, bukan model data:
 
 - **AI** — provider, model, perilaku.
 - **Chat** — gaya, skill, agent.md.
-- **Tampilan** — tema, aksen, ukuran font.
-- **Data** — memori, penggunaan, backup dan reset.
+- **Tampilan** — tema, aksen, ukuran font, bahasa.
+- **Data** — library, snapshot Time Machine, memori, penggunaan, backup, dan reset.
 - **Ekstensi** — plugin, automasi, MCP *(mode lanjutan)*.
 - **Tentang** — versi, lokasi data, vault kredensial, panduan.
 
 ## Pencarian
 Kotak pencarian di atas nav menemukan kontrol, bukan hanya bagian: ketik `cache` untuk mendarat di baris cache pada halaman model. `↑`/`↓` berpindah, `Enter` melompat dan memfokuskan kontrol, `Esc` membersihkan.
 
+## Bahasa
+Tampilan → Bahasa mengganti antarmuka antara English (US), English (UK), Bahasa Indonesia, Español, dan हिन्दी. English (UK) memakai ejaan Britania; Spanyol dan Hindi masih beta, jadi layar intinya sudah diterjemahkan sementara pengaturan lanjutan jatuh ke bahasa Inggris dan memberi tahu.
+
 ## Sederhana vs lanjutan
 Mode sederhana menyembunyikan parameter model lanjutan dan grup Ekstensi. Tidak ada yang dihapus — *Tampilkan pengaturan lanjutan*, juga di palette, mengembalikan semuanya, dan pilihannya diingat.
 
+## Time Machine
+Settings → Data menyimpan maksimal 12 snapshot utuh per library. Snapshot dibuat sebelum upgrade skema, impor, reset, atau restore, ditambah salinan harian dan *Snapshot sekarang*. Saat memulihkan, aplikasi bertanya dulu, menyimpan kondisi sekarang sebagai snapshot lain, lalu restart ke salinan yang dipilih. Snapshot terpisah per library, jadi memulihkan satu library tidak menyentuh library lain.
+
 ## Reset
-Setiap bagian bisa mereset bawaannya sendiri. *Reset semua data* di Settings → Data menghapus segalanya dan tidak bisa dibatalkan; ekspor dulu.
+Setiap bagian bisa mereset bawaannya sendiri. *Reset semua data* di Settings → Data menghapus segalanya; snapshot *Sebelum reset* dibuat otomatis, tapi ekspor dulu kalau datanya penting.
 
 ---
 
 ## Plugin
 
-Plugin adalah file JavaScript lokal dengan hook. Plugin berjalan di proses utama dengan akses yang sama seperti aplikasi: pasang hanya kode yang kamu tulis atau baca.
+Plugin adalah potongan JavaScript lokal yang disimpan di aplikasi dan dijalankan di proses utama. Plugin punya akses yang sama dengan aplikasi: pasang hanya kode yang kamu tulis atau baca.
 
 ## Bentuk
 ```js
-module.exports = {
-  name: 'word-count-logger',
-  hooks: {
-    'message:new': (payload, api) => api.log('message ' + payload.role)
-  }
-}
+context.registerHook('message:new', (payload) => {
+  context.log('Pesan baru di chat ' + payload.chatId);
+});
+context.registerCommand('halo', () => {
+  context.toast('Halo dari plugin!');
+});
 ```
 
 ## Hook
-Yang dijalankan aplikasi saat ini: `chat:new` (baris chat dibuat) dan `message:new` (pesan disimpan).
+Yang dijalankan aplikasi: `app:ready` (jendela siap), `chat:new` (baris chat dibuat), `message:new` (pesan disimpan — user, asisten, atau error).
 
-`app:ready`, `chat:send`, `chapter:saved`, `project:created`, dan `skill:enabled` ada di API plugin tetapi belum disambungkan — anggap rencana, dan jalankan nama hook-mu sendiri bila perlu sekarang.
+Error dari satu handler ditangkap dan ditulis ke log plugin itu; plugin yang rusak tidak pernah merusak chat atau database.
 
-## Perilaku
-- Plugin nonaktif tidak pernah dimuat, bukan dimuat lalu diblokir.
-- Error ditangkap per hook dan ditulis ke log plugin; plugin rusak tidak merusak chat.
-- Plugin mendaftarkan perintah dengan `context.registerCommand`; daftar baris di Pengaturan → Plugin menampilkan log-nya.
+## Perintah
+`context.registerCommand(name, fn)` menambah perintah yang dijalankan sesuai permintaan:
 
-Lihat `docs/PLUGIN_API.md` di repositori untuk permukaan lengkapnya.
+- tampil di baris plugin pada Pengaturan → Plugin, dengan satu tombol per perintah;
+- bisa dicari di command palette (`Ctrl/Cmd+K`) sebagai *nama plugin: perintah*.
+
+**Muat ulang semua plugin** membaca ulang setiap plugin aktif dari database setelah kamu mengedit kode, jadi tidak perlu restart. Menyimpan dari editor melakukan hal yang sama secara otomatis.
+
+## Keamanan
+- Plugin nonaktif tidak pernah dimuat — bukan dimuat lalu diblokir.
+- Kode plugin bisa membaca file, mengakses jaringan, dan menulis database. `new Function` adalah batas kenyamanan, bukan batas keamanan.
+- Jaga hook tetap cepat: semuanya berjalan sinkron di proses utama.
+
+Lihat `docs/PLUGIN_API.md` di repositori untuk permukaan `context` lengkapnya.
+
+Kalau kamu hanya butuh "saat event ini, lakukan itu" tanpa menulis kode, pakai **otomatisasi** — triggernya sama, aksinya sudah tersedia.
+
+---
+
+## Otomatisasi
+
+Otomatisasi adalah aturan kapan/lalu kecil yang disimpan di Settings → Automations. Saat sesuatu terjadi di aplikasi, setiap aturan aktif untuk event itu menjalankan aksinya.
+
+## Trigger
+
+| Kapan | Kapan persisnya |
+|---|---|
+| App dimulai | sekali, setelah jendela siap |
+| Chat dibuat | baris chat dibuat (dari sidebar, palette, menu, atau story agent) |
+| Pesan dikirim | tepat sebelum request keluar, setelah pesan user tersimpan |
+| Balasan AI diterima | setelah pesan asisten disimpan |
+| Bab disimpan | setelah bab ditulis ke database |
+| Proyek dibuat | dari form proyek atau Plot Smith |
+| Skill diaktifkan | setiap kali skill dinyalakan di Pengaturan atau palette |
+
+## Aksi
+
+| Lalu | Parameter |
+|---|---|
+| Tampilkan toast | teks opsional (default: nama otomatisasi) |
+| Kedipkan jendela | teks yang ditampilkan bersama kedipan |
+| Tulis ke log plugin | — |
+| Simpan memori | teks memori |
+| Hapus semua memori | — (destruktif; menghapus seluruh memori jangka panjang) |
+| Buka halaman | salah satu halaman aplikasi |
+| Buat chat baru | judul chat opsional |
+| Buka URL di browser | alamat `http(s)` |
+| Pakai skill untuk pesan berikutnya | skill yang dipilih |
+
+## Menjalankan dan memeriksa
+
+- **Tes** menjalankan satu aturan itu saja — bukan semua aturan dengan trigger yang sama.
+- Tiap baris menampilkan eksekusi terakhir (waktu, berhasil, pesan). Tombol **riwayat** menampilkan hingga 20 eksekusi di sesi ini.
+- Riwayat hanya ada di memori; hilang setelah restart.
+
+## Perlindungan loop
+
+Aturan yang aksinya memicu ulang trigger-nya sendiri dilewati (misalnya *Balasan AI diterima → buat chat baru → pesan dikirim*), dan rantai tidak boleh lebih dari dua tingkat. Saat penjaga ini aktif, eksekusi dicatat sebagai dilewati, bukan diulang diam-diam.
+
+Otomatisasi disimpan di database lokal bersama pengaturan lain dan ikut dalam backup penuh. Pakai **plugin** kalau butuh kode atau proses luar sungguhan; pakai **MCP** kalau model sendiri yang harus memilih tool.
 
 ---
 
@@ -360,25 +448,30 @@ Lihat `docs/PLUGIN_API.md` di repositori untuk permukaan lengkapnya.
 
 MCP (Model Context Protocol) adalah cara model memanggil tools di luar aplikasi: helper filesystem, indeks pencarian, database.
 
-## Status di versi ini
+## Yang sudah ada
 
-Settings → MCP menyimpan definisi server secara lokal — nama, perintah, argumen, variabel lingkungan, dan tanda aktif. **Bridge yang menjalankan prosesnya, mendaftar tool-nya, dan mengeksposnya ke model belum ada di versi ini.** Definisi yang tersimpan tidak pernah menjalankan apa pun; mengaktifkannya adalah persiapan untuk rilis yang membawa bridge-nya.
+Settings → MCP menyimpan definisi server secara lokal — nama, perintah, argumen, variabel lingkungan, dan tanda aktif. Bridge hanya menjalankan server yang **aktif**, setelah jendela siap, berbicara JSON-RPC 2.0 newline-delimited lewat stdio (`initialize`, `tools/list`, `tools/call`), dan mematikan semua proses anak saat keluar.
 
-Rencananya dan detail protokolnya ada di `docs/PLUGIN_API.md` dan rencana rilis di `docs/superpowers/plans/`.
+- Tool ditampilkan sebagai `mcp__{server}__{tool}` dan hanya ditawarkan bila agent tools aktif di chat itu. Prompt memuat nama persis yang dilaporkan server, bukan tebakan.
+- Satu panggilan tool diberi **30 detik**, start **10 detik**; satu baris respons dibatasi **1 MB**, dan teks yang sampai ke model dipotong di **20.000 karakter** dengan catatan pemotongan.
+- Tiap server menampilkan status (starting, connected, error), jumlah tool, error terakhir, dan log yang bisa difilter (300 baris).
 
-## Yang bisa dilakukan sekarang
+## Menambah server
 
-- Siapkan registry: tambahkan server yang kamu inginkan, dengan perintah dan argumen yang persis, agar nanti cukup satu saklar.
-- Baca perintahnya sebelum menyimpan. Server MCP berjalan sebagai proses lokal dengan izinmu; perlakukan definisinya seperti skrip yang akan kamu jalankan.
+1. Pengaturan → Server MCP → **Tambah**, atau pilih salah satu definisi yang direkomendasikan.
+2. Isi perintah dan argumen persis seperti di terminal, misalnya `npx` dengan `["-y", "@modelcontextprotocol/server-filesystem", "D:\\Catatan"]`.
+3. Variabel lingkungan berupa objek JSON: `{"API_KEY": "…"}`.
+4. Aktifkan. **Restart** menjalankan ulang prosesnya; **Log** menunjukkan apa yang dicetaknya.
 
-## Yang akan dilakukan bridge-nya
+## Keamanan
 
-- Menjalankan hanya server yang aktif, setelah jendela siap, dan mematikannya saat keluar.
-- Berbicara JSON-RPC 2.0 newline-delimited lewat stdio: `initialize`, `tools/list`, `tools/call`.
-- Menampilkan tool-nya sebagai `mcp__{server}__{tool}` saat tools aktif, dengan timeout panggilan dan batas ukuran hasil.
-- Menampilkan titik status per server (starting, connected, error), jumlah tool, error terakhir, dan log yang bisa difilter.
+Server MCP adalah perintah lokal sembarang yang berjalan dengan izinmu — tingkat kepercayaannya sama dengan plugin. Definisi tersimpan tidak pernah berjalan sendiri; mengaktifkannya adalah tindakan eksplisit, dan menonaktifkannya (atau keluar) menghentikan prosesnya. Baca perintahnya sebelum mengaktifkan, dan utamakan server yang kamu tulis atau audit sendiri. Pakai path absolut: prosesnya mulai di folder data aplikasi, bukan di folder proyekmu.
 
-Sementara itu, tools cerita milik aplikasi adalah yang benar-benar bisa dipanggil model — lihat artikel skill dan story bible.
+## Pemecahan masalah
+
+- **Error saat start** — jalankan perintah yang sama di terminal dulu. Di Windows `npx`/`npm` otomatis dijalankan lewat `cmd.exe`; shell lain tidak.
+- **Tidak ada tool** — server menjawab `initialize` tetapi tidak melaporkan tool. Log-nya memperlihatkan baris mentah yang dicetak.
+- **Tool gagal** — pesan error dikembalikan ke model sebagai hasil tool, jadi model bisa bereaksi alih-alih menggantung.
 
 ---
 
@@ -395,7 +488,9 @@ Hanya permintaan yang kamu kirim: system prompt (bisa memuat agent.md, konteks p
 Gambar dan file dikirim sebagai teks. File biner ditolak, bukan diunggah.
 
 ## API key
-Key terenkripsi saat vault kredensial OS tersedia; jika tidak, aplikasi mengatakannya di Settings → Data. Key tidak pernah masuk ke ekspor, log, atau pesan error.
+Key provider dan kunci web-search disimpan terenkripsi saat vault kredensial OS tersedia; jika tidak, aplikasi mengatakannya di Settings → Data. Kunci web-search tidak pernah masuk ke antarmuka — UI hanya menunjukkan apakah key sudah tersimpan. Key tidak pernah masuk ke ekspor, log, atau pesan error.
+
+Variabel lingkungan MCP berbeda: editor MCP perlu menampilkan dan mengeditnya, jadi nilainya tinggal di database lokal, bukan di vault OS. Salinan portabel mengosongkannya, tapi untuk rahasia produksi berumur panjang, pakai disk yang terenkripsi OS.
 
 ## Menghapus
 *Reset semua data* menghapus setiap baris dan isi file. Backup saat migrasi skema (`.bak`) tetap ada di sebelah database — hapus manual bila ingin bersih total.
@@ -435,6 +530,7 @@ Masih macet? Issue tracker repositori adalah jalur tercepat: sertakan versi dari
 | Tombol | Aksi |
 | --- | --- |
 | `Ctrl+K` | Command palette |
+| `Ctrl+P` | Pindah cepat (chat dan proyek) |
 | `Ctrl+N` | Chat baru |
 | `Ctrl+Shift+N` | Proyek baru |
 | `Ctrl+F` | Fokus pencarian chat |

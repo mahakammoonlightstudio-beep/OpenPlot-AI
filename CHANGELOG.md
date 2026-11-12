@@ -2,6 +2,32 @@
 
 All notable changes to OpenPlot AI are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] — unreleased
+
+### Added
+- **Separate libraries, with a universal legacy path.** Settings → Data lists every SQLite database in the profile, shows its schema and size, and switches with a restart. A new library starts empty; Import copies a `.db` without touching the source. Every older schema is migrated on first open with a `.v<n>.bak` backup, while a database from a newer app is refused instead of being modified.
+- **Library Time Machine.** Each library keeps up to 12 whole-file snapshots in `snapshots/<library>/`: automatically before a schema migration, an import, a reset or a restore, plus one daily and any manual copy. Settings → Data lists them with time, size and schema; Restore confirms, saves the current state first, then restarts into the chosen snapshot. An older snapshot migrates on restore, and snapshots never cross libraries.
+- **Skill categories and an inspector.** Skills now belong to Chat, Agent or Writing; the picker can filter by category, and clicking a skill opens a right-hand panel with the full instructions, on/off, edit, duplicate, export, delete (or reset for builtins). Categories are additive metadata on the existing per-chat `/skill` activation.
+- **Skill Lab.** The skill inspector previews the exact block added to the system prompt, estimates characters/tokens, shows the active set's 12,000-character budget and its truncation risk, flags duplicate/overlapping instructions and possible tensions (shorter vs longer, rewrite vs preserve, ask vs don't ask, formal vs casual), and can switch the skill on for the chat that is currently open. The composer picker now puts the Chat or Agent desk's skills first and folds other desks without hiding an active skill, and the Writing AI editor uses the globally enabled Writing skills (with a count in its header).
+- **Revision Timeline.** One line for the whole manuscript: saved chapter snapshots and displaced passages from AI edits, newest first, grouped by day and filterable by chapter or kind. Open an entry for a word-level before/after diff and restore it — a snapshot restore first saves the current text, so it is undoable — or copy either side. Reachable from the Chapters header, each chapter's History button, and the Writing board.
+- **Portable library export.** Settings → Data → **Export portable copy** writes the whole studio — chats, projects, story bible, chapters, attachments, prompts, styles, skills and settings — as one `.db` to any folder. Import it on another machine and open it; provider API keys and stored plugin/MCP approvals are stripped because they belong to the machine that made the copy, and Time Machine snapshots stay local.
+- **Custom interface appearance.** Settings → Appearance gains a font picker (system, serif, rounded, monospace or a custom CSS font stack), whole-UI zoom, comfortable/compact density and a corner-radius control. Preferences are stored locally and applied immediately.
+- **Quick switch in the command palette.** `Ctrl+P` opens a chats-and-projects-only palette from anywhere: every chat is searchable (not only the recent 30), results name their project/workspace, the current chat and project lead the list and are marked, and Agent sessions open in the Agent workspace instead of Chat.
+
+### Fixed
+- **A failed startup can no longer leave a windowless process.** Database errors open an actionable window with the data folder, a safe backup-and-reset path, and the reason; a renderer that never paints is revealed by a fallback, and a second launch restores or recreates the main window.
+
+### Security
+- **The web-search key is now a real secret.** It is encrypted with the OS credential vault when available, migrated from legacy plaintext on boot, redacted from every `getAllSettings` reply, and represented to the UI only by `webSearchHasKey`. Clearing the field stores an empty value, not an encrypted blank.
+- **DNS rebinding is closed for web research and images.** `web_fetch` and the remote-image proxy check every DNS answer at connection time and pin the socket to the public addresses they validated; a public name that resolves to loopback, a private range or `169.254.169.254` is refused. Redirects repeat the check.
+- **Remote images are bounded while streaming.** The proxy stops at 5 MB as the body arrives instead of buffering an unbounded `arrayBuffer()`, keeps the 15-second deadline, and still accepts raster types only.
+- **Attachment reads resolve symlinks first.** The real target is checked for secret shapes, the app's private root and the grant, and the read goes through an open descriptor with `O_NOFOLLOW` where available. Windows and macOS case folding now match.
+- **Portable copies carry data, not credentials.** Provider keys, the web-search key, MCP environment objects and stored execution approvals are removed or emptied before the `.db` is written.
+- **DOMPurify is pinned to 3.4.17+**, clearing the production audit advisory; the security suite grew to 51 checks for DNS answers, encrypted settings, renderer redaction, symlink escapes and export stripping.
+
+### Documentation
+- README, SECURITY, CONTRIBUTING, PLUGIN_API, the landing pages and the generated handbook now describe 1.3.0: separate libraries, Time Machine, portable export, quick switch, Revision Timeline, Skill Lab, the current plugin hooks and the actual secret/export boundaries.
+
 ## [1.2.5] — 2026-11-02
 
 > The “quiet studio” patch: the app opens on Home, tools stop pushing the answer
@@ -204,7 +230,9 @@ Initial public release. A local-first AI chat and story-writing studio for Windo
 - Markdown rendering during streaming is throttled to animation frames.
 - Database persistence debounced to 1200 ms; DevTools no longer open automatically in development (opt-in with `OPENPLOT_DEVTOOLS=1`).
 
-[Unreleased]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.2.3...HEAD
+[Unreleased]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.2.5...HEAD
+[1.3.0]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.2.5...v1.3.0
+[1.2.5]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.2.3...v1.2.5
 [1.2.3]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.2.1...v1.2.3
 [1.2.1]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/mahakammoonlightstudio-beep/OpenPlot-AI/compare/v1.1.1...v1.2.0
