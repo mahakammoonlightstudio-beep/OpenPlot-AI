@@ -339,7 +339,7 @@ const PROBE = `(() => {
     await sleep(250);
   };
   await run('pages', async () => {
-    // Home is the landing screen in v1.2.5 — capture it before any chat opens.
+    // Home is the landing screen — capture it before any chat opens.
     await nav('home');     await audit('home', '14-home.png');
     await nav('chat');     await openPanels(); await audit('chat', '01-chat.png');
     await nav('story');    await audit('story bible', '02-story.png');

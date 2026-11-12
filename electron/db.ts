@@ -466,7 +466,7 @@ const MIGRATIONS: { version: number; run: () => void }[] = [
   {
     version: 6,
     run() {
-      // Reply variants (v1.2.5). Resending or regenerating used to DELETE the
+      // Reply variants. Resending or regenerating used to DELETE the
       // previous answer, so there was nothing to compare or go back to. An
       // assistant row now points at the user turn it answers; rows sharing that
       // parent are the variants the transcript can flip through.
@@ -488,7 +488,7 @@ const MIGRATIONS: { version: number; run: () => void }[] = [
   {
     version: 7,
     run() {
-      // Chat modes + on-demand skills (v1.2.5). Agent mode and the three chat
+      // Chat modes + on-demand skills. Agent mode and the three chat
       // modes belong to the chat, and a skill is activated per chat with
       // /skill/<name> instead of being globally on.
       addColumn('chats', 'skills_on', "TEXT DEFAULT '[]'");

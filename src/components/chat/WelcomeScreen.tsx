@@ -12,7 +12,7 @@ import { greetingFor, openingFor } from '../../lib/greetings';
  * cards are pure presentation, and everything that changes data arrives as a
  * callback so the view keeps ownership of chat creation.
  *
- * v1.2.5: it is also the Home screen. A greeting follows the clock, the short
+ * It is also the Home screen. A greeting follows the clock, the short
  * opener rotates, and a one-minute tick refreshes relative times and the health
  * strip in place — no reload, no visible restart.
  */

@@ -1,10 +1,10 @@
 /**
- * Progress screenshots for v1.2.5 (ASCII only).
+ * Progress screenshots for v1.3.0 (ASCII only).
  *
  * Boots the real app (vite + electron, isolated APPDATA), seeds a realistic
  * "Harbor Lights" demo workspace through the same mock OpenAI provider the
- * visual-review harness uses, then captures the curated 1.2.5 highlights into
- * preview-1.2.5/ as PNG.
+ * visual-review harness uses, then captures the curated 1.3.0 highlights into
+ * preview-1.3.0/ as PNG.
  *
  * Deliberately NON-destructive: unlike visual-review.mjs this script
  * NEVER runs taskkill on electron.exe /IM — if a dev session is open it must
@@ -23,7 +23,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const electronExe = require('electron');
 const PROJ = path.resolve(import.meta.dirname, '..');
-const OUT = path.join(PROJ, 'preview-1.2.5');
+const OUT = path.join(PROJ, 'preview-1.3.0');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function waitUntil(fn, timeoutMs, label) {
@@ -285,7 +285,7 @@ const setReactArea = `(function(el,val){var p=Object.getOwnPropertyDescriptor(wi
   await wake();
   await waitUntil(() => cdp.evalJS("!!document.querySelector('.comp-box textarea')"), 15000, 'composer after chat open');
 
-  // ---------- 1. Home (new landing screen in 1.2.5) ----------
+  // ---------- 1. Home (landing screen) ----------
   await nav('home');
   await shot('home', '01-home.png', '.welcome-card');
 
@@ -311,7 +311,7 @@ const setReactArea = `(function(el,val){var p=Object.getOwnPropertyDescriptor(wi
   await waitUntil(() => cdp.evalJS("!!document.querySelector('.tl-body')"), 5000, 'tool log open');
   await shot('tool log', '03-tool-log.png', '.tl-body');
 
-  // ---------- 4. Composer: Agent OFF + Web ON (the 1.2.5 decoupling) ----------
+  // ---------- 4. Composer: Agent OFF + Web ON (independent Web switch) ----------
   await cdp.evalJS("(function(){var b=document.querySelector('.agent-toggle');if(b)b.click();return !!b;})()");
   await sleep(300);
   await cdp.evalJS("(function(){var b=document.querySelector('.web-toggle');if(b)b.click();return !!b;})()");

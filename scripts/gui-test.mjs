@@ -651,7 +651,7 @@ async function prewarmVite(base) {
     await sleep(800);
     const content = await cdp.evalJS("[...document.querySelectorAll('.msg.assistant .content')].map(e=>e.textContent).join('|')");
     check('final streamed text correct', content.includes('Streaming works in the real GUI!'), content);
-    // v1.2.5 renders tool calls as one collapsible panel instead of inline
+    // The UI renders tool calls as one collapsible panel instead of inline
     // chips: open it and read its rows.
     await cdp.evalJS("(function(){var b=document.querySelector('.tool-log .tl-head');if(b&&b.getAttribute('aria-expanded')!=='true')b.click();return true;})()");
     // The panel shows the SUBJECT of each call ("Memory", "Chapter 1") rather

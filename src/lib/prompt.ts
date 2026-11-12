@@ -92,7 +92,7 @@ const RATING_LABELS: Record<string, string> = {
 const TOOL_NAMES = 'set_mode, list_skills, use_skill, drop_skill, create_project, save_memory, list_memories, create_story_entry, update_story_entry, search_story, read_story_bible, read_story_file, create_chapter, update_chapter, append_to_chapter, list_chapters, read_chapter, list_projects, read_project, search_text_dump, restore_text_dump, web_search, web_fetch';
 
 /**
- * Mode blocks (v1.2.5). Written short, numbered and imperative so weak models
+ * Mode blocks. Written short, numbered and imperative so weak models
  * follow them as reliably as strong ones: no negative-only rules, no jargon,
  * and every mode says what to produce and when to stop.
  */
@@ -137,7 +137,7 @@ const MODE_BLOCKS: Record<ChatMode, string> = {
 };
 
 /**
- * Agent protocol (v1.2.5). Deliberately model-agnostic: it names the loop, the
+ * Agent protocol. Deliberately model-agnostic: it names the loop, the
  * single-call rule, and the two failure modes users actually hit — invented
  * arguments and cut-off replies.
  */

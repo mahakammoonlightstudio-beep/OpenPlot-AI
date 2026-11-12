@@ -151,7 +151,7 @@ export const MessageBubble = memo(function MessageBubble({ msg, fresh, variant, 
   }, [html]);
   const isUser = msg.role === 'user';
   const toolsUsed: string[] = (msg as any).toolsUsed || [];
-  // Persisted detail (v1.2.5): a reopened chat shows what each call did, not
+  // Persisted detail: a reopened chat shows what each call did, not
   // just its name. Older rows simply have no steps.
   const toolSteps: ToolStep[] = (msg as any).toolSteps || [];
   const webSteps = toolSteps.filter((s) => s.kind === 'web');

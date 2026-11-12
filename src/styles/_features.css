@@ -848,7 +848,7 @@ button { transition: background 0.12s ease, border-color 0.12s ease, color 0.12s
   font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
 }
 
-/* ---- v1.2.5 chat modes: one sliding thumb, a distinct colour per mode ---- */
+/* ---- Chat modes: one sliding thumb, a distinct colour per mode ---- */
 .mode-seg {
   position: relative;
   display: inline-flex;
@@ -877,7 +877,7 @@ button { transition: background 0.12s ease, border-color 0.12s ease, color 0.12s
 .mode-btn { position: relative; z-index: 1; background: none; border: 0; color: var(--muted, #8b8b8b); transition: color .28s ease; }
 .mode-btn.on { color: #fff; }
 
-/* ---- v1.2.5 thinking levels: colour shifts, never a layout shift ---- */
+/* ---- Thinking levels: colour shifts, never a layout shift ---- */
 .think-btn { transition: background-color .45s ease, color .45s ease, border-color .45s ease, box-shadow .45s ease; }
 .think-btn.lvl-off { color: var(--muted, #8b8b8b); }
 .think-btn.lvl-low { background: rgba(56, 189, 248, .16); border-color: rgba(56, 189, 248, .4); color: #0ea5e9; }
@@ -896,7 +896,7 @@ button { transition: background 0.12s ease, border-color 0.12s ease, color 0.12s
   .think-btn.lvl-max { animation: none; }
 }
 
-/* ---- v1.2.5 story bible progress strip ---- */
+/* ---- Story bible progress strip ---- */
 .story-progress {
   margin: 10px 0 12px;
   padding: 10px 12px;

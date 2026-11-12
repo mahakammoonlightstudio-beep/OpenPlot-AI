@@ -212,7 +212,7 @@ check('model card shows the four capability rows', /caps-card/.test(views.modelC
   && /Max output/.test(views.modelCapCardUnknown || '')
   && /Reasoning/.test(views.modelCapCardUnknown || '')
   && /Prompt cache/.test(views.modelCapCardUnknown || ''));
-// v1.2.5: the card fills a known family INSTANTLY instead of making the user
+// The card fills a known family INSTANTLY instead of making the user
 // wait for a probe — but the number must carry the estimate marker (`≈`), while
 // `~` stays reserved for measured values.
 check('model card fills a known family instantly and marks it as an estimate',

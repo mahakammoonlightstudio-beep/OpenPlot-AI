@@ -425,7 +425,7 @@ export const useData = create<DataState>((set, get) => ({
   mcpServers: [],
   activeChatId: savedPosition.activeChatId,
   activeProjectId: savedPosition.activeProjectId,
-  // v1.2.5: the app opens on Home instead of dropping you back into whatever
+  // The app opens on Home instead of dropping you back into whatever
   // chat was open last time. Every other saved route is still restored; only a
   // saved `chat` route is redirected, so closing the app mid-chat is fine.
   route: savedPosition.route && savedPosition.route !== 'chat' ? savedPosition.route : 'home',
@@ -505,7 +505,7 @@ export const useData = create<DataState>((set, get) => ({
       console.error('reload failed', e);
     }
   },
-  // Opening a chat always means looking at it. Since v1.2.5 the app can sit on
+  // Opening a chat always means looking at it. The app can sit on
   // Home with a chat selected, so a bare setActiveChat (test harnesses, palette,
   // automations) used to change the id while the screen stayed on Home.
   setActiveChat(id) {

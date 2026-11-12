@@ -111,7 +111,7 @@ export function buildTranscript(
   }
 
   // Replies per prompt version. A row without parent_id falls back to the
-  // nearest prompt before it (pre-v1.2.5 rows, imports, plugins).
+  // nearest prompt before it (legacy rows, imports, plugins).
   const aiGroups = new Map<string, Message[]>();
   const owner = new Map<string, string>();
   let turn: string | null = null;

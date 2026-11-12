@@ -5,7 +5,7 @@ import { Icon } from '../Icons';
 import type { TrustEntry } from '../../types';
 
 /**
- * Stored execution approvals (v1.2.5).
+ * Stored execution approvals.
  *
  * A plugin or MCP server runs only after the user confirmed that exact code.
  * This list is the way back: every remembered approval is visible, and

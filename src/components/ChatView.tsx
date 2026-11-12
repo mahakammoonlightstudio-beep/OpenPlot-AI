@@ -119,7 +119,7 @@ export function ChatView({ workspace = 'chat' }: { workspace?: 'chat' | 'agent' 
   // whatever the reader pulled in, and never the whole 5,000-message chat.
   const [hasOlder, setHasOlder] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  // ---- reply variants (v1.2.5) ------------------------------------------
+  // ---- reply variants ----------------------------------------------------
   // Assistant rows that answer the same user turn are variants of that turn.
   // Resend/regenerate no longer deletes the previous answer, so the bubble can
   // flip through them with "‹ 1/2 ›" instead of losing it forever.

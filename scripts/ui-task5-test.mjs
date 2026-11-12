@@ -392,7 +392,7 @@ const setReactArea = `(function(el,val){var p=Object.getOwnPropertyDescriptor(wi
       check('regenerate button is labelled', !!regen, JSON.stringify(regen));
       check('regenerate label matches its tooltip', regen?.label === regen?.title, JSON.stringify(regen));
 
-      // v1.2.5 keeps the bar faintly visible on purpose (the variant arrows
+      // The bar stays faintly visible on purpose (the variant arrows
       // are navigation, not a secret) and only brightens it on hover/focus,
       // so "quiet" means clearly dimmed rather than fully transparent.
       const opacityBefore = Number(await cdp.evalJS(`getComputedStyle(document.querySelector('.msg.assistant .actions')).opacity`));
@@ -425,7 +425,7 @@ const setReactArea = `(function(el,val){var p=Object.getOwnPropertyDescriptor(wi
       })`);
       check('one bubble per turn — the old reply is hidden, not appended', shape.users === 1 && shape.assistants === 1, JSON.stringify(shape));
       check('regenerated text is the fresh answer', shape.text.includes('GUI reply two'), shape.text);
-      // v1.2.5: the previous answer is kept as a variant instead of deleted.
+      // The previous answer is kept as a variant instead of deleted.
       check('variant arrows appear after regenerating', shape.nav === '2/2', shape.nav);
 
       await cdp.evalJS(`document.querySelector('.msg.assistant .variant-nav .vn-btn')?.click()`);
