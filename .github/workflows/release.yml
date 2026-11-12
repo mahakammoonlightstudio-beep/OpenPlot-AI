@@ -128,6 +128,14 @@ jobs:
           shopt -s nullglob
           for appimage in release/*.AppImage; do
             name="$(basename "$appimage")"
+            # GitHub Releases turns spaces into dots in asset names. Normalize
+            # first so the URL and Filename inside the .zsync match the asset.
+            safe="${name// /.}"
+            if [[ "$name" != "$safe" ]]; then
+              mv "$appimage" "$(dirname "$appimage")/$safe"
+              appimage="$(dirname "$appimage")/$safe"
+              name="$safe"
+            fi
             if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
               url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${name}"
             else
