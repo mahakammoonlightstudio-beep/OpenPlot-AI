@@ -2,7 +2,7 @@
 
 All notable changes to OpenPlot AI are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.3.0] — unreleased
+## [1.3.0] — 2026-11-12
 
 ### Added
 - **Separate libraries, with a universal legacy path.** Settings → Data lists every SQLite database in the profile, shows its schema and size, and switches with a restart. A new library starts empty; Import copies a `.db` without touching the source. Every older schema is migrated on first open with a `.v<n>.bak` backup, while a database from a newer app is refused instead of being modified.
