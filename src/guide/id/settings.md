@@ -10,7 +10,7 @@ Pengaturan dikelompokkan berdasarkan tujuanmu, bukan model data:
 
 - **AI** — provider, model, perilaku.
 - **Chat** — gaya, skill, agent.md.
-- **Tampilan** — tema, aksen, ukuran font, bahasa.
+- **Tampilan** — tema (ikut sistem secara bawaan), aksen, ukuran font, bahasa.
 - **Data** — library, snapshot Time Machine, memori, penggunaan, backup, dan reset.
 - **Ekstensi** — plugin, automasi, MCP *(mode lanjutan)*.
 - **Tentang** — versi, lokasi data, vault kredensial, panduan.

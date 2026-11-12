@@ -111,6 +111,7 @@ async function connectCdp(port) {
   // Page domain must be enabled or Page.captureScreenshot never replies.
   await send('Page.enable').catch(() => {});
   return {
+    send,
     async evalJS(expr) {
       const r = await withTimeout(
         send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true, userGesture: true }),
@@ -234,6 +235,11 @@ const PROBE = `(() => {
   await waitUntil(async () => { try { return (await fetch('http://127.0.0.1:' + cdpPort + '/json/list')).ok; } catch { return false; } }, 60000, 'CDP endpoint');
   const cdp = await connectCdp(cdpPort);
   console.log('CDP connected\n');
+  // Make the review deterministic: a light OS is the common default for new
+  // users, and the catalog asks for a light first impression.
+  await cdp.send('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-color-scheme', value: 'light' }]
+  });
 
   const run = async (label, fn) => {
     console.log('[' + label + ']');
@@ -258,6 +264,8 @@ const PROBE = `(() => {
     // settings report a version, otherwise the stamp is '' and the modal opens
     // again the moment load() finishes.
     await waitUntil(() => cdp.evalJS("!!window.useSettings.getState().version"), 30000, 'settings loaded');
+    check('theme: default follows a light system preference',
+      (await cdp.evalJS("document.documentElement.getAttribute('data-theme')")) === 'light-paper');
     await cdp.evalJS("window.useSettings.getState().set('lastSeenVersion', window.useSettings.getState().version)");
     await cdp.evalJS("window.useData.getState().navigate('home')");
     await waitUntil(() => cdp.evalJS("!!document.querySelector('.welcome-card')"), 30000, 'home cards');

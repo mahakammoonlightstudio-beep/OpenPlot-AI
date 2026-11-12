@@ -2,6 +2,16 @@ import type { CSSProperties } from 'react';
 
 export type UiFontChoice = 'system' | 'serif' | 'rounded' | 'mono' | 'custom';
 
+/** The default theme follows the OS; explicit choices always win. */
+export const SYSTEM_THEME = 'system';
+export const LIGHT_THEME = 'light-paper';
+export const DARK_THEME = 'dark-classic';
+
+export function resolveTheme(theme: string, prefersDark: boolean): string {
+  if (theme !== SYSTEM_THEME) return theme || SYSTEM_THEME;
+  return prefersDark ? DARK_THEME : LIGHT_THEME;
+}
+
 /**
  * Named stacks keep the appearance picker useful without allowing arbitrary
  * CSS into the document. "Custom" is still a font-family list, never a rule.

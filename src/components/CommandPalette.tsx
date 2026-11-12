@@ -118,7 +118,7 @@ export function CommandPalette() {
       }
     }
     base.push({ id: 'cycle-theme', group: 'actions', label: t('palette.cycleTheme'), icon: 'settings', run: () => {
-      const order = ['dark-classic', 'midnight-ink', 'nord', 'dracula', 'solarized', 'forest', 'rose-dawn', 'ocean', 'sepia', 'light-paper'];
+      const order = ['system', 'dark-classic', 'midnight-ink', 'nord', 'dracula', 'solarized', 'forest', 'rose-dawn', 'ocean', 'gruvbox', 'catppuccin', 'sepia', 'sandstone', 'light-paper'];
       const next = order[(order.indexOf(settings.theme) + 1) % order.length];
       useSettings.getState().set('theme', next);
       ui.toast(`${t('palette.cycleTheme')}: ${next}`, 'ok');

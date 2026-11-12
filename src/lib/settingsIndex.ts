@@ -130,7 +130,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
  */
 export const SECTION_DEFAULTS: Partial<Record<SettingsSection, Record<string, unknown>>> = {
   appearance: {
-    theme: 'dark-classic', accent: '#7c5cff', chatFontSize: 14,
+    theme: 'system', accent: '#7c5cff', chatFontSize: 14,
     uiFont: 'system', uiFontCustom: '', uiScale: 1, uiDensity: 'comfortable', uiRadius: 10
   },
   behavior: {

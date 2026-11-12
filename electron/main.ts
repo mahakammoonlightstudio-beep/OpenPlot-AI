@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Menu, safeStorage } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu, safeStorage, nativeTheme } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as zlib from 'zlib';
@@ -300,7 +300,9 @@ function createWindow(): void {
     height: 880,
     minWidth: 940,
     minHeight: 600,
-    backgroundColor: '#0b0d12',
+    // Match the OS while the renderer boots; the stored theme takes over once
+    // the app resolves "system".
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0b0d12' : '#f6f5f1',
     title: 'OpenPlot AI',
     show: false,
     ...(iconPath ? { icon: iconPath } : {}),
@@ -1383,7 +1385,8 @@ function showStartupError(err: unknown): void {
 </main></body></html>`;
   startupErrorWin = new BrowserWindow({
     width: 760, height: 560, minWidth: 520, minHeight: 380,
-    title: 'OpenPlot AI could not start', backgroundColor: '#0b0d12',
+    title: 'OpenPlot AI could not start',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0b0d12' : '#f6f5f1',
     show: true, autoHideMenuBar: true,
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false }
   });

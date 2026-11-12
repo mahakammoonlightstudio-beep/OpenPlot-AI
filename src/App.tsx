@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { useData, useSettings, useUi, runAutomations, dbCall, createChatUi, clearToastTimers, createProjectUi } from './store';
+import { resolveTheme } from './lib/appearance';
 import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
 // Route-level code splitting (Task 11): Chat and the sidebar are on the startup
@@ -63,13 +64,20 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
-  // apply theme + accent + language
+  // apply theme + accent + language. The default theme is "system": resolve it
+  // now and follow the OS preference live, while an explicit theme wins.
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', settings.theme);
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
+    const applyTheme = () => {
+      document.documentElement.setAttribute('data-theme', resolveTheme(settings.theme, !!media?.matches));
+    };
+    applyTheme();
+    media?.addEventListener?.('change', applyTheme);
     document.documentElement.style.setProperty('--accent', settings.accent);
     const rgb = hexToRgb(settings.accent);
     document.documentElement.style.setProperty('--accent-soft', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.16)`);
     document.documentElement.lang = htmlLang(settings.lang);
+    return () => media?.removeEventListener?.('change', applyTheme);
   }, [settings.theme, settings.accent, settings.lang]);
 
   // Custom appearance (v1.3.0): font stack + radius are CSS variables; density

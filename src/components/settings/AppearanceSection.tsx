@@ -5,6 +5,7 @@ import { UI_FONTS, sanitizeFontFamily, uiFontStack } from '../../lib/appearance'
 
 // ---------------- Appearance ----------------
 const THEMES = [
+  { id: 'system', name: 'System', md: 'Auto', sw: ['#0c0f16', '#f6f5f1', '#7c5cff'] },
   { id: 'dark-classic', name: 'Dark Classic', md: 'Dark', sw: ['#0b0d12', '#171b26', '#7c5cff'] },
   { id: 'midnight-ink', name: 'Midnight Ink', md: 'Dark', sw: ['#07090f', '#111522', '#7c5cff'] },
   { id: 'nord', name: 'Nord', md: 'Dark', sw: ['#2e3440', '#434c5e', '#88c0d0'] },

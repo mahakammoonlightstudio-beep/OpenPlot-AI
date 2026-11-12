@@ -108,7 +108,7 @@ check('search: results are capped', limit.length <= 12, String(limit.length));
 const resetSections = Object.keys(SECTION_DEFAULTS);
 check('reset: every reset target is a real section', resetSections.every((s) => valid.has(s)), resetSections.join(','));
 check('reset: appearance restores theme, accent and font',
-  SECTION_DEFAULTS.appearance?.theme === 'dark-classic'
+  SECTION_DEFAULTS.appearance?.theme === 'system'
   && SECTION_DEFAULTS.appearance?.accent === '#7c5cff'
   && SECTION_DEFAULTS.appearance?.chatFontSize === 14);
 check('reset: models clears the default ref and overrides',

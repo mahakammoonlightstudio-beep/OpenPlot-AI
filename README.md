@@ -78,7 +78,7 @@ _Captured from a demo workspace using a local mock provider._
     </td>
     <td width="50%">
       <img src="docs/showcase/11-theme-light-paper.png" alt="The light-paper theme" />
-      <sub><b>Thirteen themes, ten accents.</b> From dark classic to light paper, in English or Bahasa Indonesia.</sub>
+      <sub><b>Light or dark, your call.</b> Follows your system by default, with 14 themes and 10 accents in English or Bahasa Indonesia.</sub>
     </td>
   </tr>
 </table>
@@ -107,8 +107,9 @@ _Captured from a demo workspace using a local mock provider._
 - **Skill Lab.** Categories for Chat, Agent and Writing desks, a full
   instruction inspector, a live preview of the prompt block, a 12,000-character
   budget, and duplicate/overlap/tension warnings.
-- **Appearance controls.** Font stack, whole-UI zoom, comfortable/compact
-  density and corner radius — applied immediately and stored locally.
+- **Appearance controls.** Follows your system light/dark preference by
+  default, plus a font stack, whole-UI zoom, comfortable/compact density and
+  corner radius — applied immediately and stored locally.
 
 [Full changelog →](CHANGELOG.md)
 

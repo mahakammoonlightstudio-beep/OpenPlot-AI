@@ -245,17 +245,24 @@ const storyHelperFile = path.join(outDir, 'story-data.cjs');
 const positionFile = path.join(outDir, 'ui-position.cjs');
 const chatFilesHelperFile = path.join(outDir, 'chat-files.cjs');
 const settingsIndexFile = path.join(outDir, 'settings-index.cjs');
+const appearanceFile = path.join(outDir, 'appearance.cjs');
 let helperError = '';
 try {
   await bundleHelper('src/lib/storyData.ts', storyHelperFile);
   await bundleHelper('src/lib/uiPosition.ts', positionFile);
   await bundleHelper('src/lib/chatFiles.ts', chatFilesHelperFile);
   await bundleHelper('src/lib/settingsIndex.ts', settingsIndexFile);
+  await bundleHelper('src/lib/appearance.ts', appearanceFile);
 } catch (e) {
   helperError = String(e?.message || e);
 }
 check('pure helper modules bundle', !helperError, helperError);
 if (!helperError) {
+  const { resolveTheme } = require(appearanceFile);
+  check('theme: system follows the OS preference',
+    resolveTheme('system', false) === 'light-paper' && resolveTheme('system', true) === 'dark-classic');
+  check('theme: an explicit choice is never overridden',
+    resolveTheme('nord', false) === 'nord' && resolveTheme('sepia', true) === 'sepia');
   const { toStoryArray } = require(storyHelperFile);
   const json = (v) => JSON.stringify(v);
   check('story tags: JSON array parses', json(toStoryArray('["a","b"]')) === '["a","b"]');

@@ -244,7 +244,7 @@ const strOr = (v: any, fb: string): string => (typeof v === 'string' ? v : fb);
 // Persisted settings keys and their sanitizers. Unknown keys in the settings
 // table are ignored so old/experimental rows can never poison the store shape.
 const SETTING_SANITIZERS: Record<string, (v: any) => any> = {
-  theme: (v) => strOr(v, 'dark-classic'),
+  theme: (v) => strOr(v, 'system'),
   accent: (v) => strOr(v, '#7c5cff'),
   lang: (v) => (isLang(v) ? v : 'en'),
   chatFontSize: (v) => clampNum(v, 14, 12, 20),
@@ -290,7 +290,7 @@ const SETTING_SANITIZERS: Record<string, (v: any) => any> = {
 export const useSettings = create<SettingsState>((set, get) => ({
   loaded: false,
   version: '',
-  theme: 'dark-classic',
+  theme: 'system',
   accent: '#7c5cff',
   lang: 'en',
   chatFontSize: 14,

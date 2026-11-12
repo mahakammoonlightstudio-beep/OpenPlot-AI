@@ -10,7 +10,7 @@ Settings is grouped by what you are trying to do, not by data model:
 
 - **AI** — providers, models, behaviour.
 - **Chat** — styles, skills, agent.md.
-- **Appearance** — theme, accent, font size, language.
+- **Appearance** — theme (follows your system by default), accent, font size, language.
 - **Data** — libraries, Time Machine snapshots, memory, usage, backup and reset.
 - **Extend** — plugins, automations, MCP *(advanced mode)*.
 - **About** — version, data path, credential vault, guide.
